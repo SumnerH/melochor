@@ -122,31 +122,77 @@ layout (location = 1) in vec4 aColor;
 layout (location = 2) in float aSize;
 
 out vec4 vColor;
+out float vRand;
 
 uniform mat4 projection;
 uniform mat4 view;
 
+// High quality GPU hash function to generate a stable random seed [0, 1] per particle
+float hash3(vec3 p) {
+    return fract(sin(dot(p, vec3(12.9898, 78.233, 45.164))) * 43758.5453123);
+}
+
 void main() {
     vColor = aColor;
+    vRand = hash3(aPos);
+    
     vec4 mvPos = view * vec4(aPos, 1.0);
     gl_Position = projection * mvPos;
     float dist = max(0.1, -mvPos.z);
-    gl_PointSize = aSize * (35.0 / dist);
+    // Slightly scale up to compensate for organic star profile bounds
+    gl_PointSize = aSize * (42.0 / dist);
 }
 """
 
 PARTICLE_FRAGMENT_SHADER = """#version 300 es
 precision mediump float;
 in vec4 vColor;
+in float vRand;
 out vec4 FragColor;
+
+// Simple 2D hash for micro-turbulent edge burning noise
+float hash2(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+}
+
 void main() {
     vec2 coord = gl_PointCoord - vec2(0.5);
-    float r2 = dot(coord, coord);
-    if (r2 > 0.25) {
+    float r = length(coord);
+    if (r > 0.5) {
         discard;
     }
-    float alpha = (1.0 - r2 * 4.0) * vColor.a;
-    FragColor = vec4(vColor.rgb, alpha);
+    
+    // Convert to polar coordinates
+    float theta = atan(coord.y, coord.x);
+    
+    // 1. Multi-pointed organic flare shape
+    float spikes = 4.0 + floor(vRand * 4.0); // Randomly 4, 5, 6, or 7 pointed spark
+    float rotation = vRand * 6.28318;        // Random rotation
+    
+    float flare1 = cos(theta * spikes + rotation);
+    float flare2 = sin(theta * (spikes + 2.0) - rotation * 1.5);
+    float flare_profile = 0.35 + 0.15 * flare1 + 0.05 * flare2;
+    
+    // High-frequency turbulent edge noise
+    float edge_noise = hash2(coord * (10.0 + vRand * 50.0)) * 0.07;
+    float max_r = flare_profile - edge_noise;
+    
+    if (r > max_r) {
+        discard;
+    }
+    
+    // 2. Compute bright white core intensity (highest at center)
+    float t = r / max_r;
+    float core = pow(1.0 - t, 4.0);
+    
+    // Main alpha falloff
+    float alpha = pow(1.0 - t, 1.5) * vColor.a;
+    
+    // Blend chemical color with incandescent white-hot core
+    vec3 spark_color = mix(vColor.rgb, vec3(1.0, 1.0, 0.95), core * 0.85);
+    spark_color += vec3(core * 0.40); // extra bright glow boost
+    
+    FragColor = vec4(spark_color, alpha);
 }
 """
 
