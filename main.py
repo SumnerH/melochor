@@ -225,7 +225,7 @@ def create_program(vertex_source, fragment_source):
 
 class Firework:
     def __init__(self, fw_type=None, color=None, x_offset=None):
-        self.type = random.randint(0, 3) if fw_type is None else fw_type
+        self.type = random.randint(0, 7) if fw_type is None else fw_type
         self.color = random.choice(COLOR_LIST) if color is None else color
         self.secondary_color = random.choice(COLOR_LIST)
         
@@ -276,11 +276,33 @@ class Firework:
             if random.random() < 0.7:
                 self.color = COLORS["sodium_gold"]
                 self.secondary_color = COLORS["calcium_orange"]
-        else:  # Ghost Ring
+        elif self.type == 3:  # Ghost Ring
             num_particles = random.randint(400, 500)
             self.drag = 1.3
             self.history_len = 4
             min_life, max_life = 1.2, 1.7
+        elif self.type == 4:  # Pistil / Double Shell
+            num_particles = random.randint(700, 900)
+            self.drag = 1.3
+            self.history_len = 5
+            min_life, max_life = 1.3, 1.9
+        elif self.type == 5:  # Waterfall / Horsetail
+            num_particles = random.randint(350, 500)
+            self.drag = 0.35
+            self.history_len = 12
+            min_life, max_life = 2.8, 3.8
+            self.color = COLORS["sodium_gold"] if random.random() < 0.8 else COLORS["strontium_red"]
+            self.secondary_color = COLORS["calcium_orange"]
+        elif self.type == 6:  # Swarm / Bees / Fish
+            num_particles = random.randint(180, 260)
+            self.drag = 0.4
+            self.history_len = 8
+            min_life, max_life = 1.8, 2.5
+        else:  # Type 7: Saturn Ring (Sphere + Outer Ring)
+            num_particles = random.randint(700, 900)
+            self.drag = 1.2
+            self.history_len = 5
+            min_life, max_life = 1.4, 2.0
 
         self.positions = np.zeros((num_particles, 3), dtype=np.float32)
         self.positions[:] = self.launch_pos
@@ -306,6 +328,108 @@ class Firework:
             RotY = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]], dtype=np.float32)
             R = RotX @ RotY
             self.velocities = local_vel @ R.T
+            
+            self.colors[:, 0] = np.clip(self.color[0] + np.random.uniform(-0.1, 0.1, num_particles), 0.0, 1.0)
+            self.colors[:, 1] = np.clip(self.color[1] + np.random.uniform(-0.1, 0.1, num_particles), 0.0, 1.0)
+            self.colors[:, 2] = np.clip(self.color[2] + np.random.uniform(-0.1, 0.1, num_particles), 0.0, 1.0)
+            self.colors[:, 3] = 1.0
+            
+        elif self.type == 4:  # Pistil / Double Shell
+            half = num_particles // 2
+            # Outer shell spherical (faster)
+            theta_o = np.random.uniform(0, 2 * np.pi, half)
+            phi_o = np.arccos(np.random.uniform(-1, 1, half))
+            speed_o = np.random.uniform(7.5, 9.5, half)
+            
+            self.velocities[:half, 0] = speed_o * np.sin(phi_o) * np.cos(theta_o)
+            self.velocities[:half, 1] = speed_o * np.sin(phi_o) * np.sin(theta_o)
+            self.velocities[:half, 2] = speed_o * np.cos(phi_o)
+            
+            self.colors[:half, 0] = np.clip(self.color[0] + np.random.uniform(-0.08, 0.08, half), 0.0, 1.0)
+            self.colors[:half, 1] = np.clip(self.color[1] + np.random.uniform(-0.08, 0.08, half), 0.0, 1.0)
+            self.colors[:half, 2] = np.clip(self.color[2] + np.random.uniform(-0.08, 0.08, half), 0.0, 1.0)
+            
+            # Inner shell spherical (slower)
+            theta_i = np.random.uniform(0, 2 * np.pi, num_particles - half)
+            phi_i = np.arccos(np.random.uniform(-1, 1, num_particles - half))
+            speed_i = np.random.uniform(3.5, 4.5, num_particles - half)
+            
+            self.velocities[half:, 0] = speed_i * np.sin(phi_i) * np.cos(theta_i)
+            self.velocities[half:, 1] = speed_i * np.sin(phi_i) * np.sin(theta_i)
+            self.velocities[half:, 2] = speed_i * np.cos(phi_i)
+            
+            self.colors[half:, 0] = np.clip(self.secondary_color[0] + np.random.uniform(-0.08, 0.08, num_particles - half), 0.0, 1.0)
+            self.colors[half:, 1] = np.clip(self.secondary_color[1] + np.random.uniform(-0.08, 0.08, num_particles - half), 0.0, 1.0)
+            self.colors[half:, 2] = np.clip(self.secondary_color[2] + np.random.uniform(-0.08, 0.08, num_particles - half), 0.0, 1.0)
+            self.colors[:, 3] = 1.0
+            
+        elif self.type == 5:  # Waterfall / Horsetail
+            theta = np.random.uniform(0, 2 * np.pi, num_particles)
+            phi = np.arccos(np.random.uniform(-0.1, 0.4, num_particles))
+            speed = np.random.uniform(1.5, 4.0, num_particles)
+            
+            self.velocities[:, 0] = speed * np.sin(phi) * np.cos(theta) * 0.4
+            self.velocities[:, 1] = speed * np.sin(phi) * np.sin(theta) + np.random.uniform(2.0, 4.0, num_particles)
+            self.velocities[:, 2] = speed * np.cos(phi) * 0.4
+            
+            self.colors[:, 0] = np.clip(self.color[0] + np.random.uniform(-0.05, 0.05, num_particles), 0.0, 1.0)
+            self.colors[:, 1] = np.clip(self.color[1] + np.random.uniform(-0.05, 0.05, num_particles), 0.0, 1.0)
+            self.colors[:, 2] = np.clip(self.color[2] + np.random.uniform(-0.05, 0.05, num_particles), 0.0, 1.0)
+            self.colors[:, 3] = 1.0
+            
+        elif self.type == 6:  # Bees / Swarm / Fish
+            theta = np.random.uniform(0, 2 * np.pi, num_particles)
+            phi = np.arccos(np.random.uniform(-1, 1, num_particles))
+            speed = np.random.uniform(3.0, 5.0, num_particles)
+            
+            self.velocities[:, 0] = speed * np.sin(phi) * np.cos(theta)
+            self.velocities[:, 1] = speed * np.sin(phi) * np.sin(theta)
+            self.velocities[:, 2] = speed * np.cos(phi)
+            
+            self.colors[:, 0] = np.clip(self.color[0] + np.random.uniform(-0.1, 0.1, num_particles), 0.0, 1.0)
+            self.colors[:, 1] = np.clip(self.color[1] + np.random.uniform(-0.1, 0.1, num_particles), 0.0, 1.0)
+            self.colors[:, 2] = np.clip(self.color[2] + np.random.uniform(-0.1, 0.1, num_particles), 0.0, 1.0)
+            self.colors[:, 3] = 1.0
+            
+        elif self.type == 7:  # Saturn Ring
+            sphere_pts = int(num_particles * 0.55)
+            ring_pts = num_particles - sphere_pts
+            
+            # Central sphere
+            theta_s = np.random.uniform(0, 2 * np.pi, sphere_pts)
+            phi_s = np.arccos(np.random.uniform(-1, 1, sphere_pts))
+            speed_s = np.random.uniform(4.5, 6.0, sphere_pts)
+            
+            self.velocities[:sphere_pts, 0] = speed_s * np.sin(phi_s) * np.cos(theta_s)
+            self.velocities[:sphere_pts, 1] = speed_s * np.sin(phi_s) * np.sin(theta_s)
+            self.velocities[:sphere_pts, 2] = speed_s * np.cos(phi_s)
+            
+            self.colors[:sphere_pts, 0] = np.clip(self.color[0] + np.random.uniform(-0.08, 0.08, sphere_pts), 0.0, 1.0)
+            self.colors[:sphere_pts, 1] = np.clip(self.color[1] + np.random.uniform(-0.08, 0.08, sphere_pts), 0.0, 1.0)
+            self.colors[:sphere_pts, 2] = np.clip(self.color[2] + np.random.uniform(-0.08, 0.08, sphere_pts), 0.0, 1.0)
+            
+            # Concentric ring
+            theta_r = np.random.uniform(0, 2 * np.pi, ring_pts)
+            speed_r = np.random.uniform(8.0, 10.0, ring_pts)
+            vx_r = speed_r * np.cos(theta_r)
+            vy_r = speed_r * np.sin(theta_r)
+            vz_r = np.random.uniform(-0.4, 0.4, ring_pts)
+            local_vel_r = np.stack([vx_r, vy_r, vz_r], axis=1)
+            
+            rx = np.random.uniform(0, 2 * np.pi)
+            ry = np.random.uniform(0, 2 * np.pi)
+            cx, sx = np.cos(rx), np.sin(rx)
+            cy, sy = np.cos(ry), np.sin(ry)
+            RotX = np.array([[1, 0, 0], [0, cx, -sx], [0, sx, cx]], dtype=np.float32)
+            RotY = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]], dtype=np.float32)
+            R = RotX @ RotY
+            self.velocities[sphere_pts:] = local_vel_r @ R.T
+            
+            self.colors[sphere_pts:, 0] = np.clip(self.secondary_color[0] + np.random.uniform(-0.08, 0.08, ring_pts), 0.0, 1.0)
+            self.colors[sphere_pts:, 1] = np.clip(self.secondary_color[1] + np.random.uniform(-0.08, 0.08, ring_pts), 0.0, 1.0)
+            self.colors[sphere_pts:, 2] = np.clip(self.secondary_color[2] + np.random.uniform(-0.08, 0.08, ring_pts), 0.0, 1.0)
+            self.colors[:, 3] = 1.0
+            
         else:  # Spherical breaks
             theta = np.random.uniform(0, 2 * np.pi, num_particles)
             phi = np.arccos(np.random.uniform(-1, 1, num_particles))
@@ -316,11 +440,11 @@ class Firework:
             self.velocities[:, 0] = speed * np.sin(phi) * np.cos(theta)
             self.velocities[:, 1] = speed * np.sin(phi) * np.sin(theta)
             self.velocities[:, 2] = speed * np.cos(phi)
-
-        self.colors[:, 0] = np.clip(self.color[0] + np.random.uniform(-0.1, 0.1, num_particles), 0.0, 1.0)
-        self.colors[:, 1] = np.clip(self.color[1] + np.random.uniform(-0.1, 0.1, num_particles), 0.0, 1.0)
-        self.colors[:, 2] = np.clip(self.color[2] + np.random.uniform(-0.1, 0.1, num_particles), 0.0, 1.0)
-        self.colors[:, 3] = 1.0
+            
+            self.colors[:, 0] = np.clip(self.color[0] + np.random.uniform(-0.1, 0.1, num_particles), 0.0, 1.0)
+            self.colors[:, 1] = np.clip(self.color[1] + np.random.uniform(-0.1, 0.1, num_particles), 0.0, 1.0)
+            self.colors[:, 2] = np.clip(self.color[2] + np.random.uniform(-0.1, 0.1, num_particles), 0.0, 1.0)
+            self.colors[:, 3] = 1.0
 
         self.history = np.zeros((self.history_len, num_particles, 3), dtype=np.float32)
         for h in range(self.history_len):
@@ -345,6 +469,11 @@ class Firework:
                 
         elif self.state == 'EXPLODE':
             self.positions += self.velocities * dt
+            
+            # Chaotic wiggling forces for swarming/bees type
+            if self.type == 6:
+                perturbation = np.random.uniform(-18.0, 18.0, (len(self.positions), 3)).astype(np.float32)
+                self.velocities += perturbation * dt
             
             g = 12.0 if self.type == 2 else 9.8
             self.velocities[:, 1] -= g * dt
