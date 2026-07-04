@@ -3,6 +3,9 @@ import time
 import random
 import ctypes
 import numpy as np
+import os
+import json
+import subprocess
 
 import gi
 gi.require_version('Gtk', '4.0')
@@ -236,12 +239,12 @@ class Firework:
         self.launch_pos = np.array([x_offset, -12.0, random.uniform(-6.0, 6.0)], dtype=np.float32)
         self.launch_vel = np.array([
             random.uniform(-2.0, 2.0),
-            random.uniform(22.0, 27.0),
+            random.uniform(21.0, 26.0),
             random.uniform(-2.0, 2.0)
         ], dtype=np.float32)
         
         self.launch_age = 0.0
-        self.launch_fuse = random.uniform(1.3, 1.6)
+        self.launch_fuse = random.uniform(1.25, 1.55)
         
         self.launch_trail = []
         self.launch_trail_max = 15
@@ -919,6 +922,9 @@ class Firework:
 class FireworksApp:
     def __init__(self):
         self.fireworks = []
+        self.routine_queue = []
+        self.active_routine_name = ""
+        self.routine_timer = 0.0
         
         self.camera_dist = 26.0
         self.camera_theta = 0.0
@@ -943,6 +949,19 @@ class FireworksApp:
         self.sky_program = None
         self.line_program = None
         self.particle_program = None
+
+        # Music Sync Playback State
+        self.music_playing = False
+        self.music_process = None
+        self.playback_start_time = 0.0
+        self.script_events = []
+        self.next_event_idx = 0
+        self.loaded_script_name = "None"
+        self.script_duration = 0.0
+        self.script_bpm = 120.0
+        self.script_total_events = 0
+        self.color_hints = []
+        self.saved_auto_launch = True
 
     def load_css(self):
         css_data = """
@@ -969,6 +988,13 @@ class FireworksApp:
             font-size: 10px;
             color: #c8dcff;
         }
+        .hud-routine {
+            font-family: 'Inter', 'Sans-Serif', sans-serif;
+            font-size: 11px;
+            font-weight: bold;
+            color: #ffa834;
+            margin-top: 3px;
+        }
         .hud-legend {
             background-color: rgba(10, 10, 25, 0.65);
             border: 1px solid rgba(130, 150, 180, 0.2);
@@ -986,6 +1012,13 @@ class FireworksApp:
             font-family: 'Inter', 'Monospace', monospace;
             font-size: 9px;
             color: #b4c8f0;
+        }
+        .hud-music-time {
+            font-family: 'Inter', 'Monospace', monospace;
+            font-size: 11px;
+            font-weight: bold;
+            color: #34c7f3;
+            margin-top: 2px;
         }
         """
         provider = Gtk.CssProvider()
@@ -1050,7 +1083,35 @@ class FireworksApp:
         self.part_lbl.set_halign(Gtk.Align.START)
         stats_box.append(self.part_lbl)
         
+        self.routine_lbl = Gtk.Label(label="Routine: None")
+        self.routine_lbl.add_css_class("hud-routine")
+        self.routine_lbl.set_halign(Gtk.Align.START)
+        stats_box.append(self.routine_lbl)
+        
         hud_box.append(stats_box)
+
+        # Beautiful Music Sync Panel
+        music_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        music_box.set_margin_top(15)
+        music_box.set_halign(Gtk.Align.START)
+        
+        music_hdr = Gtk.Label(label="MUSIC SYNCHRONIZER:")
+        music_hdr.add_css_class("hud-legend-title")
+        music_hdr.set_halign(Gtk.Align.START)
+        music_box.append(music_hdr)
+        
+        self.music_track_lbl = Gtk.Label(label="Track: None")
+        self.music_track_lbl.add_css_class("hud-stats")
+        self.music_track_lbl.set_halign(Gtk.Align.START)
+        music_box.append(self.music_track_lbl)
+        
+        self.music_time_lbl = Gtk.Label(label="Time: 00:00 / 00:00")
+        self.music_time_lbl.add_css_class("hud-music-time")
+        self.music_time_lbl.set_halign(Gtk.Align.START)
+        music_box.append(self.music_time_lbl)
+        
+        hud_box.append(music_box)
+
         overlay.add_overlay(hud_box)
         
         legend_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
@@ -1077,6 +1138,10 @@ class FireworksApp:
         self.lbl_auto_rotate.set_halign(Gtk.Align.START)
         legend_box.append(self.lbl_auto_rotate)
         
+        self.lbl_music = Gtk.Label()
+        self.lbl_music.set_halign(Gtk.Align.START)
+        legend_box.append(self.lbl_music)
+        
         self.update_legend_labels()
         
         lbl_clear = Gtk.Label(label="[C]      - Clear Active Particles")
@@ -1090,6 +1155,31 @@ class FireworksApp:
         lbl_quit = Gtk.Label(label="[ESC/Q]  - Quit Screensaver")
         lbl_quit.set_halign(Gtk.Align.START)
         legend_box.append(lbl_quit)
+        
+        lbl_routines_title = Gtk.Label(label="\nCHOREOGRAPHED ROUTINES:")
+        lbl_routines_title.add_css_class("hud-legend-title")
+        lbl_routines_title.set_halign(Gtk.Align.START)
+        legend_box.append(lbl_routines_title)
+        
+        lbl_r1 = Gtk.Label(label="[1]  - American Flag")
+        lbl_r1.set_halign(Gtk.Align.START)
+        legend_box.append(lbl_r1)
+        
+        lbl_r2 = Gtk.Label(label="[2]  - Liberty Bell")
+        lbl_r2.set_halign(Gtk.Align.START)
+        legend_box.append(lbl_r2)
+        
+        lbl_r3 = Gtk.Label(label="[3]  - Statue of Liberty")
+        lbl_r3.set_halign(Gtk.Align.START)
+        legend_box.append(lbl_r3)
+        
+        lbl_r4 = Gtk.Label(label="[4]  - Flower Bouquet")
+        lbl_r4.set_halign(Gtk.Align.START)
+        legend_box.append(lbl_r4)
+        
+        lbl_r5 = Gtk.Label(label="[5]  - The Dragon")
+        lbl_r5.set_halign(Gtk.Align.START)
+        legend_box.append(lbl_r5)
         
         overlay.add_overlay(legend_box)
         
@@ -1110,12 +1200,101 @@ class FireworksApp:
         
         GLib.timeout_add(16, self.on_tick)
         
+        # Connect close-request signal to cleanly terminate background music
+        self.win.connect("close-request", self.on_close_request)
+        
+        # Try auto-loading display script on startup
+        script_file = "stars_stripes_display.json"
+        if os.path.exists(script_file):
+            self.load_sync_script(script_file)
+            
         self.win.present()
  
     def update_legend_labels(self):
         self.lbl_auto_launch.set_text(f"[A]      - Toggle Auto-Launcher ({'ON' if self.auto_launch else 'OFF'})")
         self.lbl_auto_rotate.set_text(f"[R]      - Toggle Camera Auto-Rotation ({'ON' if self.auto_rotate else 'OFF'})")
+        if self.music_playing:
+            self.lbl_music.set_text("[M]      - Toggle Music Sync (PLAYING)")
+        elif len(self.script_events) > 0:
+            self.lbl_music.set_text("[M]      - Toggle Music Sync (READY)")
+        else:
+            self.lbl_music.set_text("[M]      - Toggle Music Sync (NO SCRIPT)")
  
+    def trigger_routine(self, name, launch_func):
+        self.routine_queue.clear()
+        self.active_routine_name = name
+        self.routine_timer = 5.0
+        launch_func()
+
+    def launch_american_flag(self):
+        # Red stripes
+        for x in [-9.0, -3.0, 3.0, 9.0]:
+            self.routine_queue.append((0.0, Firework(fw_type=0, color=COLORS["strontium_red"], x_offset=x)))
+        # White stripes
+        for x in [-6.0, 0.0, 6.0]:
+            self.routine_queue.append((0.2, Firework(fw_type=1, color=COLORS["magnesium_white"], x_offset=x)))
+        # Blue canton stars
+        for x in [-11.0, -7.0]:
+            fw = Firework(fw_type=3, color=COLORS["copper_blue"], x_offset=x)
+            fw.launch_vel[1] += 3.0
+            self.routine_queue.append((0.4, fw))
+
+    def launch_liberty_bell(self):
+        # Top of the bell
+        top_crown = Firework(fw_type=12, color=COLORS["sodium_gold"], x_offset=0.0)
+        top_crown.launch_vel[1] += 4.0
+        self.routine_queue.append((0.0, top_crown))
+        
+        # Sides of the bell fanning down
+        left_waterfall = Firework(fw_type=5, color=COLORS["sodium_gold"], x_offset=-4.0)
+        left_waterfall.launch_vel[0] = -1.5
+        right_waterfall = Firework(fw_type=5, color=COLORS["sodium_gold"], x_offset=4.0)
+        right_waterfall.launch_vel[0] = 1.5
+        self.routine_queue.append((0.2, left_waterfall))
+        self.routine_queue.append((0.2, right_waterfall))
+        
+        # Clapper at bottom cracking/crackling
+        clapper = Firework(fw_type=15, color=COLORS["magnesium_white"], x_offset=0.0)
+        clapper.launch_vel[1] -= 2.0
+        self.routine_queue.append((0.5, clapper))
+
+    def launch_statue_of_liberty(self):
+        # Pedestal/Body (green waterfall)
+        body = Firework(fw_type=5, color=COLORS["barium_green"], x_offset=-2.0)
+        self.routine_queue.append((0.0, body))
+        
+        # Crown Rays (radiating green ghost rings)
+        for idx, (x, vx) in enumerate([(-6.0, -3.0), (-2.0, -1.0), (2.0, 1.0)]):
+            ray = Firework(fw_type=3, color=COLORS["barium_green"], x_offset=x)
+            ray.launch_vel[0] = vx
+            self.routine_queue.append((0.1 * idx, ray))
+            
+        # Golden Torch (high up on the right)
+        torch = Firework(fw_type=11, color=COLORS["sodium_gold"], x_offset=3.0)
+        torch.launch_vel[1] += 5.0
+        torch.launch_vel[0] = 1.5
+        self.routine_queue.append((0.4, torch))
+
+    def launch_flower_bouquet(self):
+        colors = [COLORS["strontium_red"], COLORS["barium_green"], COLORS["potassium_purple"], COLORS["calcium_orange"], COLORS["sodium_gold"]]
+        types = [0, 1, 11]
+        for idx, x in enumerate([-8.0, -4.0, 0.0, 4.0, 8.0]):
+            col = colors[idx % len(colors)]
+            t = types[idx % len(types)]
+            fw = Firework(fw_type=t, color=col, x_offset=x)
+            fw.launch_vel[0] = x * 0.4
+            self.routine_queue.append((0.0, fw))
+
+    def launch_the_dragon(self):
+        for i in range(12):
+            delay = i * 0.15
+            x = -12.0 + i * 2.0
+            col = COLORS["barium_green"] if i % 2 == 0 else COLORS["sodium_gold"]
+            t = 17 if i % 2 == 0 else 6
+            fw = Firework(fw_type=t, color=col, x_offset=x)
+            fw.launch_vel[0] = -1.0 + (i * 0.2)
+            self.routine_queue.append((delay, fw))
+
     def on_realize(self, area):
         area.make_current()
         if area.get_error() is not None:
@@ -1363,6 +1542,39 @@ class FireworksApp:
         self.last_time = now
         dt = min(dt, 0.1)
         
+        # Playback sync event handler
+        elapsed = 0.0
+        if self.music_playing:
+            # Check if mpv process has terminated
+            if self.music_process and self.music_process.poll() is not None:
+                self.stop_sync_playback()
+            else:
+                elapsed = time.time() - self.playback_start_time
+                if elapsed >= self.script_duration:
+                    self.stop_sync_playback()
+                else:
+                    while (self.next_event_idx < len(self.script_events) and 
+                           self.script_events[self.next_event_idx]["time"] <= elapsed):
+                        event = self.script_events[self.next_event_idx]
+                        self.trigger_script_event(event)
+                        self.next_event_idx += 1
+
+        # Update scheduled routine queue
+        if len(self.routine_queue) > 0:
+            remaining_queue = []
+            for delay, fw in self.routine_queue:
+                delay -= dt
+                if delay <= 0:
+                    self.fireworks.append(fw)
+                else:
+                    remaining_queue.append((delay, fw))
+            self.routine_queue = remaining_queue
+            
+        if self.active_routine_name:
+            self.routine_timer -= dt
+            if self.routine_timer <= 0:
+                self.active_routine_name = ""
+        
         measured_fps = 1.0 / dt if dt > 0 else 60.0
         self.fps = self.fps * self.fps_filter + measured_fps * (1.0 - self.fps_filter)
         
@@ -1384,6 +1596,25 @@ class FireworksApp:
         self.fireworks = [fw for fw in self.fireworks if fw.state != 'DEAD']
         
         self.fps_lbl.set_text(f"FPS: {self.fps:.1f}")
+        if self.active_routine_name:
+            self.routine_lbl.set_text(f"Routine: {self.active_routine_name}")
+        else:
+            self.routine_lbl.set_text("Routine: None")
+            
+        if self.music_playing:
+            self.music_track_lbl.set_text(f"Track: {self.loaded_script_name} ({self.script_bpm:.1f} BPM)")
+            m_sec = int(elapsed) % 60
+            m_min = int(elapsed) // 60
+            total_sec = int(self.script_duration) % 60
+            total_min = int(self.script_duration) // 60
+            self.music_time_lbl.set_text(f"Time: {m_min:02d}:{m_sec:02d} / {total_min:02d}:{total_sec:02d}")
+        else:
+            if len(self.script_events) > 0:
+                self.music_track_lbl.set_text(f"Track: {self.loaded_script_name} (Ready)")
+            else:
+                self.music_track_lbl.set_text("Track: None (Press M to generate)")
+            self.music_time_lbl.set_text("Time: 00:00 / 00:00")
+            
         active_stars = sum(len(fw.positions) for fw in self.fireworks if fw.positions is not None)
         active_rockets = sum(1 for fw in self.fireworks if fw.state == 'LAUNCH')
         
@@ -1394,11 +1625,29 @@ class FireworksApp:
         return True
 
     def on_key_pressed(self, controller, keyval, keycode, state):
+        unicode_val = Gdk.keyval_to_unicode(keyval)
+        key_char = chr(unicode_val) if unicode_val > 0 else ""
+        
         if keyval in (Gdk.KEY_Escape, Gdk.KEY_q, Gdk.KEY_Q):
             self.win.close()
             return True
         elif keyval == Gdk.KEY_space:
             self.fireworks.append(Firework())
+            return True
+        elif key_char == '1':
+            self.trigger_routine("American Flag", self.launch_american_flag)
+            return True
+        elif key_char == '2':
+            self.trigger_routine("Liberty Bell", self.launch_liberty_bell)
+            return True
+        elif key_char == '3':
+            self.trigger_routine("Statue of Liberty", self.launch_statue_of_liberty)
+            return True
+        elif key_char == '4':
+            self.trigger_routine("Flower Bouquet", self.launch_flower_bouquet)
+            return True
+        elif key_char == '5':
+            self.trigger_routine("The Dragon", self.launch_the_dragon)
             return True
         elif keyval in (Gdk.KEY_a, Gdk.KEY_A):
             self.auto_launch = not self.auto_launch
@@ -1410,6 +1659,9 @@ class FireworksApp:
             return True
         elif keyval in (Gdk.KEY_c, Gdk.KEY_C):
             self.fireworks.clear()
+            return True
+        elif keyval in (Gdk.KEY_m, Gdk.KEY_M):
+            self.toggle_sync_playback()
             return True
         elif keyval in (Gdk.KEY_f, Gdk.KEY_F):
             if self.is_fullscreen:
@@ -1432,6 +1684,127 @@ class FireworksApp:
     def on_scroll(self, controller, dx, dy):
         self.camera_dist = np.clip(self.camera_dist + dy * 1.5, 10.0, 80.0)
         return True
+
+    def load_sync_script(self, filepath):
+        try:
+            with open(filepath, 'r') as f:
+                script = json.load(f)
+            self.script_events = script.get("events", [])
+            metadata = script.get("metadata", {})
+            self.loaded_script_name = os.path.basename(filepath)
+            self.script_duration = metadata.get("duration", 0.0)
+            self.script_bpm = metadata.get("bpm", 120.0)
+            self.script_total_events = metadata.get("total_events", len(self.script_events))
+            self.color_hints = metadata.get("color_hints", [])
+            print(f"Loaded sync script {filepath} successfully. Events: {len(self.script_events)}")
+            self.update_legend_labels()
+            return True
+        except Exception as e:
+            print(f"Failed to load sync script {filepath}: {e}")
+            return False
+
+    def start_sync_playback(self):
+        if not self.script_events:
+            print("No synchronized script loaded!")
+            return
+            
+        self.stop_sync_playback()
+        
+        music_file = "stars_stripes.mp3"
+        if not os.path.exists(music_file):
+            print(f"Could not find music file: {music_file}")
+            return
+            
+        print(f"Starting synchronized playback for: {music_file}")
+        self.saved_auto_launch = self.auto_launch
+        self.auto_launch = False
+        self.update_legend_labels()
+        
+        self.fireworks.clear()
+        
+        try:
+            # Spawn mpv as background subprocess
+            cmd = ["/usr/bin/mpv", "--no-video", "--volume=100", music_file]
+            self.music_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.music_playing = True
+            self.playback_start_time = time.time()
+            self.next_event_idx = 0
+            print("mpv player launched successfully.")
+        except Exception as e:
+            print(f"Failed to start mpv playback: {e}")
+            self.auto_launch = self.saved_auto_launch
+            self.update_legend_labels()
+
+    def stop_sync_playback(self):
+        if self.music_playing:
+            self.music_playing = False
+            if self.music_process:
+                try:
+                    self.music_process.terminate()
+                    self.music_process.wait(timeout=1.0)
+                except Exception:
+                    try:
+                        self.music_process.kill()
+                    except Exception:
+                        pass
+                self.music_process = None
+            
+            self.auto_launch = self.saved_auto_launch
+            self.update_legend_labels()
+            print("Synchronized playback stopped.")
+
+    def toggle_sync_playback(self):
+        if self.music_playing:
+            self.stop_sync_playback()
+        else:
+            # If no script loaded, try auto-generating one
+            if not self.script_events:
+                print("No display script loaded. Attempting to auto-analyze stars_stripes.mp3...")
+                if os.path.exists("stars_stripes.mp3"):
+                    try:
+                        import audio_analyzer
+                        script_data = audio_analyzer.analyze_audio("stars_stripes.mp3", ["strontium_red", "magnesium_white", "copper_blue"])
+                        with open("stars_stripes_display.json", 'w') as f:
+                            json.dump(script_data, f, indent=2)
+                        self.load_sync_script("stars_stripes_display.json")
+                    except Exception as e:
+                        print(f"Failed auto-analysis: {e}")
+                        return
+                else:
+                    print("Could not find stars_stripes.mp3 in current directory!")
+                    return
+            self.start_sync_playback()
+
+    def trigger_script_event(self, event):
+        event_type = event.get("type")
+        if event_type == "firework":
+            fw_type = event.get("fw_type")
+            color_key = event.get("color")
+            sec_color_key = event.get("secondary_color")
+            x_offset = event.get("x_offset", 0.0)
+            
+            color_rgb = COLORS.get(color_key, random.choice(COLOR_LIST))
+            sec_color_rgb = COLORS.get(sec_color_key, random.choice(COLOR_LIST))
+            
+            fw = Firework(fw_type=fw_type, color=color_rgb, x_offset=x_offset)
+            fw.secondary_color = sec_color_rgb
+            self.fireworks.append(fw)
+            
+        elif event_type == "routine":
+            name = event.get("name")
+            routines_map = {
+                "American Flag": self.launch_american_flag,
+                "Liberty Bell": self.launch_liberty_bell,
+                "Statue of Liberty": self.launch_statue_of_liberty,
+                "Flower Bouquet": self.launch_flower_bouquet,
+                "The Dragon": self.launch_the_dragon
+            }
+            if name in routines_map:
+                self.trigger_routine(name, routines_map[name])
+
+    def on_close_request(self, win):
+        self.stop_sync_playback()
+        return False
 
 
 if __name__ == "__main__":
