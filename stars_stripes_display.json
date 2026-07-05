@@ -4,7 +4,7 @@
     "color_hints": [],
     "duration": 216.63,
     "bpm": 117.5,
-    "total_events": 315
+    "total_events": 330
   },
   "events": [
     {
@@ -14,12 +14,22 @@
       "category": "LOUD"
     },
     {
+      "time": 0.023,
+      "type": "key_change",
+      "key": "A"
+    },
+    {
       "time": 1.184,
       "type": "firework",
-      "fw_type": 14,
+      "fw_type": 17,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": -0.2226690948009491
+      "x_offset": -2.3648297786712646
+    },
+    {
+      "time": 3.46,
+      "type": "climax",
+      "intensity": 1.5
     },
     {
       "time": 3.46,
@@ -29,242 +39,247 @@
     {
       "time": 5.596,
       "type": "firework",
-      "fw_type": 14,
-      "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": 0.0915452241897583
+      "fw_type": 6,
+      "color": "magnesium_white",
+      "secondary_color": "copper_blue",
+      "x_offset": 1.5589920282363892
     },
     {
       "time": 6.107,
       "type": "firework",
-      "fw_type": 12,
+      "fw_type": 8,
       "color": "copper_blue",
       "secondary_color": "barium_green",
-      "x_offset": -0.7471063137054443
+      "x_offset": -0.13147807121276855
     },
     {
       "time": 6.316,
       "type": "firework",
-      "fw_type": 15,
+      "fw_type": 17,
       "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": 3.434479236602783
+      "secondary_color": "strontium_red",
+      "x_offset": 3.753901958465576
     },
     {
       "time": 6.664,
       "type": "firework",
       "fw_type": 17,
-      "color": "barium_green",
+      "color": "copper_blue",
       "secondary_color": "barium_green",
-      "x_offset": -0.2477419376373291
+      "x_offset": 1.224122166633606
     },
     {
       "time": 7.105,
       "type": "firework",
-      "fw_type": 11,
-      "color": "magnesium_white",
-      "secondary_color": "barium_green",
-      "x_offset": 1.9126794338226318
+      "fw_type": 12,
+      "color": "strontium_red",
+      "secondary_color": "copper_blue",
+      "x_offset": 1.7953802347183228
     },
     {
       "time": 7.407,
       "type": "firework",
-      "fw_type": 14,
+      "fw_type": 6,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 3.564877986907959
+      "x_offset": -0.30602598190307617
     },
     {
       "time": 7.686,
       "type": "firework",
-      "fw_type": 9,
+      "fw_type": 16,
       "color": "magnesium_white",
-      "secondary_color": "magnesium_white",
-      "x_offset": 2.457428455352783
+      "secondary_color": "barium_green",
+      "x_offset": 0.1535341739654541
     },
     {
       "time": 8.127,
       "type": "firework",
-      "fw_type": 6,
-      "color": "magnesium_white",
-      "secondary_color": "magnesium_white",
-      "x_offset": 1.0385873317718506
+      "fw_type": 14,
+      "color": "copper_blue",
+      "secondary_color": "copper_blue",
+      "x_offset": -2.1308226585388184
     },
     {
       "time": 8.684,
       "type": "firework",
-      "fw_type": 10,
+      "fw_type": 4,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 0.5863983631134033
+      "x_offset": 0.2966054677963257
     },
     {
       "time": 9.218,
       "type": "firework",
-      "fw_type": 14,
+      "fw_type": 6,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 0.04509085416793823
+      "x_offset": 3.038210868835449
     },
     {
       "time": 9.66,
       "type": "firework",
       "fw_type": 14,
       "color": "barium_green",
-      "secondary_color": "strontium_red",
-      "x_offset": -0.22763735055923462
+      "secondary_color": "barium_green",
+      "x_offset": 0.4688270092010498
     },
     {
       "time": 10.333,
       "type": "firework",
-      "fw_type": 17,
-      "color": "strontium_red",
-      "secondary_color": "magnesium_white",
-      "x_offset": 1.397878885269165
+      "fw_type": 6,
+      "color": "barium_green",
+      "secondary_color": "barium_green",
+      "x_offset": 2.8692574501037598
     },
     {
       "time": 10.704,
       "type": "firework",
       "fw_type": 17,
-      "color": "copper_blue",
+      "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 0.18463945388793945
+      "x_offset": 2.1291065216064453
     },
     {
       "time": 11.262,
       "type": "firework",
-      "fw_type": 14,
-      "color": "magnesium_white",
+      "fw_type": 15,
+      "color": "strontium_red",
       "secondary_color": "barium_green",
-      "x_offset": -0.1413036584854126
+      "x_offset": 1.972886562347412
     },
     {
       "time": 11.61,
       "type": "firework",
-      "fw_type": 7,
+      "fw_type": 0,
       "color": "barium_green",
-      "secondary_color": "strontium_red",
-      "x_offset": 1.728925108909607
+      "secondary_color": "copper_blue",
+      "x_offset": 0.16428658366203308
     },
     {
       "time": 12.214,
       "type": "firework",
-      "fw_type": 10,
+      "fw_type": 9,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": -0.6875550746917725
+      "x_offset": 2.188307046890259
     },
     {
       "time": 12.608,
       "type": "firework",
-      "fw_type": 2,
-      "color": "magnesium_white",
-      "secondary_color": "barium_green",
-      "x_offset": -0.3401287794113159
+      "fw_type": 0,
+      "color": "barium_green",
+      "secondary_color": "copper_blue",
+      "x_offset": 0.23068001866340637
     },
     {
       "time": 12.91,
       "type": "firework",
-      "fw_type": 17,
-      "color": "magnesium_white",
+      "fw_type": 6,
+      "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": -1.1439893245697021
+      "x_offset": -0.8949846625328064
     },
     {
       "time": 13.189,
       "type": "firework",
-      "fw_type": 4,
-      "color": "strontium_red",
-      "secondary_color": "strontium_red",
-      "x_offset": -0.9699170589447021
+      "fw_type": 18,
+      "color": "barium_green",
+      "secondary_color": "copper_blue",
+      "x_offset": 0.8676483035087585
     },
     {
       "time": 13.63,
       "type": "firework",
       "fw_type": 6,
       "color": "copper_blue",
-      "secondary_color": "copper_blue",
-      "x_offset": 2.787961483001709
+      "secondary_color": "strontium_red",
+      "x_offset": 2.06412672996521
     },
     {
       "time": 14.095,
       "type": "firework",
-      "fw_type": 15,
-      "color": "copper_blue",
+      "fw_type": 17,
+      "color": "strontium_red",
       "secondary_color": "barium_green",
-      "x_offset": -0.8755028247833252
+      "x_offset": 2.8873343467712402
     },
     {
       "time": 14.605,
       "type": "firework",
-      "fw_type": 12,
+      "fw_type": 2,
       "color": "barium_green",
-      "secondary_color": "copper_blue",
-      "x_offset": 1.4874110221862793
+      "secondary_color": "magnesium_white",
+      "x_offset": 0.3001213073730469
     },
     {
       "time": 15.256,
       "type": "firework",
       "fw_type": 14,
-      "color": "barium_green",
+      "color": "copper_blue",
       "secondary_color": "barium_green",
-      "x_offset": 5.349458694458008
+      "x_offset": 4.099093437194824
     },
     {
       "time": 15.604,
       "type": "firework",
-      "fw_type": 12,
-      "color": "strontium_red",
+      "fw_type": 0,
+      "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": -0.22232434153556824
+      "x_offset": 0.5553877949714661
     },
     {
       "time": 15.859,
       "type": "firework",
       "fw_type": 15,
       "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": -0.4128001630306244
+      "secondary_color": "copper_blue",
+      "x_offset": -1.3095595836639404
     },
     {
       "time": 16.347,
       "type": "firework",
-      "fw_type": 14,
-      "color": "barium_green",
-      "secondary_color": "strontium_red",
-      "x_offset": 1.0025724172592163
+      "fw_type": 17,
+      "color": "strontium_red",
+      "secondary_color": "magnesium_white",
+      "x_offset": -0.2526964545249939
     },
     {
       "time": 16.602,
       "type": "firework",
-      "fw_type": 11,
-      "color": "copper_blue",
-      "secondary_color": "barium_green",
-      "x_offset": 0.3051312267780304
+      "fw_type": 8,
+      "color": "barium_green",
+      "secondary_color": "copper_blue",
+      "x_offset": -0.5798834562301636
     },
     {
       "time": 17.16,
       "type": "firework",
       "fw_type": 3,
       "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": -0.45469456911087036
+      "secondary_color": "copper_blue",
+      "x_offset": 0.31019043922424316
     },
     {
       "time": 17.67,
       "type": "firework",
-      "fw_type": 4,
-      "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": 0.0652393102645874
+      "fw_type": 9,
+      "color": "strontium_red",
+      "secondary_color": "copper_blue",
+      "x_offset": 0.6873558759689331
     },
     {
       "time": 18.692,
       "type": "firework",
-      "fw_type": 16,
+      "fw_type": 3,
       "color": "barium_green",
-      "secondary_color": "strontium_red",
-      "x_offset": -0.910277783870697
+      "secondary_color": "barium_green",
+      "x_offset": 1.2149934768676758
+    },
+    {
+      "time": 20.852,
+      "type": "climax",
+      "intensity": 1.5
     },
     {
       "time": 20.852,
@@ -276,24 +291,24 @@
       "type": "firework",
       "fw_type": 4,
       "color": "barium_green",
-      "secondary_color": "strontium_red",
-      "x_offset": 1.230887532234192
+      "secondary_color": "barium_green",
+      "x_offset": 4.472689628601074
     },
     {
       "time": 23.406,
       "type": "firework",
-      "fw_type": 15,
-      "color": "magnesium_white",
-      "secondary_color": "magnesium_white",
-      "x_offset": 4.224366664886475
+      "fw_type": 14,
+      "color": "strontium_red",
+      "secondary_color": "barium_green",
+      "x_offset": 4.370202541351318
     },
     {
       "time": 24.126,
       "type": "firework",
       "fw_type": 6,
       "color": "barium_green",
-      "secondary_color": "magnesium_white",
-      "x_offset": 0.9561235308647156
+      "secondary_color": "strontium_red",
+      "x_offset": -2.4777255058288574
     },
     {
       "time": 24.892,
@@ -301,87 +316,87 @@
       "fw_type": 3,
       "color": "copper_blue",
       "secondary_color": "barium_green",
-      "x_offset": 0.2638561725616455
+      "x_offset": -0.5888757705688477
     },
     {
       "time": 25.194,
       "type": "firework",
-      "fw_type": 6,
+      "fw_type": 17,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 1.4643664360046387
+      "x_offset": 3.840956211090088
     },
     {
       "time": 25.635,
       "type": "firework",
-      "fw_type": 17,
+      "fw_type": 15,
       "color": "barium_green",
-      "secondary_color": "magnesium_white",
-      "x_offset": -0.6524657607078552
+      "secondary_color": "barium_green",
+      "x_offset": -1.0680489540100098
     },
     {
       "time": 26.308,
       "type": "firework",
       "fw_type": 14,
-      "color": "strontium_red",
+      "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 1.0024012327194214
+      "x_offset": 1.2330570220947266
     },
     {
       "time": 26.657,
       "type": "firework",
       "fw_type": 15,
       "color": "barium_green",
-      "secondary_color": "copper_blue",
-      "x_offset": -1.1067934036254883
+      "secondary_color": "barium_green",
+      "x_offset": -0.45250046253204346
     },
     {
       "time": 27.191,
       "type": "firework",
-      "fw_type": 15,
-      "color": "strontium_red",
+      "fw_type": 14,
+      "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 0.7301448583602905
+      "x_offset": 0.4858980178833008
     },
     {
       "time": 27.585,
       "type": "firework",
-      "fw_type": 15,
+      "fw_type": 6,
       "color": "strontium_red",
-      "secondary_color": "barium_green",
-      "x_offset": 0.9740725755691528
+      "secondary_color": "strontium_red",
+      "x_offset": -1.0228691101074219
     },
     {
       "time": 28.212,
       "type": "firework",
-      "fw_type": 4,
-      "color": "magnesium_white",
+      "fw_type": 16,
+      "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": -0.8268623948097229
+      "x_offset": -0.47045522928237915
     },
     {
       "time": 28.514,
       "type": "firework",
       "fw_type": 15,
       "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": 0.9330319166183472
+      "secondary_color": "magnesium_white",
+      "x_offset": 0.5269571542739868
     },
     {
       "time": 28.909,
       "type": "firework",
-      "fw_type": 17,
-      "color": "barium_green",
+      "fw_type": 6,
+      "color": "magnesium_white",
       "secondary_color": "barium_green",
-      "x_offset": -1.8373427391052246
+      "x_offset": -1.273949384689331
     },
     {
       "time": 29.187,
       "type": "firework",
-      "fw_type": 18,
+      "fw_type": 3,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 1.1009891033172607
+      "x_offset": -2.3141679763793945
     },
     {
       "time": 29.629,
@@ -389,231 +404,236 @@
       "fw_type": 17,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": -1.057496428489685
+      "x_offset": -1.2799996137619019
     },
     {
       "time": 30.209,
       "type": "firework",
-      "fw_type": 9,
+      "fw_type": 10,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": -2.4710471630096436
+      "x_offset": -0.37965846061706543
     },
     {
       "time": 31.184,
       "type": "firework",
       "fw_type": 15,
-      "color": "strontium_red",
+      "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 1.26153564453125
+      "x_offset": 3.440764904022217
     },
     {
       "time": 31.579,
       "type": "firework",
-      "fw_type": 0,
+      "fw_type": 12,
       "color": "barium_green",
-      "secondary_color": "copper_blue",
-      "x_offset": -0.17841073870658875
+      "secondary_color": "barium_green",
+      "x_offset": 0.7611101865768433
     },
     {
       "time": 32.09,
       "type": "firework",
-      "fw_type": 13,
-      "color": "strontium_red",
-      "secondary_color": "copper_blue",
-      "x_offset": 1.1460018157958984
+      "fw_type": 2,
+      "color": "barium_green",
+      "secondary_color": "barium_green",
+      "x_offset": 0.9347550272941589
     },
     {
       "time": 32.578,
       "type": "firework",
       "fw_type": 15,
-      "color": "magnesium_white",
-      "secondary_color": "copper_blue",
-      "x_offset": 1.2567698955535889
+      "color": "barium_green",
+      "secondary_color": "strontium_red",
+      "x_offset": 0.29944199323654175
     },
     {
       "time": 33.181,
       "type": "firework",
       "fw_type": 1,
-      "color": "copper_blue",
-      "secondary_color": "copper_blue",
-      "x_offset": -1.8861234188079834
+      "color": "barium_green",
+      "secondary_color": "barium_green",
+      "x_offset": -1.919952154159546
     },
     {
       "time": 34.18,
       "type": "firework",
-      "fw_type": 1,
-      "color": "barium_green",
+      "fw_type": 9,
+      "color": "strontium_red",
       "secondary_color": "barium_green",
-      "x_offset": -1.561916470527649
+      "x_offset": -0.8119329810142517
     },
     {
       "time": 35.085,
       "type": "firework",
-      "fw_type": 0,
+      "fw_type": 7,
       "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": -0.17645925283432007
+      "secondary_color": "copper_blue",
+      "x_offset": 0.34656548500061035
     },
     {
       "time": 35.852,
       "type": "firework",
-      "fw_type": 14,
+      "fw_type": 6,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 1.3184043169021606
+      "x_offset": 1.2551149129867554
     },
     {
       "time": 36.2,
       "type": "firework",
       "fw_type": 17,
       "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": 2.3923420906066895
+      "secondary_color": "magnesium_white",
+      "x_offset": 1.2006909847259521
     },
     {
       "time": 37.105,
       "type": "firework",
-      "fw_type": 11,
+      "fw_type": 13,
       "color": "copper_blue",
-      "secondary_color": "magnesium_white",
-      "x_offset": -0.8285485506057739
+      "secondary_color": "copper_blue",
+      "x_offset": 1.8609836101531982
     },
     {
       "time": 37.616,
       "type": "firework",
       "fw_type": 13,
       "color": "copper_blue",
-      "secondary_color": "barium_green",
-      "x_offset": 2.094459295272827
+      "secondary_color": "copper_blue",
+      "x_offset": 0.5167616605758667
     },
     {
       "time": 38.104,
       "type": "firework",
-      "fw_type": 13,
+      "fw_type": 2,
       "color": "copper_blue",
-      "secondary_color": "barium_green",
-      "x_offset": -1.337084412574768
+      "secondary_color": "copper_blue",
+      "x_offset": -0.24447757005691528
     },
     {
       "time": 38.615,
       "type": "firework",
-      "fw_type": 7,
+      "fw_type": 12,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": -0.07190677523612976
+      "x_offset": 0.6175214648246765
     },
     {
       "time": 39.102,
       "type": "firework",
-      "fw_type": 7,
-      "color": "copper_blue",
-      "secondary_color": "barium_green",
-      "x_offset": 0.47897690534591675
+      "fw_type": 13,
+      "color": "magnesium_white",
+      "secondary_color": "copper_blue",
+      "x_offset": 2.6065139770507812
     },
     {
       "time": 39.613,
       "type": "firework",
-      "fw_type": 0,
-      "color": "copper_blue",
-      "secondary_color": "copper_blue",
-      "x_offset": 1.7398818731307983
+      "fw_type": 7,
+      "color": "barium_green",
+      "secondary_color": "barium_green",
+      "x_offset": 0.35656625032424927
     },
     {
       "time": 40.101,
       "type": "firework",
-      "fw_type": 2,
-      "color": "barium_green",
-      "secondary_color": "copper_blue",
-      "x_offset": 2.4276251792907715
+      "fw_type": 13,
+      "color": "copper_blue",
+      "secondary_color": "barium_green",
+      "x_offset": 0.9681205153465271
     },
     {
       "time": 40.612,
       "type": "firework",
-      "fw_type": 12,
-      "color": "magnesium_white",
-      "secondary_color": "barium_green",
-      "x_offset": 1.1476476192474365
+      "fw_type": 11,
+      "color": "barium_green",
+      "secondary_color": "strontium_red",
+      "x_offset": -0.7548962831497192
+    },
+    {
+      "time": 40.89,
+      "type": "key_change",
+      "key": "D"
     },
     {
       "time": 41.099,
       "type": "firework",
-      "fw_type": 0,
-      "color": "barium_green",
+      "fw_type": 13,
+      "color": "magnesium_white",
       "secondary_color": "barium_green",
-      "x_offset": 2.832458257675171
+      "x_offset": 0.12380057573318481
     },
     {
       "time": 41.61,
       "type": "firework",
-      "fw_type": 12,
-      "color": "copper_blue",
+      "fw_type": 8,
+      "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 3.9749951362609863
+      "x_offset": 2.718925952911377
     },
     {
       "time": 42.098,
       "type": "firework",
-      "fw_type": 11,
-      "color": "barium_green",
+      "fw_type": 0,
+      "color": "copper_blue",
       "secondary_color": "barium_green",
-      "x_offset": 0.42185264825820923
+      "x_offset": 1.4847532510757446
     },
     {
       "time": 42.609,
       "type": "firework",
-      "fw_type": 11,
-      "color": "magnesium_white",
-      "secondary_color": "barium_green",
-      "x_offset": 1.2619673013687134
+      "fw_type": 12,
+      "color": "barium_green",
+      "secondary_color": "copper_blue",
+      "x_offset": -0.1497703492641449
     },
     {
       "time": 42.934,
       "type": "firework",
-      "fw_type": 6,
+      "fw_type": 17,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 2.94057035446167
+      "x_offset": 0.6653831005096436
     },
     {
       "time": 43.607,
       "type": "firework",
-      "fw_type": 7,
-      "color": "barium_green",
+      "fw_type": 12,
+      "color": "magnesium_white",
       "secondary_color": "copper_blue",
-      "x_offset": 0.2743344306945801
+      "x_offset": 1.8621697425842285
     },
     {
       "time": 44.211,
       "type": "firework",
-      "fw_type": 4,
-      "color": "magnesium_white",
+      "fw_type": 3,
+      "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 2.7111077308654785
+      "x_offset": -1.1628730297088623
     },
     {
       "time": 44.606,
       "type": "firework",
-      "fw_type": 2,
+      "fw_type": 13,
       "color": "barium_green",
-      "secondary_color": "strontium_red",
-      "x_offset": -1.0555157661437988
+      "secondary_color": "copper_blue",
+      "x_offset": -0.20654159784317017
     },
     {
       "time": 45.116,
       "type": "firework",
-      "fw_type": 13,
+      "fw_type": 12,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 1.0207414627075195
+      "x_offset": 2.4869229793548584
     },
     {
       "time": 45.604,
       "type": "firework",
-      "fw_type": 8,
-      "color": "barium_green",
-      "secondary_color": "magnesium_white",
-      "x_offset": -0.033423349261283875
+      "fw_type": 0,
+      "color": "copper_blue",
+      "secondary_color": "copper_blue",
+      "x_offset": -0.23518265783786774
     },
     {
       "time": 46.115,
@@ -621,87 +641,97 @@
       "fw_type": 2,
       "color": "barium_green",
       "secondary_color": "copper_blue",
-      "x_offset": -0.09015309810638428
+      "x_offset": 1.344780683517456
     },
     {
       "time": 46.602,
       "type": "firework",
       "fw_type": 12,
-      "color": "barium_green",
-      "secondary_color": "magnesium_white",
-      "x_offset": 0.8482281565666199
+      "color": "strontium_red",
+      "secondary_color": "copper_blue",
+      "x_offset": 0.7266805171966553
     },
     {
       "time": 47.113,
       "type": "firework",
-      "fw_type": 0,
+      "fw_type": 12,
       "color": "copper_blue",
-      "secondary_color": "copper_blue",
-      "x_offset": 1.8572204113006592
+      "secondary_color": "barium_green",
+      "x_offset": 2.1225171089172363
     },
     {
       "time": 47.601,
       "type": "firework",
-      "fw_type": 11,
+      "fw_type": 13,
       "color": "copper_blue",
-      "secondary_color": "strontium_red",
-      "x_offset": -1.197953701019287
+      "secondary_color": "barium_green",
+      "x_offset": -0.3344178795814514
     },
     {
       "time": 48.112,
       "type": "firework",
-      "fw_type": 7,
+      "fw_type": 12,
       "color": "copper_blue",
       "secondary_color": "copper_blue",
-      "x_offset": 1.5969895124435425
+      "x_offset": 1.519486665725708
     },
     {
       "time": 48.599,
       "type": "firework",
-      "fw_type": 12,
+      "fw_type": 7,
       "color": "copper_blue",
-      "secondary_color": "barium_green",
-      "x_offset": 1.580173373222351
+      "secondary_color": "magnesium_white",
+      "x_offset": 0.6822540760040283
     },
     {
       "time": 49.11,
       "type": "firework",
-      "fw_type": 2,
-      "color": "copper_blue",
+      "fw_type": 0,
+      "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 1.021179437637329
+      "x_offset": -0.48581480979919434
     },
     {
       "time": 49.598,
       "type": "firework",
-      "fw_type": 2,
+      "fw_type": 12,
       "color": "copper_blue",
-      "secondary_color": "magnesium_white",
-      "x_offset": 4.423135280609131
+      "secondary_color": "barium_green",
+      "x_offset": 2.1044154167175293
     },
     {
       "time": 49.876,
       "type": "firework",
-      "fw_type": 14,
+      "fw_type": 6,
       "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": -1.236196756362915
+      "secondary_color": "magnesium_white",
+      "x_offset": 1.799371600151062
     },
     {
       "time": 50.109,
       "type": "firework",
-      "fw_type": 11,
+      "fw_type": 0,
       "color": "barium_green",
-      "secondary_color": "copper_blue",
-      "x_offset": -1.3691675662994385
+      "secondary_color": "magnesium_white",
+      "x_offset": -1.1577835083007812
+    },
+    {
+      "time": 50.202,
+      "type": "key_change",
+      "key": "C"
     },
     {
       "time": 50.364,
       "type": "firework",
-      "fw_type": 9,
+      "fw_type": 4,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 1.8200156688690186
+      "x_offset": 1.323954701423645
+    },
+    {
+      "time": 52.407,
+      "type": "climax",
+      "intensity": 1.5
     },
     {
       "time": 52.407,
@@ -711,274 +741,279 @@
     {
       "time": 54.613,
       "type": "firework",
-      "fw_type": 8,
+      "fw_type": 0,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": -0.7916263341903687
+      "x_offset": -1.4988553524017334
     },
     {
       "time": 55.101,
       "type": "firework",
-      "fw_type": 2,
-      "color": "magnesium_white",
+      "fw_type": 0,
+      "color": "copper_blue",
       "secondary_color": "barium_green",
-      "x_offset": 1.4222958087921143
+      "x_offset": -0.6114300489425659
     },
     {
       "time": 55.356,
       "type": "firework",
-      "fw_type": 15,
+      "fw_type": 17,
       "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": 1.49957275390625
+      "secondary_color": "copper_blue",
+      "x_offset": 0.9149779677391052
     },
     {
       "time": 55.612,
       "type": "firework",
-      "fw_type": 11,
-      "color": "barium_green",
+      "fw_type": 0,
+      "color": "copper_blue",
       "secondary_color": "barium_green",
-      "x_offset": -0.7122704982757568
+      "x_offset": -0.2414582222700119
     },
     {
       "time": 55.867,
       "type": "firework",
-      "fw_type": 17,
-      "color": "magnesium_white",
+      "fw_type": 14,
+      "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": -0.5139861106872559
+      "x_offset": 2.9181559085845947
     },
     {
       "time": 56.099,
       "type": "firework",
-      "fw_type": 7,
-      "color": "copper_blue",
-      "secondary_color": "barium_green",
-      "x_offset": 0.1211753562092781
+      "fw_type": 0,
+      "color": "barium_green",
+      "secondary_color": "copper_blue",
+      "x_offset": 1.1948766708374023
     },
     {
       "time": 56.355,
       "type": "firework",
-      "fw_type": 16,
-      "color": "barium_green",
+      "fw_type": 10,
+      "color": "copper_blue",
       "secondary_color": "barium_green",
-      "x_offset": 3.6084628105163574
+      "x_offset": 4.115050315856934
     },
     {
       "time": 56.61,
       "type": "firework",
       "fw_type": 0,
       "color": "copper_blue",
-      "secondary_color": "strontium_red",
-      "x_offset": 0.04655534029006958
+      "secondary_color": "barium_green",
+      "x_offset": 1.763338565826416
     },
     {
       "time": 57.098,
       "type": "firework",
-      "fw_type": 0,
+      "fw_type": 13,
       "color": "barium_green",
-      "secondary_color": "magnesium_white",
-      "x_offset": 0.7144116163253784
+      "secondary_color": "strontium_red",
+      "x_offset": 1.4995508193969727
     },
     {
       "time": 57.609,
       "type": "firework",
       "fw_type": 13,
-      "color": "magnesium_white",
-      "secondary_color": "copper_blue",
-      "x_offset": 1.7869327068328857
+      "color": "barium_green",
+      "secondary_color": "barium_green",
+      "x_offset": 0.3355577290058136
     },
     {
       "time": 58.096,
       "type": "firework",
-      "fw_type": 0,
+      "fw_type": 13,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 1.7089935541152954
+      "x_offset": -0.9582362174987793
     },
     {
       "time": 58.607,
       "type": "firework",
-      "fw_type": 2,
-      "color": "copper_blue",
-      "secondary_color": "copper_blue",
-      "x_offset": 0.9972889423370361
+      "fw_type": 12,
+      "color": "barium_green",
+      "secondary_color": "barium_green",
+      "x_offset": 1.7626303434371948
     },
     {
       "time": 58.909,
       "type": "firework",
-      "fw_type": 14,
+      "fw_type": 6,
       "color": "barium_green",
-      "secondary_color": "strontium_red",
-      "x_offset": -1.1917017698287964
+      "secondary_color": "barium_green",
+      "x_offset": 0.1540934294462204
     },
     {
       "time": 59.606,
       "type": "firework",
-      "fw_type": 8,
-      "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": -0.012750864028930664
+      "fw_type": 7,
+      "color": "copper_blue",
+      "secondary_color": "copper_blue",
+      "x_offset": 2.4434328079223633
     },
     {
       "time": 60.116,
       "type": "firework",
-      "fw_type": 0,
-      "color": "copper_blue",
-      "secondary_color": "magnesium_white",
-      "x_offset": -0.9665899872779846
+      "fw_type": 11,
+      "color": "magnesium_white",
+      "secondary_color": "copper_blue",
+      "x_offset": 1.101377248764038
     },
     {
       "time": 60.604,
       "type": "firework",
-      "fw_type": 11,
+      "fw_type": 8,
       "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": 0.024160772562026978
+      "secondary_color": "magnesium_white",
+      "x_offset": -0.030954211950302124
     },
     {
       "time": 61.115,
       "type": "firework",
-      "fw_type": 11,
-      "color": "copper_blue",
-      "secondary_color": "magnesium_white",
-      "x_offset": 2.1454169750213623
+      "fw_type": 7,
+      "color": "barium_green",
+      "secondary_color": "barium_green",
+      "x_offset": 0.06891095638275146
     },
     {
       "time": 61.394,
       "type": "firework",
-      "fw_type": 6,
+      "fw_type": 15,
       "color": "barium_green",
-      "secondary_color": "magnesium_white",
-      "x_offset": -0.39424827694892883
+      "secondary_color": "barium_green",
+      "x_offset": -1.9802186489105225
     },
     {
       "time": 61.603,
       "type": "firework",
-      "fw_type": 2,
+      "fw_type": 8,
       "color": "barium_green",
-      "secondary_color": "copper_blue",
-      "x_offset": -1.4051438570022583
+      "secondary_color": "barium_green",
+      "x_offset": -0.9928063154220581
     },
     {
       "time": 62.113,
       "type": "firework",
-      "fw_type": 2,
-      "color": "strontium_red",
-      "secondary_color": "barium_green",
-      "x_offset": -0.6770345568656921
+      "fw_type": 0,
+      "color": "barium_green",
+      "secondary_color": "magnesium_white",
+      "x_offset": 1.9668898582458496
     },
     {
       "time": 62.601,
       "type": "firework",
-      "fw_type": 12,
-      "color": "copper_blue",
-      "secondary_color": "copper_blue",
-      "x_offset": -0.6620973348617554
+      "fw_type": 7,
+      "color": "barium_green",
+      "secondary_color": "barium_green",
+      "x_offset": 0.6802476048469543
     },
     {
       "time": 63.112,
       "type": "firework",
-      "fw_type": 0,
-      "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": -0.3351922929286957
+      "fw_type": 8,
+      "color": "copper_blue",
+      "secondary_color": "copper_blue",
+      "x_offset": -0.5054323077201843
     },
     {
       "time": 63.599,
       "type": "firework",
-      "fw_type": 0,
-      "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": 0.7300513386726379
+      "fw_type": 8,
+      "color": "copper_blue",
+      "secondary_color": "magnesium_white",
+      "x_offset": 0.3310300409793854
     },
     {
       "time": 64.11,
       "type": "firework",
-      "fw_type": 12,
-      "color": "barium_green",
+      "fw_type": 7,
+      "color": "copper_blue",
       "secondary_color": "copper_blue",
-      "x_offset": 1.0870375633239746
+      "x_offset": 1.871476411819458
     },
     {
       "time": 64.598,
       "type": "firework",
-      "fw_type": 2,
+      "fw_type": 0,
       "color": "copper_blue",
-      "secondary_color": "copper_blue",
-      "x_offset": 1.6615772247314453
+      "secondary_color": "strontium_red",
+      "x_offset": -0.07500413060188293
     },
     {
       "time": 65.109,
       "type": "firework",
-      "fw_type": 12,
-      "color": "copper_blue",
-      "secondary_color": "magnesium_white",
-      "x_offset": 0.5008977055549622
+      "fw_type": 13,
+      "color": "barium_green",
+      "secondary_color": "barium_green",
+      "x_offset": -0.16711854934692383
     },
     {
       "time": 65.596,
       "type": "firework",
-      "fw_type": 0,
-      "color": "copper_blue",
-      "secondary_color": "copper_blue",
-      "x_offset": 1.6627490520477295
+      "fw_type": 12,
+      "color": "barium_green",
+      "secondary_color": "barium_green",
+      "x_offset": 1.2440185546875
     },
     {
       "time": 66.107,
       "type": "firework",
       "fw_type": 12,
       "color": "copper_blue",
-      "secondary_color": "strontium_red",
-      "x_offset": -1.5710307359695435
+      "secondary_color": "barium_green",
+      "x_offset": 1.223714828491211
     },
     {
       "time": 66.456,
       "type": "firework",
-      "fw_type": 14,
-      "color": "barium_green",
+      "fw_type": 17,
+      "color": "magnesium_white",
       "secondary_color": "barium_green",
-      "x_offset": -0.623878538608551
+      "x_offset": -1.4358110427856445
     },
     {
       "time": 67.106,
       "type": "firework",
-      "fw_type": 2,
+      "fw_type": 7,
       "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": 0.05880093574523926
+      "secondary_color": "copper_blue",
+      "x_offset": 1.3327802419662476
     },
     {
       "time": 68.383,
       "type": "firework",
-      "fw_type": 9,
-      "color": "magnesium_white",
+      "fw_type": 10,
+      "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": -2.1194167137145996
+      "x_offset": -1.9575231075286865
     },
     {
       "time": 68.963,
       "type": "firework",
-      "fw_type": 18,
-      "color": "copper_blue",
-      "secondary_color": "magnesium_white",
-      "x_offset": -0.66497802734375
+      "fw_type": 4,
+      "color": "barium_green",
+      "secondary_color": "barium_green",
+      "x_offset": 1.0794672966003418
     },
     {
       "time": 69.404,
       "type": "firework",
       "fw_type": 10,
-      "color": "strontium_red",
+      "color": "magnesium_white",
       "secondary_color": "barium_green",
-      "x_offset": 3.5473012924194336
+      "x_offset": 2.0037693977355957
     },
     {
       "time": 69.892,
       "type": "firework",
-      "fw_type": 3,
+      "fw_type": 10,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 3.3045239448547363
+      "x_offset": 2.561349391937256
+    },
+    {
+      "time": 72.377,
+      "type": "climax",
+      "intensity": 1.5
     },
     {
       "time": 72.377,
@@ -990,32 +1025,32 @@
       "type": "firework",
       "fw_type": 1,
       "color": "barium_green",
-      "secondary_color": "copper_blue",
-      "x_offset": 1.5494905710220337
+      "secondary_color": "barium_green",
+      "x_offset": 0.602520227432251
     },
     {
       "time": 75.442,
       "type": "firework",
-      "fw_type": 16,
-      "color": "barium_green",
+      "fw_type": 4,
+      "color": "copper_blue",
       "secondary_color": "barium_green",
-      "x_offset": 2.317645788192749
+      "x_offset": 1.3549073934555054
     },
     {
       "time": 76.394,
       "type": "firework",
-      "fw_type": 18,
-      "color": "strontium_red",
+      "fw_type": 16,
+      "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 2.5536861419677734
+      "x_offset": 1.0936665534973145
     },
     {
       "time": 76.997,
       "type": "firework",
-      "fw_type": 9,
+      "fw_type": 3,
       "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": 0.9671661257743835
+      "secondary_color": "magnesium_white",
+      "x_offset": 3.793644428253174
     },
     {
       "time": 77.439,
@@ -1023,199 +1058,220 @@
       "fw_type": 9,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": -0.23617243766784668
+      "x_offset": -0.6091938018798828
     },
     {
       "time": 77.926,
       "type": "firework",
-      "fw_type": 9,
-      "color": "magnesium_white",
-      "secondary_color": "copper_blue",
-      "x_offset": -0.062127381563186646
+      "fw_type": 10,
+      "color": "barium_green",
+      "secondary_color": "barium_green",
+      "x_offset": 0.18971115350723267
     },
     {
       "time": 78.576,
       "type": "firework",
-      "fw_type": 1,
+      "fw_type": 10,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 1.9053877592086792
+      "x_offset": 1.9226698875427246
     },
     {
       "time": 79.064,
       "type": "firework",
-      "fw_type": 18,
+      "fw_type": 3,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 0.30689215660095215
+      "x_offset": -2.024641513824463
     },
     {
       "time": 79.528,
       "type": "firework",
-      "fw_type": 3,
+      "fw_type": 4,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 1.1170040369033813
+      "x_offset": 2.5225462913513184
     },
     {
       "time": 80.155,
       "type": "firework",
       "fw_type": 16,
-      "color": "strontium_red",
+      "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": -0.8233237266540527
+      "x_offset": 1.3136403560638428
     },
     {
       "time": 80.62,
       "type": "firework",
-      "fw_type": 10,
-      "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": -1.6266705989837646
+      "fw_type": 1,
+      "color": "copper_blue",
+      "secondary_color": "strontium_red",
+      "x_offset": -1.3685773611068726
+    },
+    {
+      "time": 80.759,
+      "type": "key_change",
+      "key": "C"
     },
     {
       "time": 81.154,
       "type": "firework",
-      "fw_type": 4,
-      "color": "magnesium_white",
+      "fw_type": 9,
+      "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 2.451565742492676
+      "x_offset": -0.40527331829071045
     },
     {
       "time": 82.454,
       "type": "firework",
-      "fw_type": 10,
+      "fw_type": 16,
       "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": 0.16817200183868408
+      "secondary_color": "copper_blue",
+      "x_offset": 1.6589984893798828
     },
     {
       "time": 83.104,
       "type": "firework",
       "fw_type": 7,
-      "color": "copper_blue",
-      "secondary_color": "magnesium_white",
-      "x_offset": 0.25504910945892334
+      "color": "barium_green",
+      "secondary_color": "barium_green",
+      "x_offset": -1.0782591104507446
     },
     {
       "time": 84.312,
       "type": "firework",
       "fw_type": 18,
-      "color": "barium_green",
+      "color": "copper_blue",
       "secondary_color": "barium_green",
-      "x_offset": -0.4063761830329895
+      "x_offset": 1.0108528137207031
     },
     {
       "time": 85.38,
       "type": "firework",
-      "fw_type": 16,
+      "fw_type": 9,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 0.8911107778549194
+      "x_offset": 2.559589147567749
     },
     {
       "time": 85.914,
       "type": "firework",
-      "fw_type": 1,
+      "fw_type": 10,
       "color": "barium_green",
-      "secondary_color": "copper_blue",
-      "x_offset": 3.3940157890319824
+      "secondary_color": "barium_green",
+      "x_offset": 1.7883094549179077
     },
     {
       "time": 86.378,
       "type": "firework",
-      "fw_type": 10,
-      "color": "magnesium_white",
-      "secondary_color": "barium_green",
-      "x_offset": 0.18700087070465088
+      "fw_type": 9,
+      "color": "barium_green",
+      "secondary_color": "copper_blue",
+      "x_offset": 1.3519365787506104
     },
     {
       "time": 87.261,
       "type": "firework",
-      "fw_type": 16,
-      "color": "barium_green",
+      "fw_type": 9,
+      "color": "copper_blue",
       "secondary_color": "barium_green",
-      "x_offset": 3.1542587280273438
+      "x_offset": 3.298896312713623
     },
     {
       "time": 88.282,
       "type": "firework",
-      "fw_type": 1,
+      "fw_type": 10,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 1.5664331912994385
+      "x_offset": 4.334463596343994
     },
     {
       "time": 88.886,
       "type": "firework",
       "fw_type": 3,
-      "color": "copper_blue",
+      "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 2.820444345474243
+      "x_offset": 3.52011775970459
     },
     {
       "time": 89.629,
       "type": "firework",
-      "fw_type": 1,
+      "fw_type": 3,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 1.087304711341858
+      "x_offset": 2.525444984436035
     },
     {
       "time": 90.419,
       "type": "firework",
-      "fw_type": 16,
+      "fw_type": 1,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 2.9593188762664795
+      "x_offset": 4.031252384185791
     },
     {
       "time": 91.092,
       "type": "firework",
-      "fw_type": 3,
-      "color": "strontium_red",
+      "fw_type": 18,
+      "color": "copper_blue",
       "secondary_color": "barium_green",
-      "x_offset": -1.5755913257598877
+      "x_offset": -2.5101001262664795
     },
     {
       "time": 91.556,
       "type": "firework",
-      "fw_type": 9,
+      "fw_type": 10,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 1.9312326908111572
+      "x_offset": 2.5584769248962402
     },
     {
       "time": 92.578,
       "type": "firework",
       "fw_type": 4,
       "color": "barium_green",
-      "secondary_color": "magnesium_white",
-      "x_offset": 1.038648009300232
+      "secondary_color": "barium_green",
+      "x_offset": 1.1009418964385986
     },
     {
       "time": 93.367,
       "type": "firework",
-      "fw_type": 18,
-      "color": "copper_blue",
-      "secondary_color": "copper_blue",
-      "x_offset": 2.046464443206787
+      "fw_type": 4,
+      "color": "barium_green",
+      "secondary_color": "barium_green",
+      "x_offset": 1.3398768901824951
+    },
+    {
+      "time": 93.391,
+      "type": "key_change",
+      "key": "A"
     },
     {
       "time": 94.528,
       "type": "firework",
-      "fw_type": 1,
+      "fw_type": 4,
       "color": "barium_green",
-      "secondary_color": "magnesium_white",
-      "x_offset": 6.490636825561523
+      "secondary_color": "barium_green",
+      "x_offset": 4.511048793792725
     },
     {
       "time": 95.062,
       "type": "firework",
       "fw_type": 1,
-      "color": "magnesium_white",
+      "color": "copper_blue",
       "secondary_color": "barium_green",
-      "x_offset": -2.5661840438842773
+      "x_offset": -0.2167467474937439
+    },
+    {
+      "time": 96.781,
+      "type": "dynamics",
+      "direction": "diminuendo",
+      "duration": 5.15
+    },
+    {
+      "time": 97.384,
+      "type": "climax",
+      "intensity": 1.5
     },
     {
       "time": 97.384,
@@ -1225,10 +1281,10 @@
     {
       "time": 100.287,
       "type": "firework",
-      "fw_type": 18,
+      "fw_type": 1,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 0.5561417937278748
+      "x_offset": -0.5974160432815552
     },
     {
       "time": 100.984,
@@ -1239,10 +1295,10 @@
     {
       "time": 101.657,
       "type": "firework",
-      "fw_type": 15,
-      "color": "magnesium_white",
-      "secondary_color": "sodium_gold",
-      "x_offset": 0.12025004625320435
+      "fw_type": 17,
+      "color": "sodium_gold",
+      "secondary_color": "calcium_orange",
+      "x_offset": -2.2085185050964355
     },
     {
       "time": 102.702,
@@ -1250,79 +1306,84 @@
       "fw_type": 15,
       "color": "magnesium_white",
       "secondary_color": "sodium_gold",
-      "x_offset": -1.5457406044006348
+      "x_offset": -2.448220729827881
     },
     {
       "time": 103.352,
       "type": "firework",
-      "fw_type": 1,
+      "fw_type": 0,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": 0.2937403917312622
+      "x_offset": 0.05428361892700195
     },
     {
       "time": 103.77,
       "type": "firework",
-      "fw_type": 17,
-      "color": "sodium_gold",
+      "fw_type": 15,
+      "color": "calcium_orange",
       "secondary_color": "sodium_gold",
-      "x_offset": 1.4322408437728882
+      "x_offset": 1.9435930252075195
+    },
+    {
+      "time": 103.933,
+      "type": "key_change",
+      "key": "G"
     },
     {
       "time": 104.188,
       "type": "firework",
-      "fw_type": 15,
+      "fw_type": 17,
       "color": "sodium_gold",
-      "secondary_color": "copper_blue",
-      "x_offset": -2.672694206237793
+      "secondary_color": "sodium_gold",
+      "x_offset": -0.017696738243103027
     },
     {
       "time": 104.699,
       "type": "firework",
-      "fw_type": 18,
-      "color": "sodium_gold",
-      "secondary_color": "magnesium_white",
-      "x_offset": -0.08728533983230591
+      "fw_type": 16,
+      "color": "calcium_orange",
+      "secondary_color": "sodium_gold",
+      "x_offset": 1.201195478439331
     },
     {
       "time": 105.651,
       "type": "firework",
-      "fw_type": 15,
-      "color": "sodium_gold",
+      "fw_type": 17,
+      "color": "magnesium_white",
       "secondary_color": "sodium_gold",
-      "x_offset": -1.00482177734375
+      "x_offset": -2.5517382621765137
     },
     {
       "time": 105.906,
       "type": "firework",
-      "fw_type": 18,
+      "fw_type": 16,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": 0.21131598949432373
+      "x_offset": 1.6369056701660156
     },
     {
       "time": 106.649,
       "type": "firework",
-      "fw_type": 3,
+      "fw_type": 10,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": -0.879289984703064
+      "x_offset": -1.5041029453277588
     },
     {
       "time": 106.905,
       "type": "firework",
       "fw_type": 6,
-      "color": "sodium_gold",
-      "secondary_color": "calcium_orange",
-      "x_offset": -0.9907688498497009
+      "color": "magnesium_white",
+      "secondary_color": "sodium_gold",
+      "x_offset": -2.417994499206543
     },
     {
       "time": 107.346,
       "type": "firework",
-      "fw_type": 3,
-      "color": "sodium_gold",
-      "secondary_color": "calcium_orange",
-      "x_offset": -0.6671583652496338
+      "fw_type": 1,
+      "color": "copper_blue",
+      "secondary_color": "magnesium_white",
+      "x_offset": 0.532192587852478
     },
     {
       "time": 107.787,
@@ -1330,31 +1391,31 @@
       "fw_type": 17,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": -0.6707474589347839
+      "x_offset": 1.1886892318725586
     },
     {
       "time": 108.182,
       "type": "firework",
       "fw_type": 17,
-      "color": "sodium_gold",
+      "color": "magnesium_white",
       "secondary_color": "calcium_orange",
-      "x_offset": -0.790103018283844
+      "x_offset": -0.887511134147644
     },
     {
       "time": 108.669,
       "type": "firework",
-      "fw_type": 15,
+      "fw_type": 17,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": 1.753047227859497
+      "x_offset": 1.6526862382888794
     },
     {
       "time": 109.18,
       "type": "firework",
-      "fw_type": 6,
+      "fw_type": 15,
       "color": "sodium_gold",
       "secondary_color": "magnesium_white",
-      "x_offset": 0.11117982864379883
+      "x_offset": -1.997942328453064
     },
     {
       "time": 109.691,
@@ -1362,55 +1423,55 @@
       "fw_type": 17,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": -3.585810661315918
+      "x_offset": -1.8878679275512695
     },
     {
       "time": 110.179,
       "type": "firework",
       "fw_type": 10,
-      "color": "sodium_gold",
+      "color": "magnesium_white",
       "secondary_color": "sodium_gold",
-      "x_offset": -2.943568229675293
+      "x_offset": -2.309798002243042
     },
     {
       "time": 110.434,
       "type": "firework",
       "fw_type": 15,
       "color": "sodium_gold",
-      "secondary_color": "magnesium_white",
-      "x_offset": 1.5576207637786865
+      "secondary_color": "sodium_gold",
+      "x_offset": -1.0913184881210327
     },
     {
       "time": 111.433,
       "type": "firework",
       "fw_type": 15,
-      "color": "magnesium_white",
-      "secondary_color": "magnesium_white",
-      "x_offset": -1.9895694255828857
+      "color": "calcium_orange",
+      "secondary_color": "sodium_gold",
+      "x_offset": 0.41883528232574463
     },
     {
       "time": 111.851,
       "type": "firework",
-      "fw_type": 10,
-      "color": "magnesium_white",
-      "secondary_color": "magnesium_white",
-      "x_offset": -0.3987656831741333
+      "fw_type": 3,
+      "color": "sodium_gold",
+      "secondary_color": "copper_blue",
+      "x_offset": -1.6875733137130737
     },
     {
       "time": 112.663,
       "type": "firework",
-      "fw_type": 15,
+      "fw_type": 6,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": 1.3516571521759033
+      "x_offset": 0.5323015451431274
     },
     {
       "time": 113.197,
       "type": "firework",
-      "fw_type": 17,
-      "color": "copper_blue",
-      "secondary_color": "magnesium_white",
-      "x_offset": 0.24589869379997253
+      "fw_type": 6,
+      "color": "sodium_gold",
+      "secondary_color": "calcium_orange",
+      "x_offset": -0.2379947155714035
     },
     {
       "time": 113.685,
@@ -1418,207 +1479,212 @@
       "fw_type": 15,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": -2.21492075920105
+      "x_offset": 0.5308719277381897
     },
     {
       "time": 114.173,
       "type": "firework",
-      "fw_type": 17,
+      "fw_type": 6,
       "color": "sodium_gold",
-      "secondary_color": "sodium_gold",
-      "x_offset": -2.545207977294922
+      "secondary_color": "magnesium_white",
+      "x_offset": -2.048285722732544
     },
     {
       "time": 114.707,
       "type": "firework",
-      "fw_type": 15,
-      "color": "sodium_gold",
+      "fw_type": 17,
+      "color": "calcium_orange",
       "secondary_color": "sodium_gold",
-      "x_offset": -3.4464545249938965
+      "x_offset": -3.638380527496338
     },
     {
       "time": 115.357,
       "type": "firework",
-      "fw_type": 4,
-      "color": "copper_blue",
-      "secondary_color": "sodium_gold",
-      "x_offset": -1.8914027214050293
+      "fw_type": 1,
+      "color": "sodium_gold",
+      "secondary_color": "magnesium_white",
+      "x_offset": 0.6115012764930725
     },
     {
       "time": 116.216,
       "type": "firework",
       "fw_type": 15,
-      "color": "sodium_gold",
+      "color": "magnesium_white",
       "secondary_color": "magnesium_white",
-      "x_offset": 2.777432918548584
+      "x_offset": 1.4869929552078247
     },
     {
       "time": 116.68,
       "type": "firework",
-      "fw_type": 17,
+      "fw_type": 15,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": -1.9484853744506836
+      "x_offset": -0.1945967972278595
     },
     {
       "time": 117.354,
       "type": "firework",
-      "fw_type": 10,
+      "fw_type": 1,
       "color": "sodium_gold",
-      "secondary_color": "sodium_gold",
-      "x_offset": -1.6214942932128906
+      "secondary_color": "copper_blue",
+      "x_offset": -2.962386131286621
     },
     {
       "time": 117.656,
       "type": "firework",
       "fw_type": 6,
-      "color": "copper_blue",
-      "secondary_color": "sodium_gold",
-      "x_offset": -0.1192159652709961
+      "color": "calcium_orange",
+      "secondary_color": "calcium_orange",
+      "x_offset": 3.165663003921509
     },
     {
       "time": 118.213,
       "type": "firework",
-      "fw_type": 6,
-      "color": "copper_blue",
+      "fw_type": 15,
+      "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": -0.9700574278831482
+      "x_offset": -1.4608505964279175
     },
     {
       "time": 118.677,
       "type": "firework",
-      "fw_type": 15,
+      "fw_type": 6,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": -0.5308281183242798
+      "x_offset": -1.2285568714141846
     },
     {
       "time": 119.351,
       "type": "firework",
-      "fw_type": 3,
-      "color": "copper_blue",
-      "secondary_color": "sodium_gold",
-      "x_offset": -1.0632482767105103
+      "fw_type": 18,
+      "color": "sodium_gold",
+      "secondary_color": "calcium_orange",
+      "x_offset": 0.35822880268096924
     },
     {
       "time": 119.815,
       "type": "firework",
-      "fw_type": 15,
-      "color": "magnesium_white",
-      "secondary_color": "calcium_orange",
-      "x_offset": -3.125075340270996
+      "fw_type": 17,
+      "color": "sodium_gold",
+      "secondary_color": "sodium_gold",
+      "x_offset": -3.1480319499969482
     },
     {
       "time": 120.21,
       "type": "firework",
       "fw_type": 17,
-      "color": "magnesium_white",
-      "secondary_color": "magnesium_white",
-      "x_offset": -0.4393278658390045
+      "color": "calcium_orange",
+      "secondary_color": "sodium_gold",
+      "x_offset": -1.759047508239746
     },
     {
       "time": 120.651,
       "type": "firework",
-      "fw_type": 17,
+      "fw_type": 6,
       "color": "calcium_orange",
-      "secondary_color": "sodium_gold",
-      "x_offset": 2.135087728500366
+      "secondary_color": "magnesium_white",
+      "x_offset": 1.0783233642578125
     },
     {
       "time": 121.162,
       "type": "firework",
-      "fw_type": 15,
+      "fw_type": 6,
       "color": "magnesium_white",
-      "secondary_color": "sodium_gold",
-      "x_offset": 1.4398787021636963
+      "secondary_color": "magnesium_white",
+      "x_offset": 1.5411396026611328
     },
     {
       "time": 121.673,
       "type": "firework",
-      "fw_type": 15,
+      "fw_type": 17,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": 0.029512643814086914
+      "x_offset": -2.104783058166504
     },
     {
       "time": 122.23,
       "type": "firework",
-      "fw_type": 17,
-      "color": "sodium_gold",
+      "fw_type": 15,
+      "color": "calcium_orange",
       "secondary_color": "sodium_gold",
-      "x_offset": 0.4305088520050049
+      "x_offset": 0.7997697591781616
     },
     {
       "time": 122.764,
       "type": "firework",
-      "fw_type": 6,
+      "fw_type": 17,
       "color": "sodium_gold",
-      "secondary_color": "magnesium_white",
-      "x_offset": 1.3649697303771973
+      "secondary_color": "sodium_gold",
+      "x_offset": -0.053440749645233154
     },
     {
       "time": 123.252,
       "type": "firework",
-      "fw_type": 17,
+      "fw_type": 6,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": -1.0198479890823364
+      "x_offset": -2.2444090843200684
     },
     {
       "time": 123.669,
       "type": "firework",
       "fw_type": 6,
       "color": "sodium_gold",
-      "secondary_color": "calcium_orange",
-      "x_offset": 0.5516031980514526
+      "secondary_color": "sodium_gold",
+      "x_offset": 0.7258058786392212
     },
     {
       "time": 127.176,
       "type": "firework",
-      "fw_type": 18,
+      "fw_type": 9,
       "color": "sodium_gold",
-      "secondary_color": "calcium_orange",
-      "x_offset": -1.657008409500122
+      "secondary_color": "sodium_gold",
+      "x_offset": -0.5661146640777588
     },
     {
       "time": 127.942,
       "type": "firework",
       "fw_type": 9,
-      "color": "copper_blue",
+      "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": -0.4713273346424103
+      "x_offset": 0.9641351103782654
+    },
+    {
+      "time": 128.36,
+      "type": "key_change",
+      "key": "E"
     },
     {
       "time": 128.964,
       "type": "firework",
-      "fw_type": 16,
+      "fw_type": 9,
       "color": "sodium_gold",
-      "secondary_color": "sodium_gold",
-      "x_offset": -0.8323079347610474
+      "secondary_color": "copper_blue",
+      "x_offset": -0.9849299192428589
     },
     {
       "time": 129.962,
       "type": "firework",
-      "fw_type": 18,
+      "fw_type": 9,
       "color": "sodium_gold",
-      "secondary_color": "copper_blue",
-      "x_offset": -1.3842586278915405
+      "secondary_color": "sodium_gold",
+      "x_offset": 1.2199987173080444
     },
     {
       "time": 132.145,
       "type": "firework",
-      "fw_type": 10,
-      "color": "sodium_gold",
+      "fw_type": 18,
+      "color": "calcium_orange",
       "secondary_color": "sodium_gold",
-      "x_offset": 0.275091290473938
+      "x_offset": -1.2895039319992065
     },
     {
       "time": 134.142,
       "type": "firework",
-      "fw_type": 1,
+      "fw_type": 10,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": -3.8835532665252686
+      "x_offset": -1.616379737854004
     },
     {
       "time": 134.931,
@@ -1626,39 +1692,39 @@
       "fw_type": 10,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": -0.31726545095443726
+      "x_offset": -1.322445273399353
     },
     {
       "time": 136.208,
       "type": "firework",
-      "fw_type": 10,
+      "fw_type": 1,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": 0.03817737102508545
+      "x_offset": -2.065845012664795
     },
     {
       "time": 137.462,
       "type": "firework",
-      "fw_type": 1,
+      "fw_type": 9,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": 2.410459280014038
+      "x_offset": 3.3935554027557373
     },
     {
       "time": 138.461,
       "type": "firework",
       "fw_type": 16,
-      "color": "sodium_gold",
+      "color": "copper_blue",
       "secondary_color": "sodium_gold",
-      "x_offset": -1.0064809322357178
+      "x_offset": 0.9774404764175415
     },
     {
       "time": 139.436,
       "type": "firework",
-      "fw_type": 9,
-      "color": "copper_blue",
+      "fw_type": 1,
+      "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": -0.3367435038089752
+      "x_offset": 2.1840951442718506
     },
     {
       "time": 141.154,
@@ -1670,57 +1736,57 @@
       "time": 143.221,
       "type": "firework",
       "fw_type": 16,
-      "color": "copper_blue",
-      "secondary_color": "potassium_purple",
-      "x_offset": -0.2740861177444458
+      "color": "potassium_purple",
+      "secondary_color": "magnesium_white",
+      "x_offset": -0.9483662843704224
     },
     {
       "time": 145.194,
       "type": "firework",
       "fw_type": 16,
-      "color": "potassium_purple",
-      "secondary_color": "potassium_purple",
-      "x_offset": 0.5361455082893372
+      "color": "copper_blue",
+      "secondary_color": "copper_blue",
+      "x_offset": -0.16659313440322876
     },
     {
       "time": 147.772,
       "type": "firework",
       "fw_type": 16,
-      "color": "potassium_purple",
-      "secondary_color": "potassium_purple",
-      "x_offset": 1.6062238216400146
+      "color": "copper_blue",
+      "secondary_color": "magnesium_white",
+      "x_offset": 1.928023099899292
     },
     {
       "time": 148.399,
       "type": "firework",
       "fw_type": 16,
-      "color": "magnesium_white",
+      "color": "copper_blue",
       "secondary_color": "magnesium_white",
-      "x_offset": 1.0692343711853027
+      "x_offset": 0.979106068611145
     },
     {
       "time": 151.185,
       "type": "firework",
       "fw_type": 16,
       "color": "potassium_purple",
-      "secondary_color": "magnesium_white",
-      "x_offset": 2.761263608932495
+      "secondary_color": "copper_blue",
+      "x_offset": -0.26351630687713623
     },
     {
       "time": 152.625,
       "type": "firework",
       "fw_type": 16,
-      "color": "potassium_purple",
+      "color": "copper_blue",
       "secondary_color": "copper_blue",
-      "x_offset": 1.703648567199707
+      "x_offset": 1.5252723693847656
     },
     {
       "time": 153.205,
       "type": "firework",
       "fw_type": 16,
-      "color": "potassium_purple",
+      "color": "magnesium_white",
       "secondary_color": "magnesium_white",
-      "x_offset": 0.3394101858139038
+      "x_offset": 0.48739880323410034
     },
     {
       "time": 153.879,
@@ -1728,15 +1794,15 @@
       "fw_type": 16,
       "color": "copper_blue",
       "secondary_color": "magnesium_white",
-      "x_offset": -1.37050461769104
+      "x_offset": -2.408238172531128
     },
     {
       "time": 155.759,
       "type": "firework",
       "fw_type": 16,
-      "color": "potassium_purple",
-      "secondary_color": "magnesium_white",
-      "x_offset": 3.287153482437134
+      "color": "copper_blue",
+      "secondary_color": "copper_blue",
+      "x_offset": 1.7479618787765503
     },
     {
       "time": 156.758,
@@ -1744,23 +1810,23 @@
       "fw_type": 16,
       "color": "copper_blue",
       "secondary_color": "magnesium_white",
-      "x_offset": 2.3557560443878174
+      "x_offset": 1.3789936304092407
     },
     {
       "time": 157.222,
       "type": "firework",
       "fw_type": 16,
-      "color": "potassium_purple",
-      "secondary_color": "magnesium_white",
-      "x_offset": -1.3057525157928467
+      "color": "magnesium_white",
+      "secondary_color": "copper_blue",
+      "x_offset": -1.7547723054885864
     },
     {
       "time": 157.896,
       "type": "firework",
       "fw_type": 16,
-      "color": "potassium_purple",
-      "secondary_color": "magnesium_white",
-      "x_offset": -0.01588493585586548
+      "color": "magnesium_white",
+      "secondary_color": "potassium_purple",
+      "x_offset": 0.75728440284729
     },
     {
       "time": 158.407,
@@ -1768,127 +1834,127 @@
       "fw_type": 16,
       "color": "potassium_purple",
       "secondary_color": "magnesium_white",
-      "x_offset": 1.6677310466766357
+      "x_offset": -0.05157744139432907
     },
     {
       "time": 159.405,
       "type": "firework",
       "fw_type": 16,
-      "color": "potassium_purple",
+      "color": "copper_blue",
       "secondary_color": "potassium_purple",
-      "x_offset": -0.28936851024627686
+      "x_offset": -3.003139019012451
     },
     {
       "time": 159.893,
       "type": "firework",
-      "fw_type": 15,
+      "fw_type": 17,
       "color": "magnesium_white",
-      "secondary_color": "magnesium_white",
-      "x_offset": 1.3343334197998047
+      "secondary_color": "potassium_purple",
+      "x_offset": 0.05585183948278427
     },
     {
       "time": 160.357,
       "type": "firework",
-      "fw_type": 2,
-      "color": "potassium_purple",
-      "secondary_color": "magnesium_white",
-      "x_offset": 1.294247031211853
+      "fw_type": 5,
+      "color": "copper_blue",
+      "secondary_color": "copper_blue",
+      "x_offset": -0.7781530618667603
     },
     {
       "time": 160.682,
       "type": "firework",
       "fw_type": 15,
       "color": "magnesium_white",
-      "secondary_color": "magnesium_white",
-      "x_offset": 0.9153156876564026
+      "secondary_color": "copper_blue",
+      "x_offset": -0.2073308825492859
     },
     {
       "time": 161.286,
       "type": "firework",
       "fw_type": 15,
       "color": "magnesium_white",
-      "secondary_color": "magnesium_white",
-      "x_offset": -1.660786509513855
+      "secondary_color": "copper_blue",
+      "x_offset": -0.3001103401184082
     },
     {
       "time": 161.681,
       "type": "firework",
-      "fw_type": 15,
+      "fw_type": 6,
       "color": "copper_blue",
       "secondary_color": "magnesium_white",
-      "x_offset": -0.9532840251922607
+      "x_offset": -1.0889958143234253
     },
     {
       "time": 162.633,
       "type": "firework",
-      "fw_type": 17,
+      "fw_type": 6,
       "color": "potassium_purple",
-      "secondary_color": "magnesium_white",
-      "x_offset": -2.964932918548584
+      "secondary_color": "potassium_purple",
+      "x_offset": 0.0448613166809082
     },
     {
       "time": 162.911,
       "type": "firework",
       "fw_type": 16,
       "color": "magnesium_white",
-      "secondary_color": "potassium_purple",
-      "x_offset": -3.0039727687835693
+      "secondary_color": "magnesium_white",
+      "x_offset": 0.01964390277862549
     },
     {
       "time": 163.399,
       "type": "firework",
       "fw_type": 16,
-      "color": "magnesium_white",
+      "color": "copper_blue",
       "secondary_color": "magnesium_white",
-      "x_offset": 0.813108503818512
+      "x_offset": -2.252847671508789
     },
     {
       "time": 163.91,
       "type": "firework",
-      "fw_type": 17,
-      "color": "magnesium_white",
+      "fw_type": 6,
+      "color": "copper_blue",
       "secondary_color": "magnesium_white",
-      "x_offset": -0.505988597869873
+      "x_offset": -4.017521381378174
     },
     {
       "time": 164.351,
       "type": "firework",
       "fw_type": 5,
-      "color": "copper_blue",
-      "secondary_color": "copper_blue",
-      "x_offset": -0.42115381360054016
+      "color": "potassium_purple",
+      "secondary_color": "magnesium_white",
+      "x_offset": -1.328444004058838
     },
     {
       "time": 165.21,
       "type": "firework",
-      "fw_type": 14,
-      "color": "potassium_purple",
-      "secondary_color": "copper_blue",
-      "x_offset": -3.796168804168701
+      "fw_type": 17,
+      "color": "magnesium_white",
+      "secondary_color": "potassium_purple",
+      "x_offset": -1.943540334701538
     },
     {
       "time": 165.698,
       "type": "firework",
-      "fw_type": 15,
-      "color": "magnesium_white",
-      "secondary_color": "copper_blue",
-      "x_offset": -4.16904354095459
+      "fw_type": 6,
+      "color": "copper_blue",
+      "secondary_color": "magnesium_white",
+      "x_offset": -2.223390817642212
     },
     {
       "time": 166.185,
       "type": "firework",
       "fw_type": 17,
       "color": "magnesium_white",
-      "secondary_color": "copper_blue",
-      "x_offset": -3.3611950874328613
+      "secondary_color": "potassium_purple",
+      "x_offset": -4.4897074699401855
     },
     {
       "time": 166.65,
       "type": "firework",
-      "fw_type": 14,
-      "color": "magnesium_white",
-      "secondary_color": "potassium_purple",
-      "x_offset": -2.4166338443756104
+      "fw_type": 17,
+      "color": "copper_blue",
+      "secondary_color": "copper_blue",
+      "x_offset": -1.71056067943573
     },
     {
       "time": 167.16,
@@ -1896,55 +1962,55 @@
       "fw_type": 15,
       "color": "magnesium_white",
       "secondary_color": "magnesium_white",
-      "x_offset": 1.528397798538208
+      "x_offset": -0.07234841585159302
     },
     {
       "time": 168.368,
       "type": "firework",
       "fw_type": 5,
-      "color": "copper_blue",
+      "color": "potassium_purple",
       "secondary_color": "copper_blue",
-      "x_offset": 0.9877902269363403
+      "x_offset": 0.7183743119239807
     },
     {
       "time": 168.902,
       "type": "firework",
-      "fw_type": 6,
+      "fw_type": 15,
       "color": "magnesium_white",
-      "secondary_color": "copper_blue",
-      "x_offset": -0.1398836374282837
+      "secondary_color": "magnesium_white",
+      "x_offset": -1.0259641408920288
     },
     {
       "time": 169.297,
       "type": "firework",
-      "fw_type": 14,
-      "color": "magnesium_white",
+      "fw_type": 15,
+      "color": "copper_blue",
       "secondary_color": "magnesium_white",
-      "x_offset": -2.340179920196533
+      "x_offset": -3.440438985824585
     },
     {
       "time": 169.668,
       "type": "firework",
       "fw_type": 17,
-      "color": "potassium_purple",
-      "secondary_color": "magnesium_white",
-      "x_offset": -1.9778386354446411
+      "color": "magnesium_white",
+      "secondary_color": "potassium_purple",
+      "x_offset": 0.6883214712142944
     },
     {
       "time": 170.434,
       "type": "firework",
-      "fw_type": 15,
-      "color": "magnesium_white",
-      "secondary_color": "magnesium_white",
-      "x_offset": -0.18170246481895447
+      "fw_type": 6,
+      "color": "copper_blue",
+      "secondary_color": "potassium_purple",
+      "x_offset": 0.4797469973564148
     },
     {
       "time": 171.154,
       "type": "firework",
-      "fw_type": 6,
-      "color": "potassium_purple",
+      "fw_type": 14,
+      "color": "magnesium_white",
       "secondary_color": "magnesium_white",
-      "x_offset": -3.0245304107666016
+      "x_offset": -1.7774858474731445
     },
     {
       "time": 171.665,
@@ -1952,103 +2018,108 @@
       "fw_type": 14,
       "color": "magnesium_white",
       "secondary_color": "magnesium_white",
-      "x_offset": -0.32059425115585327
+      "x_offset": -2.2841970920562744
     },
     {
       "time": 172.362,
       "type": "firework",
-      "fw_type": 2,
+      "fw_type": 5,
       "color": "magnesium_white",
-      "secondary_color": "potassium_purple",
-      "x_offset": -1.8947988748550415
+      "secondary_color": "copper_blue",
+      "x_offset": -0.0545998215675354
     },
     {
       "time": 172.71,
       "type": "firework",
       "fw_type": 14,
-      "color": "potassium_purple",
-      "secondary_color": "copper_blue",
-      "x_offset": -1.1406422853469849
+      "color": "copper_blue",
+      "secondary_color": "magnesium_white",
+      "x_offset": -2.9955132007598877
     },
     {
       "time": 173.221,
       "type": "firework",
-      "fw_type": 6,
+      "fw_type": 15,
       "color": "magnesium_white",
-      "secondary_color": "magnesium_white",
-      "x_offset": -1.8439536094665527
+      "secondary_color": "potassium_purple",
+      "x_offset": -2.4452311992645264
     },
     {
       "time": 173.569,
       "type": "firework",
       "fw_type": 15,
-      "color": "magnesium_white",
-      "secondary_color": "magnesium_white",
-      "x_offset": -1.1148483753204346
+      "color": "copper_blue",
+      "secondary_color": "potassium_purple",
+      "x_offset": -1.7363464832305908
     },
     {
       "time": 173.941,
       "type": "firework",
       "fw_type": 17,
-      "color": "magnesium_white",
-      "secondary_color": "magnesium_white",
-      "x_offset": -2.3572492599487305
+      "color": "copper_blue",
+      "secondary_color": "potassium_purple",
+      "x_offset": 1.9197492599487305
     },
     {
       "time": 174.359,
       "type": "firework",
-      "fw_type": 2,
-      "color": "copper_blue",
-      "secondary_color": "potassium_purple",
-      "x_offset": -1.228074073791504
+      "fw_type": 5,
+      "color": "magnesium_white",
+      "secondary_color": "copper_blue",
+      "x_offset": 0.798987627029419
     },
     {
       "time": 174.8,
       "type": "firework",
-      "fw_type": 15,
-      "color": "magnesium_white",
+      "fw_type": 17,
+      "color": "copper_blue",
       "secondary_color": "copper_blue",
-      "x_offset": -1.4886497259140015
+      "x_offset": 0.34561148285865784
     },
     {
       "time": 175.218,
       "type": "firework",
-      "fw_type": 14,
-      "color": "copper_blue",
-      "secondary_color": "copper_blue",
-      "x_offset": 0.11082880198955536
+      "fw_type": 17,
+      "color": "magnesium_white",
+      "secondary_color": "magnesium_white",
+      "x_offset": -2.0416765213012695
     },
     {
       "time": 175.566,
       "type": "firework",
       "fw_type": 6,
-      "color": "copper_blue",
-      "secondary_color": "magnesium_white",
-      "x_offset": 1.093101143836975
+      "color": "potassium_purple",
+      "secondary_color": "copper_blue",
+      "x_offset": -2.7068471908569336
     },
     {
       "time": 175.938,
       "type": "firework",
-      "fw_type": 14,
-      "color": "copper_blue",
-      "secondary_color": "copper_blue",
-      "x_offset": -1.5779014825820923
+      "fw_type": 17,
+      "color": "magnesium_white",
+      "secondary_color": "magnesium_white",
+      "x_offset": 0.826096773147583
+    },
+    {
+      "time": 176.286,
+      "type": "key_change",
+      "key": "A"
     },
     {
       "time": 176.356,
       "type": "firework",
       "fw_type": 5,
-      "color": "potassium_purple",
-      "secondary_color": "potassium_purple",
-      "x_offset": -1.459248423576355
+      "color": "magnesium_white",
+      "secondary_color": "magnesium_white",
+      "x_offset": -1.0192062854766846
     },
     {
       "time": 176.797,
       "type": "firework",
-      "fw_type": 17,
-      "color": "copper_blue",
-      "secondary_color": "magnesium_white",
-      "x_offset": 1.4957574605941772
+      "fw_type": 15,
+      "color": "magnesium_white",
+      "secondary_color": "copper_blue",
+      "x_offset": 2.198237419128418
     },
     {
       "time": 177.075,
@@ -2059,10 +2130,10 @@
     {
       "time": 177.563,
       "type": "firework",
-      "fw_type": 6,
+      "fw_type": 15,
       "color": "sodium_gold",
-      "secondary_color": "calcium_orange",
-      "x_offset": 0.9755674004554749
+      "secondary_color": "sodium_gold",
+      "x_offset": 2.6826467514038086
     },
     {
       "time": 178.167,
@@ -2070,87 +2141,87 @@
       "fw_type": 6,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": -0.04116690158843994
+      "x_offset": -3.7368898391723633
     },
     {
       "time": 178.724,
       "type": "firework",
-      "fw_type": 15,
-      "color": "calcium_orange",
-      "secondary_color": "sodium_gold",
-      "x_offset": 0.3006923198699951
+      "fw_type": 6,
+      "color": "sodium_gold",
+      "secondary_color": "magnesium_white",
+      "x_offset": -2.9837303161621094
     },
     {
       "time": 179.212,
       "type": "firework",
       "fw_type": 17,
-      "color": "sodium_gold",
-      "secondary_color": "calcium_orange",
-      "x_offset": 0.5619761347770691
+      "color": "magnesium_white",
+      "secondary_color": "sodium_gold",
+      "x_offset": -2.7038304805755615
     },
     {
       "time": 179.955,
       "type": "firework",
-      "fw_type": 15,
+      "fw_type": 17,
       "color": "sodium_gold",
-      "secondary_color": "sodium_gold",
-      "x_offset": -0.9580734968185425
+      "secondary_color": "magnesium_white",
+      "x_offset": -1.743857502937317
     },
     {
       "time": 180.442,
       "type": "firework",
-      "fw_type": 17,
-      "color": "sodium_gold",
-      "secondary_color": "calcium_orange",
-      "x_offset": 1.8543702363967896
+      "fw_type": 6,
+      "color": "calcium_orange",
+      "secondary_color": "sodium_gold",
+      "x_offset": 0.9792143106460571
     },
     {
       "time": 180.767,
       "type": "firework",
-      "fw_type": 9,
-      "color": "magnesium_white",
+      "fw_type": 1,
+      "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": -1.8126336336135864
+      "x_offset": -2.0545620918273926
     },
     {
       "time": 182.462,
       "type": "firework",
       "fw_type": 6,
       "color": "sodium_gold",
-      "secondary_color": "calcium_orange",
-      "x_offset": -3.4606003761291504
+      "secondary_color": "magnesium_white",
+      "x_offset": -0.29625654220581055
     },
     {
       "time": 182.95,
       "type": "firework",
-      "fw_type": 6,
+      "fw_type": 15,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": 1.9286274909973145
+      "x_offset": 0.5293214321136475
     },
     {
       "time": 183.414,
       "type": "firework",
-      "fw_type": 6,
+      "fw_type": 15,
       "color": "sodium_gold",
-      "secondary_color": "sodium_gold",
-      "x_offset": -2.4271481037139893
+      "secondary_color": "magnesium_white",
+      "x_offset": -1.5259097814559937
     },
     {
       "time": 183.716,
       "type": "firework",
-      "fw_type": 16,
+      "fw_type": 3,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": -0.6405690312385559
+      "x_offset": 1.722730040550232
     },
     {
       "time": 184.204,
       "type": "firework",
-      "fw_type": 18,
-      "color": "copper_blue",
-      "secondary_color": "sodium_gold",
-      "x_offset": -0.10736215114593506
+      "fw_type": 9,
+      "color": "sodium_gold",
+      "secondary_color": "calcium_orange",
+      "x_offset": 0.526536226272583
     },
     {
       "time": 184.459,
@@ -2158,7 +2229,7 @@
       "fw_type": 15,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": -2.3969886302948
+      "x_offset": -1.504582166671753
     },
     {
       "time": 184.738,
@@ -2169,74 +2240,79 @@
     {
       "time": 185.086,
       "type": "firework",
-      "fw_type": 15,
+      "fw_type": 6,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": 1.0977342128753662
+      "x_offset": -0.8645801544189453
     },
     {
       "time": 185.504,
       "type": "firework",
       "fw_type": 15,
       "color": "barium_green",
-      "secondary_color": "strontium_red",
-      "x_offset": 3.382838249206543
+      "secondary_color": "barium_green",
+      "x_offset": -0.10934829711914062
     },
     {
       "time": 187.199,
       "type": "firework",
-      "fw_type": 1,
-      "color": "copper_blue",
+      "fw_type": 4,
+      "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": -0.9559414982795715
+      "x_offset": 0.4018290936946869
     },
     {
       "time": 187.455,
       "type": "firework",
-      "fw_type": 15,
-      "color": "barium_green",
+      "fw_type": 14,
+      "color": "strontium_red",
       "secondary_color": "barium_green",
-      "x_offset": -1.2130032777786255
+      "x_offset": -1.0499894618988037
     },
     {
       "time": 188.175,
       "type": "firework",
-      "fw_type": 14,
-      "color": "barium_green",
-      "secondary_color": "magnesium_white",
-      "x_offset": 1.5095430612564087
+      "fw_type": 17,
+      "color": "copper_blue",
+      "secondary_color": "barium_green",
+      "x_offset": 1.8688832521438599
     },
     {
       "time": 188.685,
       "type": "firework",
       "fw_type": 6,
       "color": "barium_green",
-      "secondary_color": "strontium_red",
-      "x_offset": 2.609921455383301
+      "secondary_color": "barium_green",
+      "x_offset": 1.6817797422409058
     },
     {
       "time": 189.266,
       "type": "firework",
-      "fw_type": 15,
-      "color": "copper_blue",
-      "secondary_color": "strontium_red",
-      "x_offset": -0.7105013728141785
+      "fw_type": 14,
+      "color": "strontium_red",
+      "secondary_color": "barium_green",
+      "x_offset": -0.2527620792388916
     },
     {
       "time": 190.195,
       "type": "firework",
       "fw_type": 17,
-      "color": "magnesium_white",
+      "color": "strontium_red",
       "secondary_color": "barium_green",
-      "x_offset": 1.979093313217163
+      "x_offset": 2.3475277423858643
     },
     {
       "time": 190.659,
       "type": "firework",
       "fw_type": 6,
       "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": -3.0560779571533203
+      "secondary_color": "magnesium_white",
+      "x_offset": -2.62957763671875
+    },
+    {
+      "time": 192.702,
+      "type": "climax",
+      "intensity": 1.5
     },
     {
       "time": 192.702,
@@ -2246,114 +2322,114 @@
     {
       "time": 195.001,
       "type": "firework",
-      "fw_type": 17,
-      "color": "copper_blue",
-      "secondary_color": "strontium_red",
-      "x_offset": 2.199084997177124
+      "fw_type": 6,
+      "color": "barium_green",
+      "secondary_color": "barium_green",
+      "x_offset": -1.6204553842544556
     },
     {
       "time": 195.466,
       "type": "firework",
-      "fw_type": 17,
+      "fw_type": 14,
       "color": "barium_green",
-      "secondary_color": "strontium_red",
-      "x_offset": 1.3282599449157715
+      "secondary_color": "barium_green",
+      "x_offset": -0.17356382310390472
     },
     {
       "time": 195.884,
       "type": "firework",
-      "fw_type": 17,
+      "fw_type": 14,
       "color": "barium_green",
-      "secondary_color": "magnesium_white",
-      "x_offset": -0.4153730869293213
+      "secondary_color": "barium_green",
+      "x_offset": -0.9903672933578491
     },
     {
       "time": 196.418,
       "type": "firework",
-      "fw_type": 17,
+      "fw_type": 6,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": -0.18001246452331543
+      "x_offset": 2.8957858085632324
     },
     {
       "time": 196.719,
       "type": "firework",
-      "fw_type": 10,
-      "color": "barium_green",
+      "fw_type": 1,
+      "color": "copper_blue",
       "secondary_color": "barium_green",
-      "x_offset": 3.7854878902435303
+      "x_offset": 3.1530022621154785
     },
     {
       "time": 198.206,
       "type": "firework",
-      "fw_type": 4,
+      "fw_type": 9,
       "color": "barium_green",
-      "secondary_color": "strontium_red",
-      "x_offset": -1.4036067724227905
+      "secondary_color": "barium_green",
+      "x_offset": 2.469588279724121
     },
     {
       "time": 198.461,
       "type": "firework",
-      "fw_type": 17,
+      "fw_type": 15,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": -2.5919365882873535
+      "x_offset": -3.045030355453491
     },
     {
       "time": 198.879,
       "type": "firework",
-      "fw_type": 9,
+      "fw_type": 4,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": -1.1773332357406616
+      "x_offset": 1.9302291870117188
     },
     {
       "time": 199.645,
       "type": "firework",
-      "fw_type": 9,
-      "color": "magnesium_white",
-      "secondary_color": "magnesium_white",
-      "x_offset": 0.9753363132476807
+      "fw_type": 10,
+      "color": "barium_green",
+      "secondary_color": "copper_blue",
+      "x_offset": -0.5551532506942749
     },
     {
       "time": 200.272,
       "type": "firework",
       "fw_type": 16,
-      "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": -1.249021291732788
+      "color": "copper_blue",
+      "secondary_color": "magnesium_white",
+      "x_offset": -0.09851718693971634
     },
     {
       "time": 200.737,
       "type": "firework",
-      "fw_type": 10,
+      "fw_type": 1,
       "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": -0.6641183495521545
+      "secondary_color": "strontium_red",
+      "x_offset": -2.0850281715393066
     },
     {
       "time": 201.271,
       "type": "firework",
-      "fw_type": 1,
+      "fw_type": 16,
       "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": -0.5137985348701477
+      "x_offset": 1.745044231414795
     },
     {
       "time": 201.735,
       "type": "firework",
-      "fw_type": 10,
-      "color": "magnesium_white",
+      "fw_type": 9,
+      "color": "barium_green",
       "secondary_color": "barium_green",
-      "x_offset": -1.2256582975387573
+      "x_offset": -0.7662569284439087
     },
     {
       "time": 202.501,
       "type": "firework",
-      "fw_type": 15,
-      "color": "barium_green",
-      "secondary_color": "barium_green",
-      "x_offset": 1.5320186614990234
+      "fw_type": 6,
+      "color": "strontium_red",
+      "secondary_color": "magnesium_white",
+      "x_offset": -0.41944122314453125
     },
     {
       "time": 202.757,
@@ -2364,98 +2440,98 @@
     {
       "time": 203.593,
       "type": "firework",
-      "fw_type": 6,
+      "fw_type": 17,
       "color": "sodium_gold",
-      "secondary_color": "sodium_gold",
-      "x_offset": -2.375816822052002
+      "secondary_color": "magnesium_white",
+      "x_offset": 0.24273645877838135
     },
     {
       "time": 204.382,
       "type": "firework",
-      "fw_type": 17,
+      "fw_type": 15,
       "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": -1.7411127090454102
+      "x_offset": 1.105212926864624
     },
     {
       "time": 204.893,
       "type": "firework",
-      "fw_type": 17,
+      "fw_type": 6,
       "color": "sodium_gold",
       "secondary_color": "calcium_orange",
-      "x_offset": 1.482926845550537
+      "x_offset": 2.0335464477539062
     },
     {
       "time": 205.45,
       "type": "firework",
-      "fw_type": 6,
-      "color": "calcium_orange",
+      "fw_type": 15,
+      "color": "sodium_gold",
       "secondary_color": "sodium_gold",
-      "x_offset": -1.7452921867370605
+      "x_offset": 0.3978375196456909
     },
     {
       "time": 206.17,
       "type": "firework",
-      "fw_type": 17,
+      "fw_type": 6,
       "color": "sodium_gold",
       "secondary_color": "magnesium_white",
-      "x_offset": 1.1262227296829224
+      "x_offset": 0.9777191877365112
     },
     {
       "time": 206.518,
       "type": "firework",
       "fw_type": 15,
-      "color": "sodium_gold",
-      "secondary_color": "magnesium_white",
-      "x_offset": -3.099961280822754
+      "color": "copper_blue",
+      "secondary_color": "calcium_orange",
+      "x_offset": 0.48904502391815186
     },
     {
       "time": 206.89,
       "type": "firework",
       "fw_type": 17,
-      "color": "copper_blue",
-      "secondary_color": "sodium_gold",
-      "x_offset": -1.3811559677124023
+      "color": "sodium_gold",
+      "secondary_color": "magnesium_white",
+      "x_offset": 0.15975068509578705
     },
     {
       "time": 207.517,
       "type": "firework",
       "fw_type": 6,
-      "color": "magnesium_white",
-      "secondary_color": "sodium_gold",
-      "x_offset": 0.4457104206085205
+      "color": "sodium_gold",
+      "secondary_color": "magnesium_white",
+      "x_offset": 0.15181505680084229
     },
     {
       "time": 208.167,
       "type": "firework",
-      "fw_type": 16,
+      "fw_type": 1,
       "color": "sodium_gold",
-      "secondary_color": "sodium_gold",
-      "x_offset": -0.022190630435943604
+      "secondary_color": "calcium_orange",
+      "x_offset": -0.8899284601211548
     },
     {
       "time": 208.469,
       "type": "firework",
-      "fw_type": 6,
-      "color": "calcium_orange",
+      "fw_type": 15,
+      "color": "magnesium_white",
       "secondary_color": "sodium_gold",
-      "x_offset": -2.706716775894165
+      "x_offset": 0.8922410607337952
     },
     {
       "time": 208.933,
       "type": "firework",
-      "fw_type": 17,
+      "fw_type": 15,
       "color": "sodium_gold",
-      "secondary_color": "calcium_orange",
-      "x_offset": 0.022606253623962402
+      "secondary_color": "sodium_gold",
+      "x_offset": -0.8343935012817383
     },
     {
       "time": 209.467,
       "type": "firework",
       "fw_type": 17,
-      "color": "copper_blue",
-      "secondary_color": "calcium_orange",
-      "x_offset": -4.416661262512207
+      "color": "sodium_gold",
+      "secondary_color": "sodium_gold",
+      "x_offset": -1.2716009616851807
     },
     {
       "time": 209.932,
@@ -2466,34 +2542,34 @@
     {
       "time": 210.373,
       "type": "firework",
-      "fw_type": 6,
+      "fw_type": 14,
       "color": "copper_blue",
-      "secondary_color": "magnesium_white",
-      "x_offset": -0.6314498782157898
+      "secondary_color": "potassium_purple",
+      "x_offset": -0.9415693879127502
     },
     {
       "time": 210.884,
       "type": "firework",
       "fw_type": 16,
-      "color": "magnesium_white",
-      "secondary_color": "copper_blue",
-      "x_offset": 1.2739113569259644
+      "color": "potassium_purple",
+      "secondary_color": "magnesium_white",
+      "x_offset": -1.0818067789077759
     },
     {
       "time": 211.209,
       "type": "firework",
       "fw_type": 17,
       "color": "magnesium_white",
-      "secondary_color": "magnesium_white",
-      "x_offset": -0.015873432159423828
+      "secondary_color": "potassium_purple",
+      "x_offset": 0.7491294145584106
     },
     {
       "time": 211.952,
       "type": "firework",
       "fw_type": 17,
       "color": "magnesium_white",
-      "secondary_color": "magnesium_white",
-      "x_offset": 1.5464447736740112
+      "secondary_color": "potassium_purple",
+      "x_offset": 1.4308711290359497
     }
   ]
 }

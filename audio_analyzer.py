@@ -16,6 +16,8 @@ COLORS_KEYS = [
     "magnesium_white"
 ]
 
+ANALYZER_VERSION = 3
+
 def get_panning(t_sec, fs, y_left, y_right, window_duration=0.1):
     """Calculates local stereo panning index from -1.0 (hard left) to 1.0 (hard right)."""
     half_len = int(window_duration * fs / 2)
@@ -136,6 +138,7 @@ def analyze_audio(mp3_path, color_hints=None):
     mid_env = mid_env[:min_len]
     high_env = high_env[:min_len]
     rms = rms[:min_len]
+    mag = mag[:, :min_len]
     
     # Normalize envelopes
     def norm(env):
@@ -278,6 +281,11 @@ def analyze_audio(mp3_path, color_hints=None):
         climax_times.append(t_sec)
         events.append({
             "time": round(t_sec, 3),
+            "type": "climax",
+            "intensity": 1.5
+        })
+        events.append({
+            "time": round(t_sec, 3),
             "type": "routine",
             "name": routines[routine_idx % len(routines)]
         })
@@ -407,6 +415,90 @@ def analyze_audio(mp3_path, color_hints=None):
             "x_offset": float(x_offset)
         })
         
+    # 10. Advanced Offline Music Key shift and Dynamics analysis
+    try:
+        # A. Musical Key Shift Detection using pure NumPy/SciPy Chromagram Analysis
+        f_safe = np.clip(f, 1.0, None)
+        midi_notes = 12 * np.log2(f_safe / 440.0) + 69.0
+        pitch_classes = np.round(midi_notes).astype(int) % 12
+        
+        chromagram = np.zeros((12, len(t)))
+        for c_bin in range(12):
+            mask = (pitch_classes == c_bin) & (f >= 100) & (f <= 2000)
+            if np.any(mask):
+                chromagram[c_bin, :] = np.sum(mag[mask, :], axis=0)
+                
+        chroma_norm = np.zeros_like(chromagram)
+        for col in range(chromagram.shape[1]):
+            col_sum = np.sum(chromagram[:, col])
+            if col_sum > 0:
+                chroma_norm[:, col] = chromagram[:, col] / col_sum
+                
+        from scipy.ndimage import gaussian_filter1d
+        chroma_smooth = gaussian_filter1d(chroma_norm, sigma=int(5.0 * fps_audio), axis=1)
+        dominant_pitch = np.argmax(chroma_smooth, axis=0)
+        note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        
+        key_changes = []
+        last_key_idx = None
+        min_key_duration = int(8.0 * fps_audio)
+        stable_count = 0
+        
+        for i in range(len(t)):
+            k_idx = int(dominant_pitch[i])
+            if k_idx == last_key_idx:
+                stable_count += 1
+            else:
+                if stable_count >= min_key_duration and last_key_idx is not None:
+                    t_sec = float(t[i - stable_count])
+                    key_name = note_names[last_key_idx]
+                    key_changes.append((t_sec, key_name))
+                last_key_idx = k_idx
+                stable_count = 0
+                
+        for t_sec, key_name in key_changes:
+            if t_sec <= safety_cutoff:
+                events.append({
+                    "time": round(t_sec, 3),
+                    "type": "key_change",
+                    "key": key_name
+                })
+                
+        # B. Sustained Dynamics (Crescendo / Diminuendo) Detection
+        rms_diff = np.diff(rms_smooth_norm) * fps_audio
+        rms_diff_smooth = gaussian_filter1d(rms_diff, sigma=int(2.0 * fps_audio))
+        
+        state = "NONE"
+        start_idx = 0
+        min_slope_duration = int(3.5 * fps_audio)
+        
+        for i in range(len(rms_diff_smooth)):
+            slope = rms_diff_smooth[i]
+            t_sec = float(t[i])
+            
+            if slope > 0.025:
+                current_state = "CRESCENDO"
+            elif slope < -0.025:
+                current_state = "DIMINUENDO"
+            else:
+                current_state = "NONE"
+                
+            if current_state != state:
+                duration_idx = i - start_idx
+                if duration_idx >= min_slope_duration and state != "NONE":
+                    t_ev = float(t[start_idx])
+                    if t_ev <= safety_cutoff:
+                        events.append({
+                            "time": round(t_ev, 3),
+                            "type": "dynamics",
+                            "direction": state.lower(),
+                            "duration": round(duration_idx / fps_audio, 2)
+                        })
+                state = current_state
+                start_idx = i
+    except Exception as d_err:
+        print(f"Key/Dynamics detection skipped: {d_err}")
+
     # Sort events chronologically
     events.sort(key=lambda x: x["time"])
     
@@ -416,7 +508,8 @@ def analyze_audio(mp3_path, color_hints=None):
             "color_hints": color_hints if color_hints else [],
             "duration": round(duration, 2),
             "bpm": round(bpm, 1),
-            "total_events": len(events)
+            "total_events": len(events),
+            "analyzer_version": ANALYZER_VERSION
         },
         "events": events
     }
