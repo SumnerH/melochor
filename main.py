@@ -920,7 +920,23 @@ class Firework:
 
 
 class FireworksApp:
-    def __init__(self):
+    def __init__(self, record_path=None, audio_path=None):
+        self.record_path = record_path
+        self.is_recording = record_path is not None
+        self.record_time = 0.0
+        self.record_fps = 60
+        self.record_dt = 1.0 / self.record_fps
+        self.ffmpeg_process = None
+        self.temp_video_path = "temp_recording.mp4"
+        
+        # Configure dynamic audio & display script path
+        self.audio_path = audio_path if audio_path else "01.Come Together - The Beatles.flac"
+        self.audio_explicit = audio_path is not None
+        self.script_path = os.path.splitext(self.audio_path)[0] + "_display.json"
+        
+        self.show_rockets = True
+        self.show_legend = True
+
         self.fireworks = []
         self.routine_queue = []
         self.active_routine_name = ""
@@ -1048,21 +1064,21 @@ class FireworksApp:
         self.gl_area.connect("render", self.on_render)
         overlay.set_child(self.gl_area)
         
-        hud_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        hud_box.set_valign(Gtk.Align.START)
-        hud_box.set_halign(Gtk.Align.START)
-        hud_box.set_margin_start(20)
-        hud_box.set_margin_top(20)
+        self.hud_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.hud_box.set_valign(Gtk.Align.START)
+        self.hud_box.set_halign(Gtk.Align.START)
+        self.hud_box.set_margin_start(20)
+        self.hud_box.set_margin_top(20)
         
         title_lbl = Gtk.Label(label="PYRO-ENGINE 3D")
         title_lbl.add_css_class("hud-title")
         title_lbl.set_halign(Gtk.Align.START)
-        hud_box.append(title_lbl)
+        self.hud_box.append(title_lbl)
         
         sub_lbl = Gtk.Label(label="High-Performance OpenGL Screensaver")
         sub_lbl.add_css_class("hud-subtitle")
         sub_lbl.set_halign(Gtk.Align.START)
-        hud_box.append(sub_lbl)
+        self.hud_box.append(sub_lbl)
         
         stats_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         stats_box.set_margin_top(15)
@@ -1088,7 +1104,7 @@ class FireworksApp:
         self.routine_lbl.set_halign(Gtk.Align.START)
         stats_box.append(self.routine_lbl)
         
-        hud_box.append(stats_box)
+        self.hud_box.append(stats_box)
 
         # Beautiful Music Sync Panel
         music_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -1110,78 +1126,91 @@ class FireworksApp:
         self.music_time_lbl.set_halign(Gtk.Align.START)
         music_box.append(self.music_time_lbl)
         
-        hud_box.append(music_box)
-
-        overlay.add_overlay(hud_box)
+        self.music_section_lbl = Gtk.Label(label="Section: None")
+        self.music_section_lbl.add_css_class("hud-stats")
+        self.music_section_lbl.set_halign(Gtk.Align.START)
+        music_box.append(self.music_section_lbl)
         
-        legend_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
-        legend_box.add_css_class("hud-legend")
-        legend_box.set_valign(Gtk.Align.END)
-        legend_box.set_halign(Gtk.Align.START)
-        legend_box.set_margin_start(20)
-        legend_box.set_margin_bottom(20)
+        self.hud_box.append(music_box)
+
+        overlay.add_overlay(self.hud_box)
+        
+        self.legend_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        self.legend_box.add_css_class("hud-legend")
+        self.legend_box.set_valign(Gtk.Align.END)
+        self.legend_box.set_halign(Gtk.Align.START)
+        self.legend_box.set_margin_start(20)
+        self.legend_box.set_margin_bottom(20)
         
         leg_title = Gtk.Label(label="KEYBOARD CONTROLS:")
         leg_title.add_css_class("hud-legend-title")
         leg_title.set_halign(Gtk.Align.START)
-        legend_box.append(leg_title)
+        self.legend_box.append(leg_title)
         
         lbl_space = Gtk.Label(label="[SPACE]  - Launch Manual Shell")
         lbl_space.set_halign(Gtk.Align.START)
-        legend_box.append(lbl_space)
+        self.legend_box.append(lbl_space)
         
         self.lbl_auto_launch = Gtk.Label()
         self.lbl_auto_launch.set_halign(Gtk.Align.START)
-        legend_box.append(self.lbl_auto_launch)
+        self.legend_box.append(self.lbl_auto_launch)
         
         self.lbl_auto_rotate = Gtk.Label()
         self.lbl_auto_rotate.set_halign(Gtk.Align.START)
-        legend_box.append(self.lbl_auto_rotate)
+        self.legend_box.append(self.lbl_auto_rotate)
         
         self.lbl_music = Gtk.Label()
         self.lbl_music.set_halign(Gtk.Align.START)
-        legend_box.append(self.lbl_music)
+        self.legend_box.append(self.lbl_music)
+        
+        self.lbl_rockets_toggle = Gtk.Label()
+        self.lbl_rockets_toggle.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_rockets_toggle)
+        
+        self.lbl_legend_toggle = Gtk.Label()
+        self.lbl_legend_toggle.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_legend_toggle)
         
         self.update_legend_labels()
         
         lbl_clear = Gtk.Label(label="[C]      - Clear Active Particles")
         lbl_clear.set_halign(Gtk.Align.START)
-        legend_box.append(lbl_clear)
+        self.legend_box.append(lbl_clear)
         
         lbl_fs = Gtk.Label(label="[F]      - Toggle Fullscreen")
         lbl_fs.set_halign(Gtk.Align.START)
-        legend_box.append(lbl_fs)
+        self.legend_box.append(lbl_fs)
         
         lbl_quit = Gtk.Label(label="[ESC/Q]  - Quit Screensaver")
         lbl_quit.set_halign(Gtk.Align.START)
-        legend_box.append(lbl_quit)
+        self.legend_box.append(lbl_quit)
         
         lbl_routines_title = Gtk.Label(label="\nCHOREOGRAPHED ROUTINES:")
         lbl_routines_title.add_css_class("hud-legend-title")
         lbl_routines_title.set_halign(Gtk.Align.START)
-        legend_box.append(lbl_routines_title)
+        self.legend_box.append(lbl_routines_title)
         
         lbl_r1 = Gtk.Label(label="[1]  - American Flag")
         lbl_r1.set_halign(Gtk.Align.START)
-        legend_box.append(lbl_r1)
+        self.legend_box.append(lbl_r1)
         
         lbl_r2 = Gtk.Label(label="[2]  - Liberty Bell")
         lbl_r2.set_halign(Gtk.Align.START)
-        legend_box.append(lbl_r2)
+        self.legend_box.append(lbl_r2)
         
         lbl_r3 = Gtk.Label(label="[3]  - Statue of Liberty")
         lbl_r3.set_halign(Gtk.Align.START)
-        legend_box.append(lbl_r3)
+        self.legend_box.append(lbl_r3)
         
         lbl_r4 = Gtk.Label(label="[4]  - Flower Bouquet")
         lbl_r4.set_halign(Gtk.Align.START)
-        legend_box.append(lbl_r4)
+        self.legend_box.append(lbl_r4)
         
         lbl_r5 = Gtk.Label(label="[5]  - The Dragon")
         lbl_r5.set_halign(Gtk.Align.START)
-        legend_box.append(lbl_r5)
+        self.legend_box.append(lbl_r5)
         
-        overlay.add_overlay(legend_box)
+        overlay.add_overlay(self.legend_box)
         
         self.win.set_child(overlay)
         
@@ -1203,12 +1232,44 @@ class FireworksApp:
         # Connect close-request signal to cleanly terminate background music
         self.win.connect("close-request", self.on_close_request)
         
-        # Try auto-loading display script on startup
-        script_file = "stars_stripes_display.json"
-        if os.path.exists(script_file):
-            self.load_sync_script(script_file)
+        # Explicit audio script parsing & auto-start
+        if self.audio_explicit:
+            print(f"Explicit audio file specified: {self.audio_path}. Running analyzer...")
+            try:
+                import audio_analyzer
+                script = audio_analyzer.analyze_audio(self.audio_path)
+                with open(self.script_path, 'w') as f:
+                    json.dump(script, f, indent=2)
+                self.load_sync_script(self.script_path)
+                # Launch synchronized playback automatically on startup
+                GLib.idle_add(self.start_sync_playback)
+            except Exception as e:
+                print(f"Failed to auto-generate and play script: {e}")
+        else:
+            # Fall back to default behavior
+            if os.path.exists(self.script_path):
+                self.load_sync_script(self.script_path)
+                
+            if self.is_recording and not self.script_events:
+                if os.path.exists(self.script_path):
+                    self.load_sync_script(self.script_path)
+                else:
+                    print(f"No display script found. Auto-generating {self.script_path} first...")
+                    try:
+                        import audio_analyzer
+                        script = audio_analyzer.analyze_audio(self.audio_path, ["strontium_red", "magnesium_white", "copper_blue"])
+                        with open(self.script_path, 'w') as f:
+                            json.dump(script, f, indent=2)
+                        self.load_sync_script(self.script_path)
+                    except Exception as e:
+                        print(f"Failed to auto-generate display script: {e}")
+                        sys.exit(1)
             
         self.win.present()
+        
+        if self.audio_explicit:
+            self.win.fullscreen()
+            self.is_fullscreen = True
  
     def update_legend_labels(self):
         self.lbl_auto_launch.set_text(f"[A]      - Toggle Auto-Launcher ({'ON' if self.auto_launch else 'OFF'})")
@@ -1219,6 +1280,11 @@ class FireworksApp:
             self.lbl_music.set_text("[M]      - Toggle Music Sync (READY)")
         else:
             self.lbl_music.set_text("[M]      - Toggle Music Sync (NO SCRIPT)")
+            
+        if hasattr(self, 'lbl_rockets_toggle') and self.lbl_rockets_toggle:
+            self.lbl_rockets_toggle.set_text(f"[T]      - Toggle Rockets ({'ON' if self.show_rockets else 'OFF'})")
+        if hasattr(self, 'lbl_legend_toggle') and self.lbl_legend_toggle:
+            self.lbl_legend_toggle.set_text("[H]      - Toggle Keyboard Controls HUD")
  
     def trigger_routine(self, name, launch_func):
         self.routine_queue.clear()
@@ -1382,9 +1448,20 @@ class FireworksApp:
             
         w = area.get_width()
         h = area.get_height()
-        aspect = w / h if h > 0 else 1.0
+        scale = area.get_scale_factor()
+        w_phys = w * scale
+        h_phys = h * scale
+        aspect = w_phys / h_phys if h_phys > 0 else 1.0
         
-        gl.glViewport(0, 0, w, h)
+        # Open recording process if first frame
+        if hasattr(self, 'is_recording') and self.is_recording and self.ffmpeg_process is None:
+            self.start_recording_process(w_phys, h_phys)
+            
+        # If we are recording, run the tick update first to compute the state at self.record_time
+        if hasattr(self, 'is_recording') and self.is_recording:
+            self.on_recording_tick()
+        
+        gl.glViewport(0, 0, w_phys, h_phys)
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
         
         # 1. Draw Fullscreen Sky Gradient (Depth Testing Off)
@@ -1429,18 +1506,19 @@ class FireworksApp:
             line_col.append(grid_col)
             
         # Add Rocket Launch Trails to Line Buffer
-        for fw in self.fireworks:
-            if fw.state == 'LAUNCH' and len(fw.launch_trail) > 1:
-                for idx in range(len(fw.launch_trail) - 1):
-                    pt0 = fw.launch_trail[idx]
-                    pt1 = fw.launch_trail[idx + 1]
-                    alpha0 = idx / len(fw.launch_trail)
-                    alpha1 = (idx + 1) / len(fw.launch_trail)
-                    
-                    line_pos.append(pt0)
-                    line_pos.append(pt1)
-                    line_col.append((1.0, 0.45, 0.1, alpha0 * 0.5))
-                    line_col.append((1.0, 0.45, 0.1, alpha1 * 0.5))
+        if self.show_rockets:
+            for fw in self.fireworks:
+                if fw.state == 'LAUNCH' and len(fw.launch_trail) > 1:
+                    for idx in range(len(fw.launch_trail) - 1):
+                        pt0 = fw.launch_trail[idx]
+                        pt1 = fw.launch_trail[idx + 1]
+                        alpha0 = idx / len(fw.launch_trail)
+                        alpha1 = (idx + 1) / len(fw.launch_trail)
+                        
+                        line_pos.append(pt0)
+                        line_pos.append(pt1)
+                        line_col.append((1.0, 0.45, 0.1, alpha0 * 0.5))
+                        line_col.append((1.0, 0.45, 0.1, alpha1 * 0.5))
                     
         if len(line_pos) > 0:
             line_pos_arr = np.array(line_pos, dtype=np.float32)
@@ -1468,9 +1546,10 @@ class FireworksApp:
         
         for fw in self.fireworks:
             if fw.state == 'LAUNCH':
-                part_pos.append(fw.launch_pos)
-                part_col.append((1.0, 0.8, 0.5, 1.0))
-                part_size.append(10.0)
+                if self.show_rockets:
+                    part_pos.append(fw.launch_pos)
+                    part_col.append((1.0, 0.8, 0.5, 1.0))
+                    part_size.append(10.0)
             elif fw.state == 'EXPLODE' and fw.positions is not None:
                 num_pts = len(fw.positions)
                 if num_pts == 0:
@@ -1534,9 +1613,17 @@ class FireworksApp:
                 import traceback
                 traceback.print_exc()
                 
+        if hasattr(self, 'is_recording') and self.is_recording and self.ffmpeg_process:
+            self.capture_recording_frame(w_phys, h_phys)
+            # Schedule next frame draw with a tiny timeout to let GTK do layout/allocation
+            GLib.timeout_add(1, self.gl_area.queue_draw)
+                 
         return True
 
     def on_tick(self):
+        if hasattr(self, 'is_recording') and self.is_recording:
+            return True
+            
         now = time.time()
         dt = now - self.last_time
         self.last_time = now
@@ -1663,6 +1750,17 @@ class FireworksApp:
         elif keyval in (Gdk.KEY_m, Gdk.KEY_M):
             self.toggle_sync_playback()
             return True
+        elif keyval in (Gdk.KEY_t, Gdk.KEY_T):
+            self.show_rockets = not self.show_rockets
+            self.update_legend_labels()
+            return True
+        elif keyval in (Gdk.KEY_h, Gdk.KEY_H):
+            self.show_legend = not self.show_legend
+            if hasattr(self, 'legend_box') and self.legend_box:
+                self.legend_box.set_visible(self.show_legend)
+            if hasattr(self, 'hud_box') and self.hud_box:
+                self.hud_box.set_visible(self.show_legend)
+            return True
         elif keyval in (Gdk.KEY_f, Gdk.KEY_F):
             if self.is_fullscreen:
                 self.win.unfullscreen()
@@ -1710,7 +1808,7 @@ class FireworksApp:
             
         self.stop_sync_playback()
         
-        music_file = "stars_stripes.mp3"
+        music_file = self.audio_path
         if not os.path.exists(music_file):
             print(f"Could not find music file: {music_file}")
             return
@@ -1751,6 +1849,8 @@ class FireworksApp:
             
             self.auto_launch = self.saved_auto_launch
             self.update_legend_labels()
+            if hasattr(self, 'music_section_lbl') and self.music_section_lbl:
+                self.music_section_lbl.set_text("Section: None")
             print("Synchronized playback stopped.")
 
     def toggle_sync_playback(self):
@@ -1759,19 +1859,19 @@ class FireworksApp:
         else:
             # If no script loaded, try auto-generating one
             if not self.script_events:
-                print("No display script loaded. Attempting to auto-analyze stars_stripes.mp3...")
-                if os.path.exists("stars_stripes.mp3"):
+                print(f"No display script loaded. Attempting to auto-analyze {self.audio_path}...")
+                if os.path.exists(self.audio_path):
                     try:
                         import audio_analyzer
-                        script_data = audio_analyzer.analyze_audio("stars_stripes.mp3", ["strontium_red", "magnesium_white", "copper_blue"])
-                        with open("stars_stripes_display.json", 'w') as f:
+                        script_data = audio_analyzer.analyze_audio(self.audio_path, ["strontium_red", "magnesium_white", "copper_blue"])
+                        with open(self.script_path, 'w') as f:
                             json.dump(script_data, f, indent=2)
-                        self.load_sync_script("stars_stripes_display.json")
+                        self.load_sync_script(self.script_path)
                     except Exception as e:
                         print(f"Failed auto-analysis: {e}")
                         return
                 else:
-                    print("Could not find stars_stripes.mp3 in current directory!")
+                    print(f"Could not find {self.audio_path} in current directory!")
                     return
             self.start_sync_playback()
 
@@ -1801,14 +1901,218 @@ class FireworksApp:
             }
             if name in routines_map:
                 self.trigger_routine(name, routines_map[name])
+                
+        elif event_type == "section":
+            name = event.get("name", "Unknown")
+            if hasattr(self, 'music_section_lbl') and self.music_section_lbl:
+                self.music_section_lbl.set_text(f"Section: {name}")
+
+    def start_recording_process(self, w, h):
+        if w % 2 != 0:
+            w = (w // 2) * 2
+        if h % 2 != 0:
+            h = (h // 2) * 2
+            
+        print(f"\nStarting offline HEVC recording of fireworks performance...")
+        print(f"Target file: {self.record_path}")
+        print(f"Resolution: {w}x{h} @ {self.record_fps} FPS")
+        
+        cmd = [
+            '/home/sumner/bin/ffmpeg', '-y',
+            '-f', 'rawvideo', '-vcodec', 'rawvideo',
+            '-s', f'{w}x{h}', '-pix_fmt', 'rgba', '-r', str(self.record_fps),
+            '-i', '-',
+            '-c:v', 'libx265', '-pix_fmt', 'yuv420p', '-crf', '18', '-preset', 'medium',
+            self.temp_video_path
+        ]
+        
+        try:
+            self.ffmpeg_process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            print("Successfully opened FFmpeg libx265 encoding process pipe.")
+            self.auto_launch = False
+            self.auto_rotate = True
+            self.playback_start_time = 0.0
+            self.record_time = 0.0
+            self.next_event_idx = 0
+            self.fireworks.clear()
+            self.routine_queue.clear()
+            
+            # Start real-time music audio playback for live monitoring during recording
+            music_file = self.audio_path
+            if os.path.exists(music_file):
+                try:
+                    mpv_cmd = ["/usr/bin/mpv", "--no-video", "--volume=100", music_file]
+                    self.music_process = subprocess.Popen(mpv_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    self.music_playing = True
+                    print(f"Started real-time music audio playback ({music_file}) for live monitoring.")
+                except Exception as ex:
+                    print(f"Failed to start mpv live audio playback: {ex}")
+        except Exception as e:
+            print(f"Failed to start recording FFmpeg process: {e}")
+            self.is_recording = False
+
+    def on_recording_tick(self):
+        dt = self.record_dt
+        elapsed = self.record_time
+        
+        if elapsed >= self.script_duration:
+            self.finish_recording()
+            return
+            
+        while (self.next_event_idx < len(self.script_events) and 
+               self.script_events[self.next_event_idx]["time"] <= elapsed):
+            event = self.script_events[self.next_event_idx]
+            self.trigger_script_event(event)
+            self.next_event_idx += 1
+            
+        # Update scheduled routine queue
+        if len(self.routine_queue) > 0:
+            remaining_queue = []
+            for delay, fw in self.routine_queue:
+                delay -= dt
+                if delay <= 0:
+                    self.fireworks.append(fw)
+                else:
+                    remaining_queue.append((delay, fw))
+            self.routine_queue = remaining_queue
+            
+        if self.active_routine_name:
+            self.routine_timer -= dt
+            if self.routine_timer <= 0:
+                self.active_routine_name = ""
+
+        self.record_time += dt
+        
+        if self.auto_rotate:
+            self.camera_theta += 0.15 * dt
+            if self.camera_theta > 2 * np.pi:
+                self.camera_theta -= 2 * np.pi
+                
+        for fw in self.fireworks:
+            fw.update(dt)
+            
+        self.fireworks = [fw for fw in self.fireworks if fw.state != 'DEAD']
+        
+        self.fps_lbl.set_text(f"FPS: RECORDING ({self.record_fps} FPS)")
+        if self.active_routine_name:
+            self.routine_lbl.set_text(f"Routine: {self.active_routine_name}")
+        else:
+            self.routine_lbl.set_text("Routine: None")
+            
+        self.music_track_lbl.set_text(f"Recording: {self.loaded_script_name}")
+        m_sec = int(elapsed) % 60
+        m_min = int(elapsed) // 60
+        total_sec = int(self.script_duration) % 60
+        total_min = int(self.script_duration) // 60
+        self.music_time_lbl.set_text(f"Time: {m_min:02d}:{m_sec:02d} / {total_min:02d}:{total_sec:02d}")
+        
+        active_stars = sum(len(fw.positions) for fw in self.fireworks if fw.positions is not None)
+        active_rockets = sum(1 for fw in self.fireworks if fw.state == 'LAUNCH')
+        self.shell_lbl.set_text(f"Active Shells: {active_rockets}")
+        self.part_lbl.set_text(f"Simulated Particles: {active_stars:,}")
+
+    def capture_recording_frame(self, w, h):
+        try:
+            # Query GTK's offscreen draw framebuffer and bind it as the active read target
+            fb = gl.glGetIntegerv(gl.GL_DRAW_FRAMEBUFFER_BINDING)
+            gl.glBindFramebuffer(gl.GL_READ_FRAMEBUFFER, fb)
+            
+            if fb > 0:
+                gl.glReadBuffer(gl.GL_COLOR_ATTACHMENT0)
+            else:
+                gl.glReadBuffer(gl.GL_BACK)
+                
+            gl.glPixelStorei(gl.GL_PACK_ALIGNMENT, 1)
+            pixels = gl.glReadPixels(0, 0, w, h, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE)
+            
+            arr = np.frombuffer(pixels, dtype=np.uint8).reshape(h, w, 4)
+            arr = np.flipud(arr)
+            
+            self.ffmpeg_process.stdin.write(arr.tobytes())
+            
+            if int(self.record_time * self.record_fps) % (self.record_fps * 5) == 0:
+                print(f"Recorded frame: {self.record_time:.2f}s / {self.script_duration:.2f}s...")
+        except Exception as e:
+            print(f"Recording frame capture failed: {e}")
+            self.is_recording = False
+            if self.ffmpeg_process:
+                self.ffmpeg_process.stdin.close()
+                self.ffmpeg_process.wait()
+                self.ffmpeg_process = None
+
+    def finish_recording(self, close_window=True):
+        if not self.is_recording:
+            return
+            
+        self.is_recording = False
+        print("\nFireworks offline recording render complete!")
+        
+        if self.ffmpeg_process:
+            print("Closing video encoding pipe...")
+            self.ffmpeg_process.stdin.close()
+            self.ffmpeg_process.wait()
+            self.ffmpeg_process = None
+            
+        music_file = self.audio_path
+        if os.path.exists(music_file):
+            print(f"Multiplexing audio track '{music_file}' into output file '{self.record_path}' using copy/copy stream mapping...")
+            
+            cmd = [
+                '/home/sumner/bin/ffmpeg', '-y',
+                '-i', self.temp_video_path,
+                '-i', music_file,
+                '-c:v', 'copy',
+                '-c:a', 'aac',
+                '-map', '0:v:0',
+                '-map', '1:a:0',
+                '-shortest',
+                self.record_path
+            ]
+            
+            try:
+                p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                stdout, stderr = p.communicate()
+                if p.returncode == 0:
+                    print(f"\nSuccessfully generated finalized HEVC MP4 movie with audio at: {self.record_path}")
+                else:
+                    err = stderr.decode('utf-8', errors='ignore')[-300:]
+                    print(f"Error multiplexing audio: {err}")
+            except Exception as e:
+                print(f"Failed to run multiplexer subprocess: {e}")
+        else:
+            print(f"Warning: Audio file '{music_file}' not found. Leaving silent video at '{self.temp_video_path}'.")
+            os.rename(self.temp_video_path, self.record_path)
+            print(f"Renamed silent video to: {self.record_path}")
+            
+        if os.path.exists(self.temp_video_path):
+            try:
+                os.remove(self.temp_video_path)
+            except Exception:
+                pass
+                
+        if close_window:
+            self.win.close()
 
     def on_close_request(self, win):
         self.stop_sync_playback()
+        if self.is_recording:
+            self.finish_recording(close_window=False)
+            return True
         return False
 
 
 if __name__ == "__main__":
+    import argparse
+    import json
+    import sys
+    parser = argparse.ArgumentParser(description="3D Pyro-Engine Screensaver")
+    parser.add_argument("--record", type=str, default=None, help="Output file path to record the MP4 to")
+    parser.add_argument("--audio", type=str, default=None, help="Audio file to run against")
+    args, unknown = parser.parse_known_args()
+    
     app = Gtk.Application(application_id="org.fireworks.demo")
-    pyro_app = FireworksApp()
+    pyro_app = FireworksApp(record_path=args.record, audio_path=args.audio)
     app.connect("activate", pyro_app.on_activate)
-    app.run(sys.argv)
+    
+    gtk_args = [sys.argv[0]] + unknown
+    app.run(gtk_args)
