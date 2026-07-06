@@ -343,7 +343,10 @@ void main() {
             vec3 col = tunnel_base + subtle_glow;
             col += vec3(0.12, 0.32, 0.58) * q.x; // cyan smoke filament
             col += vec3(0.62, 0.12, 0.38) * r.y; // magenta smoke filament
-            col *= (1.0 + uReactTreble * 0.4); // treble spark flashes
+            
+            // The walls of the wormhole get significantly brighter/darker with the music (glowing/fading with the beat)
+            float wall_brightness = 0.8 + uReactBass * 1.6 + uReactMid * 0.8 + uReactTreble * 0.4;
+            col *= wall_brightness;
             
             // Elegant depth fog
             float fog = clamp((p.z + 60.0) / 60.0, 0.0, 1.0);
@@ -352,7 +355,9 @@ void main() {
             // Blend with background based on smoke_mask density for translucency/transparency
             // Reduced maximum opacity even further (0.08) to let deep space background and stars show through beautifully (extremely transparent!)
             // Climax flash dynamically increases tunnel plasma opacity and glows with white hot light
-            float opacity = smoke_mask * fog * (0.08 + uClimaxFlash * 0.38);
+            // Under music, the walls get more opaque/solid on the beat, then fade back to faint transparency during silence
+            float base_opacity = 0.04 + uReactBass * 0.16 + uReactMid * 0.08;
+            float opacity = smoke_mask * fog * (base_opacity + uClimaxFlash * 0.38);
             vec3 flash_col = tunnel_color + vec3(0.82, 0.92, 1.0) * uClimaxFlash * 0.7;
             base_color = mix(base_color, flash_col, opacity);
             
@@ -2613,7 +2618,7 @@ class FireworksApp:
     def load_playlist_files(self, paths):
         resolved = []
         for p in paths:
-            if not p:
+            if not p or p.lower().endswith('.json'):
                 continue
             if p.lower().endswith('.m3u'):
                 if os.path.exists(p):
