@@ -1,0 +1,19 @@
+# Pycache and compiled bytes
+__pycache__/
+*.pyc
+
+# Local backup and swap files
+*.bak
+*.swp
+.main.py.swp
+
+# Patch files
+*.patch
+
+# Custom testing directories and caches
+my_test_cache/
+
+# Audio tracks and raw generated scripts (if they should be ignored by default)
+*.flac
+*.mp3
+*_display.json

@@ -76,9 +76,108 @@ def get_spectrum_color(t_sec, t, mag, bass_bins, mid_bins, high_bins, palette_ov
     else:
         return str(np.random.choice(h_colors))
 
+def find_ffmpeg_binary():
+    import shutil
+    # Try custom path first
+    custom_path = "/home/sumner/bin/ffmpeg"
+    if os.path.exists(custom_path):
+        return custom_path
+    # Fall back to PATH
+    system_path = shutil.which("ffmpeg")
+    if system_path:
+        return system_path
+    # Try common locations
+    for loc in [
+        "C:\\ffmpeg\\bin\\ffmpeg.exe",
+        "/usr/bin/ffmpeg",
+        "/usr/local/bin/ffmpeg",
+        "/opt/homebrew/bin/ffmpeg"
+    ]:
+        if os.path.exists(loc):
+            return loc
+    return None
+
+def decode_audio(mp3_path, target_fs=22050):
+    """
+    Decodes an audio file to stereo float32 NumPy array at target_fs (default 22050).
+    First tries system FFmpeg, then falls back to soundfile, and finally to audioread.
+    """
+    if not os.path.exists(mp3_path):
+        raise FileNotFoundError(f"Audio file not found: {mp3_path}")
+        
+    errors = {}
+    
+    # 1. Try system FFmpeg
+    ffmpeg_bin = find_ffmpeg_binary()
+    if ffmpeg_bin:
+        print(f"Decoding {mp3_path} using FFmpeg: '{ffmpeg_bin}'")
+        try:
+            cmd = [ffmpeg_bin, '-y', '-i', mp3_path, '-f', 'f32le', '-ac', '2', '-ar', str(target_fs), '-']
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, stderr = p.communicate()
+            if p.returncode == 0:
+                y_stereo = np.frombuffer(stdout, dtype=np.float32).reshape(-1, 2)
+                return y_stereo, target_fs
+            else:
+                err_msg = stderr.decode('utf-8', errors='ignore')[-200:]
+                errors['ffmpeg'] = f"Process exit code {p.returncode}: {err_msg}"
+        except Exception as e:
+            errors['ffmpeg'] = str(e)
+    else:
+        errors['ffmpeg'] = "FFmpeg binary not found on this system."
+        
+    # 2. Try soundfile
+    try:
+        import soundfile as sf
+        print(f"Decoding {mp3_path} using soundfile library...")
+        data, fs = sf.read(mp3_path, dtype='float32')
+        if data.ndim == 1:
+            data = np.stack([data, data], axis=-1)
+        # Resample to target_fs if needed
+        if fs != target_fs:
+            num_samples = int(len(data) * target_fs / fs)
+            data = scipy.signal.resample(data, num_samples)
+        return data, target_fs
+    except Exception as e:
+        errors['soundfile'] = str(e)
+        
+    # 3. Try audioread
+    try:
+        import audioread
+        print(f"Decoding {mp3_path} using audioread library...")
+        with audioread.audio_open(mp3_path) as f:
+            fs = f.samplerate
+            channels = f.channels
+            frames = []
+            for buf in f:
+                frame_data = np.frombuffer(buf, dtype=np.int16)
+                frames.append(frame_data.astype(np.float32) / 32768.0)
+            data = np.concatenate(frames)
+            if channels == 1:
+                data = np.stack([data, data], axis=-1)
+            else:
+                data = data.reshape(-1, channels)
+                if channels > 2:
+                    data = data[:, :2]
+            # Resample to target_fs if needed
+            if fs != target_fs:
+                num_samples = int(len(data) * target_fs / fs)
+                data = scipy.signal.resample(data, num_samples)
+            return data, target_fs
+    except Exception as e:
+        errors['audioread'] = str(e)
+        
+    raise RuntimeError(
+        f"All audio decoders failed to load '{mp3_path}'.\n"
+        f"Details:\n"
+        f"  - FFmpeg: {errors.get('ffmpeg')}\n"
+        f"  - soundfile: {errors.get('soundfile')}\n"
+        f"  - audioread: {errors.get('audioread')}"
+    )
+
 def analyze_audio(mp3_path, color_hints=None):
     """
-    Decodes an audio file to stereo via ffmpeg and performs Short-Time Fourier Transform (STFT).
+    Decodes an audio file to stereo via ffmpeg/soundfile/audioread and performs Short-Time Fourier Transform (STFT).
     Partitions the track into continuous sections (Quiet/Medium/Loud) using a smoothed RMS envelope.
     Applies Adaptive Relative Thresholding for robust peak detection during quiet sections.
     Safely terminates launches before the track finishes to prevent post-music explosions.
@@ -86,20 +185,7 @@ def analyze_audio(mp3_path, color_hints=None):
     if not os.path.exists(mp3_path):
         raise FileNotFoundError(f"Audio file not found: {mp3_path}")
         
-    print(f"Decoding {mp3_path} using FFmpeg subprocess stream...")
-    
-    # 1. Decode audio to raw float32 PCM stereo at 22050 Hz
-    cmd = ['/home/sumner/bin/ffmpeg', '-y', '-i', mp3_path, '-f', 'f32le', '-ac', '2', '-ar', '22050', '-']
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    stdout, stderr = p.communicate()
-    
-    if p.returncode != 0:
-        err_msg = stderr.decode('utf-8', errors='ignore')[-300:]
-        raise RuntimeError(f"FFmpeg decoding failed: {err_msg}")
-        
-    y_stereo = np.frombuffer(stdout, dtype=np.float32)
-    # Separate interleaved stereo channels
-    y_stereo = y_stereo.reshape(-1, 2)
+    y_stereo, fs = decode_audio(mp3_path, target_fs=22050)
     y_left = y_stereo[:, 0]
     y_right = y_stereo[:, 1]
     

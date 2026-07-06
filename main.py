@@ -2408,8 +2408,96 @@ def make_solid_butterfly(center, direction, phase):
     return vertices, colors
 
 
+class UnifiedAudioPlayer:
+    def __init__(self):
+        self.mpv_process = None
+        self.player_type = None # 'mpv' or 'sounddevice'
+        self.start_time = 0.0
+        self.audio_path = None
+        self.sd_playing = False
+        self.sd_duration = 0.0
+        
+    def play(self, filepath):
+        self.stop()
+        self.audio_path = filepath
+        
+        # 1. Try playing with MPV
+        import shutil
+        has_mpv = shutil.which("mpv") or os.path.exists("/usr/bin/mpv")
+        if has_mpv:
+            try:
+                cmd = ["mpv" if shutil.which("mpv") else "/usr/bin/mpv", "--no-video", "--volume=100", filepath]
+                self.mpv_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.player_type = 'mpv'
+                self.start_time = time.time()
+                print(f"Started playback of {filepath} using MPV subprocess.")
+                return True
+            except Exception as e:
+                print(f"Failed to start mpv playback, falling back to sounddevice: {e}")
+                
+        # 2. Fall back to sounddevice + soundfile/audioread
+        try:
+            print(f"Decoding {filepath} for sounddevice playback...")
+            import audio_analyzer
+            data, fs = audio_analyzer.decode_audio(filepath)
+            
+            import sounddevice as sd
+            sd.play(data, fs)
+            self.player_type = 'sounddevice'
+            self.start_time = time.time()
+            self.sd_duration = len(data) / fs
+            self.sd_playing = True
+            print(f"Started playback of {filepath} using sounddevice backend.")
+            return True
+        except Exception as e:
+            print(f"Failed to play audio with sounddevice: {e}")
+            return False
+            
+    def stop(self):
+        if self.player_type == 'mpv':
+            if self.mpv_process:
+                try:
+                    self.mpv_process.terminate()
+                    self.mpv_process.wait(timeout=1.0)
+                except Exception:
+                    try:
+                        self.mpv_process.kill()
+                    except Exception:
+                        pass
+                self.mpv_process = None
+        elif self.player_type == 'sounddevice':
+            try:
+                import sounddevice as sd
+                sd.stop()
+            except Exception:
+                pass
+            self.sd_playing = False
+        self.player_type = None
+        self.start_time = 0.0
+        
+    def is_playing(self):
+        if self.player_type == 'mpv':
+            return self.mpv_process is not None and self.mpv_process.poll() is None
+        elif self.player_type == 'sounddevice':
+            if self.sd_playing:
+                elapsed = time.time() - self.start_time
+                if elapsed >= self.sd_duration:
+                    self.sd_playing = False
+                return self.sd_playing
+            return False
+        return False
+
+    def get_elapsed_time(self):
+        if self.player_type in ('mpv', 'sounddevice') and self.start_time > 0.0:
+            return time.time() - self.start_time
+        return 0.0
+
+
 class FireworksApp:
-    def __init__(self, record_path=None, audio_path=None, playlist_files=None, random_mode=False):
+    def __init__(self, record_path=None, audio_path=None, playlist_files=None, random_mode=False, tmp_dir=None):
+        import tempfile
+        self.tmp_dir = tmp_dir if tmp_dir else tempfile.gettempdir()
+        self.audio_player = UnifiedAudioPlayer()
         Firework.app = self
         self.opt_trailers = 0        # 0: off, 1..10 range
         self.opt_gravity = 1.0       # 0.0 to 10.0 range
@@ -2525,7 +2613,7 @@ class FireworksApp:
         self.playlist_idx = 0
         self.audio_path = self.playlist[self.playlist_idx] if self.playlist else "01.Come Together - The Beatles.flac"
         self.audio_explicit = bool(raw_paths)
-        self.script_path = os.path.splitext(self.audio_path)[0] + "_display.json"
+        self.script_path = self.get_mangled_script_path(self.audio_path)
         
         self.show_rockets = True
         self.show_legend = True
@@ -2615,6 +2703,20 @@ class FireworksApp:
         self.peace_symbol_timer = 0.0
         self.halo_timer = 0.0
 
+    def get_mangled_script_path(self, audio_path):
+        if not audio_path:
+            return ""
+        import hashlib
+        abs_path = os.path.abspath(audio_path)
+        path_hash = hashlib.sha256(abs_path.encode('utf-8')).hexdigest()
+        h1 = path_hash[0:2]
+        h2 = path_hash[2:4]
+        base_name = os.path.splitext(os.path.basename(abs_path))[0]
+        safe_base = "".join(c if c.isalnum() or c in ('-', '_') else "_" for c in base_name)
+        cached_dir = os.path.join(self.tmp_dir, "fireworks_cache", h1, h2)
+        os.makedirs(cached_dir, exist_ok=True)
+        return os.path.join(cached_dir, f"{safe_base}_{path_hash}.json")
+
     def load_playlist_files(self, paths):
         resolved = []
         for p in paths:
@@ -2675,13 +2777,13 @@ class FireworksApp:
         self.fireworks.clear()
         
         try:
-            cmd = ["/usr/bin/mpv", "--no-video", "--volume=100", self.audio_path]
-            self.music_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            self.music_playing = True
-            self.playback_start_time = time.time()
-            print(f"Immediate mpv audio playback started for: {self.audio_path}")
+            if self.audio_player.play(self.audio_path):
+                self.music_playing = True
+                self.playback_start_time = time.time()
+            else:
+                raise RuntimeError("UnifiedAudioPlayer failed to play track")
         except Exception as e:
-            print(f"Failed to start mpv playback: {e}")
+            print(f"Failed to start audio playback: {e}")
             self.auto_launch = self.saved_auto_launch
             self.update_legend_labels()
             return
@@ -2714,7 +2816,7 @@ class FireworksApp:
             print(f"[Async Analyzer] Error in background analysis: {e}")
 
     def activate_async_json(self, filepath):
-        expected_script_path = os.path.splitext(self.audio_path)[0] + "_display.json"
+        expected_script_path = self.get_mangled_script_path(self.audio_path)
         if filepath != expected_script_path:
             print(f"Background analysis finished for {filepath}, but active track has changed. Ignoring.")
             return False
@@ -2738,7 +2840,7 @@ class FireworksApp:
             
         next_idx = (self.playlist_idx + 1) % len(self.playlist)
         next_audio_path = self.playlist[next_idx]
-        next_script_path = os.path.splitext(next_audio_path)[0] + "_display.json"
+        next_script_path = self.get_mangled_script_path(next_audio_path)
         
         json_exists = False
         import audio_analyzer
@@ -2778,7 +2880,7 @@ class FireworksApp:
         next_idx = (self.playlist_idx + 1) % len(self.playlist)
         self.playlist_idx = next_idx
         self.audio_path = self.playlist[self.playlist_idx]
-        self.script_path = os.path.splitext(self.audio_path)[0] + "_display.json"
+        self.script_path = self.get_mangled_script_path(self.audio_path)
         self.load_and_play_track()
 
     def play_previous_track(self):
@@ -2787,7 +2889,7 @@ class FireworksApp:
         prev_idx = (self.playlist_idx - 1) % len(self.playlist)
         self.playlist_idx = prev_idx
         self.audio_path = self.playlist[self.playlist_idx]
-        self.script_path = os.path.splitext(self.audio_path)[0] + "_display.json"
+        self.script_path = self.get_mangled_script_path(self.audio_path)
         self.load_and_play_track()
 
     def apply_preset(self, idx):
@@ -5670,14 +5772,14 @@ class FireworksApp:
         # Playback sync event handler
         elapsed = 0.0
         if self.music_playing:
-            # Check if mpv process has terminated
-            if self.music_process and self.music_process.poll() is not None:
+            # Check if player has stopped or finished
+            if not self.audio_player.is_playing():
                 if self.playlist and len(self.playlist) > 0:
                     self.play_next_track()
                 else:
                     self.stop_sync_playback()
             else:
-                elapsed = time.time() - self.playback_start_time
+                elapsed = self.audio_player.get_elapsed_time()
                 if self.script_events and self.script_duration > 0 and elapsed >= self.script_duration:
                     if self.playlist and len(self.playlist) > 0:
                         self.play_next_track()
@@ -6104,31 +6206,23 @@ class FireworksApp:
         self.fireworks.clear()
         
         try:
-            # Spawn mpv as background subprocess
-            cmd = ["/usr/bin/mpv", "--no-video", "--volume=100", music_file]
-            self.music_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            self.music_playing = True
-            self.playback_start_time = time.time()
-            self.next_event_idx = 0
-            print("mpv player launched successfully.")
+            if self.audio_player.play(music_file):
+                self.music_playing = True
+                self.playback_start_time = time.time()
+                self.next_event_idx = 0
+                print("Audio player started successfully.")
+            else:
+                raise RuntimeError("UnifiedAudioPlayer failed to play track")
         except Exception as e:
-            print(f"Failed to start mpv playback: {e}")
+            print(f"Failed to start audio playback: {e}")
             self.auto_launch = self.saved_auto_launch
             self.update_legend_labels()
 
     def stop_sync_playback(self):
         if self.music_playing:
             self.music_playing = False
-            if self.music_process:
-                try:
-                    self.music_process.terminate()
-                    self.music_process.wait(timeout=1.0)
-                except Exception:
-                    try:
-                        self.music_process.kill()
-                    except Exception:
-                        pass
-                self.music_process = None
+            self.audio_player.stop()
+            self.music_process = None
             
             self.auto_launch = self.saved_auto_launch
             self.update_legend_labels()
@@ -6242,8 +6336,15 @@ class FireworksApp:
         print(f"Target file: {self.record_path}")
         print(f"Resolution: {w}x{h} @ {self.record_fps} FPS")
         
+        import audio_analyzer
+        ffmpeg_bin = audio_analyzer.find_ffmpeg_binary()
+        if not ffmpeg_bin:
+            print("ERROR: FFmpeg binary not found on this system. Recording is not supported on this platform without FFmpeg.")
+            self.is_recording = False
+            return
+            
         cmd = [
-            '/home/sumner/bin/ffmpeg', '-y',
+            ffmpeg_bin, '-y',
             '-f', 'rawvideo', '-vcodec', 'rawvideo',
             '-s', f'{w}x{h}', '-pix_fmt', 'rgba', '-r', str(self.record_fps),
             '-i', '-',
@@ -6266,12 +6367,13 @@ class FireworksApp:
             music_file = self.audio_path
             if os.path.exists(music_file):
                 try:
-                    mpv_cmd = ["/usr/bin/mpv", "--no-video", "--volume=100", music_file]
-                    self.music_process = subprocess.Popen(mpv_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    self.music_playing = True
-                    print(f"Started real-time music audio playback ({music_file}) for live monitoring.")
+                    if self.audio_player.play(music_file):
+                        self.music_playing = True
+                        print(f"Started real-time music audio playback ({music_file}) for live monitoring.")
+                    else:
+                        raise RuntimeError("UnifiedAudioPlayer failed to start playback")
                 except Exception as ex:
-                    print(f"Failed to start mpv live audio playback: {ex}")
+                    print(f"Failed to start live audio playback: {ex}")
         except Exception as e:
             print(f"Failed to start recording FFmpeg process: {e}")
             self.is_recording = False
@@ -6832,11 +6934,12 @@ if __name__ == "__main__":
     parser.add_argument("--random", action="store_true", default=False, help="Start in random mode immediately")
     parser.add_argument("--record", type=str, default=None, help="Output file path to record the MP4 to")
     parser.add_argument("--audio", type=str, default=None, help="Audio file to run against")
+    parser.add_argument("--tmpdir", type=str, default=None, help="Optional custom temporary directory for display scripts")
     parser.add_argument("playlist_files", nargs="*", help="Audio files or m3u playlist to play")
     args, unknown = parser.parse_known_args()
     
     app = Gtk.Application(application_id="org.fireworks.demo")
-    pyro_app = FireworksApp(record_path=args.record, audio_path=args.audio, playlist_files=args.playlist_files, random_mode=args.random)
+    pyro_app = FireworksApp(record_path=args.record, audio_path=args.audio, playlist_files=args.playlist_files, random_mode=args.random, tmp_dir=args.tmpdir)
     app.connect("activate", pyro_app.on_activate)
     
     gtk_args = [sys.argv[0]] + unknown
