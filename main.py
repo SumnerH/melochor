@@ -31,6 +31,40 @@ COLORS = {
 
 COLOR_LIST = list(COLORS.values())
 
+# Curated Color Palettes for the Optional Color Modes
+NEON_PALETTE = [
+    (1.0, 0.0, 0.5, 1.0),   # Neon Pink
+    (0.0, 1.0, 1.0, 1.0),   # Neon Cyan
+    (0.5, 0.0, 1.0, 1.0),   # Neon Purple
+    (1.0, 1.0, 0.0, 1.0),   # Neon Yellow
+    (0.0, 1.0, 0.0, 1.0)    # Neon Green
+]
+
+TRANQUIL_PALETTE = [
+    (0.0, 0.3, 0.8, 1.0),   # Deep Blue
+    (0.0, 0.6, 0.5, 1.0),   # Calming Teal
+    (0.1, 0.7, 0.4, 1.0),   # Soft Emerald Green
+    (0.5, 0.2, 0.7, 1.0),   # Lavender/Lilac
+    (0.3, 0.4, 0.9, 1.0)    # Periwinkle Blue
+]
+
+METAL_PALETTE = [
+    (0.9, 0.9, 0.95, 1.0),  # Bright Silver
+    (1.0, 0.8, 0.2, 1.0),   # Radiant Gold
+    (0.8, 0.5, 0.2, 1.0),   # Warm Bronze
+    (0.7, 0.7, 0.75, 1.0),  # Slate Platinum
+    (0.85, 0.65, 0.35, 1.0) # Burnished Brass
+]
+
+def get_palette_colors(mode):
+    if mode == 'NEON':
+        return NEON_PALETTE
+    elif mode == 'TRANQUIL':
+        return TRANQUIL_PALETTE
+    elif mode == 'METAL':
+        return METAL_PALETTE
+    return None
+
 # Modern CPU-side matrix helper functions
 def perspective_matrix(fovy, aspect, znear, zfar):
     f = 1.0 / np.tan(fovy * np.pi / 360.0)
@@ -353,6 +387,8 @@ in float vRand;
 in float vStyle;
 out vec4 FragColor;
 
+uniform int uStarShape;
+
 // Simple 2D hash for micro-turbulent edge burning noise
 float hash2(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -376,33 +412,35 @@ void main() {
         // Convert to polar coordinates
         float theta = atan(coord.y, coord.x);
         
-        // 1. Multi-pointed organic flare shape
-        float spikes = 4.0 + floor(vRand * 4.0); // Randomly 4, 5, 6, or 7 pointed spark
-        float rotation = vRand * 6.28318;        // Random rotation
-        
-        float flare1 = cos(theta * spikes + rotation);
-        float flare2 = sin(theta * (spikes + 2.0) - rotation * 1.5);
-        float flare_profile = 0.35 + 0.15 * flare1 + 0.05 * flare2;
-        
-        // High-frequency turbulent edge noise
-        float edge_noise = hash2(coord * (10.0 + vRand * 50.0)) * 0.07;
-        float max_r = flare_profile - edge_noise;
+        float max_r = 0.48;
+        if (uStarShape == 1) {
+            max_r = 0.48;
+        } else if (uStarShape == 2 || uStarShape == 3) {
+            float d_limit = (uStarShape == 2) ? 0.32 : 0.48;
+            max_r = d_limit / (abs(cos(theta)) + abs(sin(theta)));
+        } else if (uStarShape >= 4 && uStarShape <= 6) {
+            float spikes_n = float(uStarShape);
+            max_r = 0.28 + 0.20 * cos(spikes_n * (theta - 1.5707963));
+        } else {
+            // Default uStarShape == 0 (original organic spark)
+            float spikes = 4.0 + floor(vRand * 4.0);
+            float rotation = vRand * 6.28318;
+            float flare1 = cos(theta * spikes + rotation);
+            float flare2 = sin(theta * (spikes + 2.0) - rotation * 1.5);
+            float flare_profile = 0.35 + 0.15 * flare1 + 0.05 * flare2;
+            float edge_noise = hash2(coord * (10.0 + vRand * 50.0)) * 0.07;
+            max_r = flare_profile - edge_noise;
+        }
         
         if (r > max_r) {
             discard;
         }
         
-        // 2. Compute bright white core intensity (highest at center)
         float t = r / max_r;
         float core = pow(1.0 - t, 4.0);
-        
-        // Main alpha falloff
         float alpha = pow(1.0 - t, 1.5) * vColor.a;
-        
-        // Blend chemical color with incandescent white-hot core
         vec3 spark_color = mix(vColor.rgb, vec3(1.0, 1.0, 0.95), core * 0.85);
-        spark_color += vec3(core * 0.40); // extra bright glow boost
-        
+        spark_color += vec3(core * 0.40);
         FragColor = vec4(spark_color, alpha);
     }
 }
@@ -436,6 +474,7 @@ def create_program(vertex_source, fragment_source):
     return program
 
 class Firework:
+    app = None
     def __init__(self, fw_type=None, color=None, x_offset=None):
         self.type = random.randint(0, 18) if fw_type is None else fw_type
         self.color = random.choice(COLOR_LIST) if color is None else color
@@ -900,6 +939,31 @@ class Firework:
         }
         self.gravity = gravity_map.get(self.type, 5.0)
 
+        # Dynamic trailer override
+        if Firework.app and Firework.app.opt_trailers > 0:
+            self.history_len = Firework.app.opt_trailers * 3
+
+        # Color palette override mapping
+        if Firework.app and Firework.app.opt_color_mode != 'REALISTIC':
+            pal = get_palette_colors(Firework.app.opt_color_mode)
+            if pal:
+                c1 = pal[random.randint(0, len(pal)-1)]
+                c2 = pal[random.randint(0, len(pal)-1)]
+                orig_c1 = np.array(self.color[:3], dtype=np.float32)
+                orig_c2 = np.array(self.secondary_color[:3], dtype=np.float32)
+                self.color = c1
+                self.secondary_color = c2
+                
+                # Relabel colors already instantiated inside the type blocks
+                if self.colors is not None:
+                    diff1 = np.sum((self.colors[:, :3] - orig_c1)**2, axis=1)
+                    diff2 = np.sum((self.colors[:, :3] - orig_c2)**2, axis=1)
+                    closer_to_1 = diff1 <= diff2
+                    noise = np.random.uniform(-0.05, 0.05, (len(self.colors), 3))
+                    self.colors[closer_to_1, :3] = np.clip(np.array(c1[:3], dtype=np.float32) + noise[closer_to_1], 0.0, 1.0)
+                    self.colors[~closer_to_1, :3] = np.clip(np.array(c2[:3], dtype=np.float32) + noise[~closer_to_1], 0.0, 1.0)
+                    self.colors[:, 3] = 1.0
+
         self.history = np.zeros((self.history_len, num_particles, 3), dtype=np.float32)
         for h in range(self.history_len):
             self.history[h] = self.positions
@@ -908,6 +972,16 @@ class Firework:
         if self.state == 'DEAD':
             return
             
+        if self.state == 'EXPLODE':
+            # Adapt history on-the-fly to real-time keystroke switches
+            if Firework.app and Firework.app.opt_trailers > 0:
+                target_len = Firework.app.opt_trailers * 3
+                if self.history_len != target_len or self.history is None or len(self.history) != target_len:
+                    self.history_len = target_len
+                    self.history = np.zeros((self.history_len, len(self.positions), 3), dtype=np.float32)
+                    for h in range(self.history_len):
+                        self.history[h] = self.positions
+
         if self.state == 'LAUNCH':
             self.launch_age += dt
             self.launch_vel[1] -= 9.8 * dt
@@ -968,7 +1042,7 @@ class Firework:
                     new_ages = np.zeros(3 * N, dtype=np.float32)
                     new_max_ages = np.random.uniform(0.6, 1.0, 3 * N).astype(np.float32)
                     
-                    self.history_len = 3
+                    self.history_len = Firework.app.opt_trailers * 3 if (Firework.app and Firework.app.opt_trailers > 0) else 3
                     self.history = np.zeros((self.history_len, 3 * N, 3), dtype=np.float32)
                     for h in range(self.history_len):
                         self.history[h] = new_positions
@@ -1006,7 +1080,7 @@ class Firework:
                     new_ages = np.zeros(3 * N, dtype=np.float32)
                     new_max_ages = np.random.uniform(1.2, 1.8, 3 * N).astype(np.float32)
                     
-                    self.history_len = 8
+                    self.history_len = Firework.app.opt_trailers * 3 if (Firework.app and Firework.app.opt_trailers > 0) else 8
                     self.history = np.zeros((self.history_len, 3 * N, 3), dtype=np.float32)
                     for h in range(self.history_len):
                         self.history[h] = new_positions
@@ -1048,7 +1122,7 @@ class Firework:
                     new_max_ages = np.random.uniform(0.7, 1.1, 4 * N).astype(np.float32)
                     
                     # 5. Clear and set new short history trails
-                    self.history_len = 3
+                    self.history_len = Firework.app.opt_trailers * 3 if (Firework.app and Firework.app.opt_trailers > 0) else 3
                     self.history = np.zeros((self.history_len, 4 * N, 3), dtype=np.float32)
                     for h in range(self.history_len):
                         self.history[h] = new_positions
@@ -1066,7 +1140,8 @@ class Firework:
                 perturbation = np.random.uniform(-18.0, 18.0, (len(self.positions), 3)).astype(np.float32)
                 self.velocities += perturbation * dt
             
-            self.velocities[:, 1] -= self.gravity * dt
+            grav_scale = Firework.app.opt_gravity if Firework.app else 1.0
+            self.velocities[:, 1] -= self.gravity * grav_scale * dt
             self.velocities -= self.velocities * self.drag * dt
             
             self.ages += dt
@@ -2298,6 +2373,12 @@ def make_solid_butterfly(center, direction, phase):
 
 class FireworksApp:
     def __init__(self, record_path=None, audio_path=None):
+        Firework.app = self
+        self.opt_trailers = 0        # 0: off, 1..10 range
+        self.opt_gravity = 1.0       # 0.0 to 10.0 range
+        self.opt_star_shape = 0      # 0: default, 1..6 shapes
+        self.opt_color_mode = 'REALISTIC' # 'REALISTIC', 'NEON', 'TRANQUIL', 'METAL'
+
         self.record_path = record_path
         self.is_recording = record_path is not None
         self.record_time = 0.0
@@ -2603,6 +2684,27 @@ class FireworksApp:
         self.lbl_rarity_cycle = Gtk.Label()
         self.lbl_rarity_cycle.set_halign(Gtk.Align.START)
         self.legend_box.append(self.lbl_rarity_cycle)
+
+        lbl_tweaks_title = Gtk.Label(label="\nOPTIONAL TWEAKS:")
+        lbl_tweaks_title.add_css_class("hud-legend-title")
+        lbl_tweaks_title.set_halign(Gtk.Align.START)
+        self.legend_box.append(lbl_tweaks_title)
+        
+        self.lbl_opt_color = Gtk.Label()
+        self.lbl_opt_color.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_opt_color)
+
+        self.lbl_opt_shape = Gtk.Label()
+        self.lbl_opt_shape.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_opt_shape)
+
+        self.lbl_opt_gravity = Gtk.Label()
+        self.lbl_opt_gravity.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_opt_gravity)
+
+        self.lbl_opt_trailers = Gtk.Label()
+        self.lbl_opt_trailers.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_opt_trailers)
         
         self.update_legend_labels()
         
@@ -2713,6 +2815,18 @@ class FireworksApp:
             self.is_fullscreen = True
  
     def update_legend_labels(self):
+        if hasattr(self, 'lbl_opt_color') and self.lbl_opt_color:
+            self.lbl_opt_color.set_text(f"[O]      - Color Mode: {self.opt_color_mode}")
+        if hasattr(self, 'lbl_opt_shape') and self.lbl_opt_shape:
+            shapes_desc = {0: "Default", 1: "Circles", 2: "Small Diamonds", 3: "Larger Diamonds", 4: "4-Pt Stars", 5: "5-Pt Stars", 6: "6-Pt Stars"}
+            self.lbl_opt_shape.set_text(f"[P]      - Star Shape: {shapes_desc.get(self.opt_star_shape, 'Default')}")
+        if hasattr(self, 'lbl_opt_gravity') and self.lbl_opt_gravity:
+            grav_desc = "OFF" if self.opt_gravity == 0.0 else f"{self.opt_gravity}x"
+            self.lbl_opt_gravity.set_text(f"[G]      - Gravity: {grav_desc}")
+        if hasattr(self, 'lbl_opt_trailers') and self.lbl_opt_trailers:
+            trail_desc = "OFF" if self.opt_trailers == 0 else f"Len {self.opt_trailers}"
+            self.lbl_opt_trailers.set_text(f"[L]      - Trailers: {trail_desc}")
+
         self.lbl_auto_launch.set_text(f"[A]      - Toggle Auto-Launcher ({'ON' if self.auto_launch else 'OFF'})")
         self.lbl_auto_rotate.set_text(f"[R]      - Toggle Camera Auto-Rotation ({'ON' if self.auto_rotate else 'OFF'})")
         if self.music_playing:
@@ -3851,20 +3965,36 @@ class FireworksApp:
         
         self.mandala_base_ages[idx] = 0.0
         self.mandala_base_max_ages[idx] = np.random.uniform(1.8, 3.2)
-        col_choice = random.choice([
-            COLORS["sodium_gold"],
-            COLORS["strontium_red"],
-            COLORS["potassium_purple"],
-            COLORS["copper_blue"],
-            COLORS["magnesium_white"]
-        ])
+        if self.opt_color_mode != 'REALISTIC':
+            pal = get_palette_colors(self.opt_color_mode)
+            col_choice = random.choice(pal)
+        else:
+            col_choice = random.choice([
+                COLORS["sodium_gold"],
+                COLORS["strontium_red"],
+                COLORS["potassium_purple"],
+                COLORS["copper_blue"],
+                COLORS["magnesium_white"]
+            ])
         self.mandala_base_col[idx] = col_choice
         self.mandala_base_col[idx, 3] = np.random.uniform(0.6, 1.0)
         self.mandala_base_size[idx] = np.random.uniform(5.0, 11.0)
 
     def update_mandala(self, dt):
         speed_factor = 1.0 + self.react_bass * 2.5
+        if self.opt_gravity > 0.0:
+            self.mandala_base_vel[:, 1] -= 3.0 * self.opt_gravity * dt
         self.mandala_base_pos += self.mandala_base_vel * speed_factor * dt
+
+        if self.opt_trailers > 0:
+            target_history_len = self.opt_trailers * 2
+            if not hasattr(self, 'mandala_history') or self.mandala_history is None:
+                self.mandala_history = []
+            self.mandala_history.append((self.mandala_base_pos.copy(), self.mandala_base_col.copy(), self.mandala_base_ages.copy(), self.mandala_base_max_ages.copy()))
+            while len(self.mandala_history) > target_history_len:
+                self.mandala_history.pop(0)
+        else:
+            self.mandala_history = None
         
         center = np.array([0.0, 4.0, 0.0], dtype=np.float32)
         to_center = center[np.newaxis, :] - self.mandala_base_pos
@@ -3881,6 +4011,7 @@ class FireworksApp:
             self.reset_mandala_particle(idx)
 
     def render_mandala(self):
+        pal = get_palette_colors(self.opt_color_mode) if self.opt_color_mode != 'REALISTIC' else None
         M = len(self.mandala_base_pos)
         S = self.mandala_slices
         angles = np.arange(S) * (2 * np.pi / S) + (self.get_sim_time() * (0.15 + self.react_mid * 0.6))
@@ -3901,12 +4032,49 @@ class FireworksApp:
         pos_arr = rot_pos.reshape(-1, 3).astype(np.float32)
         col_arr = np.repeat(self.mandala_base_col, S, axis=0).copy()
         
+        # Apply current life ratio fade to current colors before historical appending
         ages_rep = np.repeat(self.mandala_base_ages, S)
         max_ages_rep = np.repeat(self.mandala_base_max_ages, S)
         life_ratio = ages_rep / max_ages_rep
         col_arr[:, 3] *= np.clip(1.0 - life_ratio, 0.0, 1.0)
         
-        size_arr = np.repeat(self.mandala_base_size, S) * (1.0 + self.react_treble * 0.5)
+        current_size_arr = np.repeat(self.mandala_base_size, S) * (1.0 + self.react_treble * 0.5)
+        
+        all_pos_list = [pos_arr]
+        all_col_list = [col_arr]
+        all_size_list = [current_size_arr]
+
+        if hasattr(self, 'mandala_history') and self.mandala_history is not None and len(self.mandala_history) > 0:
+            hist_len = len(self.mandala_history)
+            for h_idx, (h_pos, h_col, h_ages, h_max_ages) in enumerate(self.mandala_history):
+                fade_factor = (h_idx + 1) / (hist_len + 1)
+                shifted_h = h_pos - np.array([0.0, 4.0, 0.0])
+                hx = shifted_h[:, 0][:, np.newaxis]
+                hy = shifted_h[:, 1][:, np.newaxis]
+                hz = shifted_h[:, 2][:, np.newaxis]
+                
+                h_rot_x = hx * cos_a - hy * sin_a
+                h_rot_y = hx * sin_a + hy * cos_a
+                h_rot_z = np.tile(hz, (1, S))
+                
+                h_rot_pos = np.stack([h_rot_x, h_rot_y + 4.0, h_rot_z], axis=2)
+                h_pos_arr = h_rot_pos.reshape(-1, 3).astype(np.float32)
+                
+                h_col_arr = np.repeat(h_col, S, axis=0).copy()
+                h_ages_rep = np.repeat(h_ages, S)
+                h_max_rep = np.repeat(h_max_ages, S)
+                h_ratio = h_ages_rep / h_max_rep
+                
+                h_col_arr[:, 3] *= np.clip(1.0 - h_ratio, 0.0, 1.0) * fade_factor * 0.45
+                h_size_arr = np.repeat(self.mandala_base_size, S) * (1.0 + self.react_treble * 0.5) * (0.4 + 0.6 * fade_factor)
+                
+                all_pos_list.append(h_pos_arr)
+                all_col_list.append(h_col_arr)
+                all_size_list.append(h_size_arr)
+                
+        pos_arr = np.concatenate(all_pos_list, axis=0)
+        col_arr = np.concatenate(all_col_list, axis=0)
+        size_arr = np.concatenate(all_size_list, axis=0)
         
         mandala_tri_pos = []
         mandala_tri_col = []
@@ -3917,11 +4085,12 @@ class FireworksApp:
             R = 3.6 + np.sin(self.get_sim_time() * 6.0) * 0.15
             center = np.array([0.0, 4.0, 0.0], dtype=np.float32)
             alpha_p = np.clip(self.peace_symbol_timer / 1.0, 0.0, 1.0) * (0.65 + self.react_mid * 0.35)
+            p_col_rgb = list(pal[0][:3]) if pal else [1.0, 0.82, 0.1]
             for k_pt in range(60):
                 ang = k_pt * 2.0 * np.pi / 60.0
                 pt = center + np.array([R * np.cos(ang), R * np.sin(ang), 0.0], dtype=np.float32)
                 peace_pos.append(pt)
-                peace_col.append([1.0, 0.82, 0.1, alpha_p])
+                peace_col.append(p_col_rgb + [alpha_p])
                 peace_size.append(10.0 + np.sin(self.get_sim_time() * 12.0 + k_pt) * 4.0)
             for y_pt in np.linspace(-R, R, 20):
                 pt = center + np.array([0.0, y_pt, 0.0], dtype=np.float32)
@@ -3959,7 +4128,8 @@ class FireworksApp:
                     spark_ang = ang + np.random.uniform(-0.1, 0.1)
                     s_pt = center + np.array([spark_r * np.cos(spark_ang), spark_r * np.sin(spark_ang), np.random.uniform(-0.1, 0.1)], dtype=np.float32)
                     halo_pos.append(s_pt)
-                    halo_col.append([0.9, 0.15, 0.5, alpha_h * 0.6])
+                    h_col_rgb = list(pal[1 % len(pal)][:3]) if pal else [0.9, 0.15, 0.5]
+                    halo_col.append(h_col_rgb + [alpha_h * 0.6])
                     halo_size.append(6.0)
             pos_arr = np.concatenate([pos_arr, np.array(halo_pos, dtype=np.float32)], axis=0)
             col_arr = np.concatenate([col_arr, np.array(halo_col, dtype=np.float32)], axis=0)
@@ -3980,7 +4150,9 @@ class FireworksApp:
                     r_pos_list.append(pt_relative)
                     rad = r['particles_rad'][j]
                     alpha = 0.72 * (1.0 - rad / 12.0)
-                    col = [0.15, 0.85, 0.92, alpha] if j % 2 == 0 else [0.75, 0.12, 0.92, alpha]
+                    c1 = list(pal[0][:3]) if pal else [0.15, 0.85, 0.92]
+                    c2 = list(pal[2 % len(pal)][:3]) if pal else [0.75, 0.12, 0.92]
+                    col = c1 + [alpha] if j % 2 == 0 else c2 + [alpha]
                     r_col_list.append(col)
                     r_size_list.append(18.0 + rad * 3.5) # made smoke highly visible
             elif r['type'] == 'SUN_BURST':
@@ -3994,13 +4166,23 @@ class FireworksApp:
                         pt_relative = np.array([rad * np.cos(spoke_ang), rad * np.sin(spoke_ang), 0.0])
                         r_pos_list.append(pt_relative)
                         alpha = 0.8 * (1.0 - pt_frac) * np.clip(r['life'] / 1.0, 0.0, 1.0)
-                        r_col_list.append([1.0, 0.4 + 0.55 * (1.0 - pt_frac), 0.0, alpha])
+                        if pal:
+                            c_mix = (1.0 - pt_frac) * np.array(pal[0][:3]) + pt_frac * np.array(pal[2 % len(pal)][:3])
+                            r_col_list.append(list(c_mix) + [alpha])
+                        else:
+                            r_col_list.append([1.0, 0.4 + 0.55 * (1.0 - pt_frac), 0.0, alpha])
                         r_size_list.append(16.0 * (1.0 - pt_frac * 0.3))
             elif r['type'] == 'BUTTERFLY':
                 # Render high-quality 3D Butterfly singleton directly as solid asymmetric (no pairs!)
                 bf_pts, bf_cols = make_solid_butterfly(r['pos'], np.array([np.cos(r['ang']), np.sin(r['ang']), 0.0]), r['phase'])
+                if pal:
+                    for idx_c in range(len(bf_cols)):
+                        bf_cols[idx_c] = list(pal[idx_c % len(pal)][:3]) + [bf_cols[idx_c][3]]
                 mandala_tri_pos.extend(bf_pts)
                 mandala_tri_col.extend(bf_cols)
+            if r['type'] == 'BIRD' and pal:
+                for idx_c in range(len(mandala_tri_col)):
+                    mandala_tri_col[idx_c] = list(pal[idx_c % len(pal)][:3]) + [mandala_tri_col[idx_c][3]]
                 
             if len(r_pos_list) > 0:
                 sym_pos, sym_col, sym_size = [], [], []
@@ -4729,6 +4911,7 @@ class FireworksApp:
         
         self.part_proj_loc = gl.glGetUniformLocation(self.particle_program, "projection")
         self.part_view_loc = gl.glGetUniformLocation(self.particle_program, "view")
+        self.part_star_shape_loc = gl.glGetUniformLocation(self.particle_program, "uStarShape")
         self.sky_time_loc = gl.glGetUniformLocation(self.sky_program, "uTime")
         self.sky_ripple_loc = gl.glGetUniformLocation(self.sky_program, "uRipple")
         self.sky_climax_flash_loc = gl.glGetUniformLocation(self.sky_program, "uClimaxFlash")
@@ -5015,6 +5198,7 @@ class FireworksApp:
                 gl.glUseProgram(self.particle_program)
                 gl.glUniformMatrix4fv(self.part_proj_loc, 1, gl.GL_TRUE, proj_matrix)
                 gl.glUniformMatrix4fv(self.part_view_loc, 1, gl.GL_TRUE, view_matrix)
+                gl.glUniform1i(self.part_star_shape_loc, self.opt_star_shape)
                 
                 gl.glBindVertexArray(self.particle_vao)
                 gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.particle_pos_vbo)
@@ -5341,6 +5525,26 @@ class FireworksApp:
             return True
         elif keyval in (Gdk.KEY_m, Gdk.KEY_M):
             self.toggle_sync_playback()
+            return True
+        elif keyval in (Gdk.KEY_o, Gdk.KEY_O):
+            modes = ['REALISTIC', 'NEON', 'TRANQUIL', 'METAL']
+            idx = modes.index(self.opt_color_mode)
+            self.opt_color_mode = modes[(idx + 1) % len(modes)]
+            self.update_legend_labels()
+            return True
+        elif keyval in (Gdk.KEY_p, Gdk.KEY_P):
+            self.opt_star_shape = (self.opt_star_shape + 1) % 7
+            self.update_legend_labels()
+            return True
+        elif keyval in (Gdk.KEY_g, Gdk.KEY_G):
+            gravs = [0.0, 0.5, 1.0, 2.0, 5.0, 10.0]
+            idx = gravs.index(self.opt_gravity) if self.opt_gravity in gravs else 2
+            self.opt_gravity = gravs[(idx + 1) % len(gravs)]
+            self.update_legend_labels()
+            return True
+        elif keyval in (Gdk.KEY_l, Gdk.KEY_L):
+            self.opt_trailers = (self.opt_trailers + 1) % 11
+            self.update_legend_labels()
             return True
         elif keyval in (Gdk.KEY_t, Gdk.KEY_T):
             self.show_rockets = not self.show_rockets
@@ -5980,20 +6184,36 @@ class FireworksApp:
             fade_fudge = 0.6
 
         size = self.syn_star_size
-        factor = min(255.0, np.exp(np.log(fade_fudge) / (size * 8.0)) * 255.0) if size > 0.0 else 0.0
+        if self.opt_trailers > 0:
+            decay_scale = 1.0 - min(0.9, self.opt_trailers * 0.08)
+            factor = 256.0 - (256.0 - (min(255.0, np.exp(np.log(fade_fudge) / (size * 8.0)) * 255.0) if size > 0.0 else 0.0)) * decay_scale
+        else:
+            factor = min(255.0, np.exp(np.log(fade_fudge) / (size * 8.0)) * 255.0) if size > 0.0 else 0.0
 
         fgRed = self.syn_fg_red_slider
         fgGreen = self.syn_fg_green_slider
-        fgBlue = 1.0 - max(fgRed, fgGreen)
+        if self.opt_color_mode != 'REALISTIC':
+            pal = get_palette_colors(self.opt_color_mode)
+            c1, c2 = pal[0], pal[1 % len(pal)]
+            fgRed, fgGreen, fgBlue = c1[0], c1[1], c1[2]
+            bgRed, bgGreen, bgBlue = c2[0], c2[1], c2[2]
+            fg_s = fgRed + fgGreen + fgBlue
+            if fg_s > 0.0:
+                fgRed, fgGreen, fgBlue = (fgRed/fg_s)*2.0, (fgGreen/fg_s)*2.0, (fgBlue/fg_s)*2.0
+            bg_s = bgRed + bgGreen + bgBlue
+            if bg_s > 0.0:
+                bgRed, bgGreen, bgBlue = (bgRed/bg_s)*2.0, (bgGreen/bg_s)*2.0, (bgBlue/bg_s)*2.0
+        else:
+            fgBlue = 1.0 - max(fgRed, fgGreen)
+            bgRed = self.syn_bg_red_slider
+            bgGreen = self.syn_bg_green_slider
+            bgBlue = 1.0 - max(bgRed, bgGreen)
+        
         fg_scale = (fgRed + fgGreen + fgBlue) / 2.0
         if fg_scale > 0.0:
             fgRed /= fg_scale
             fgGreen /= fg_scale
             fgBlue /= fg_scale
-
-        bgRed = self.syn_bg_red_slider
-        bgGreen = self.syn_bg_green_slider
-        bgBlue = 1.0 - max(bgRed, bgGreen)
         bg_scale = (bgRed + bgGreen + bgBlue) / 2.0
         if bg_scale > 0.0:
             bgRed /= bg_scale
@@ -6046,7 +6266,8 @@ class FireworksApp:
             curr_b = b
             step_size = 0.09 * self.syn_star_size * star.get('size_coef', 1.0)
 
-            for j in range(1, 9):
+            trail_range = self.opt_trailers * 3 + 1 if self.opt_trailers > 0 else 9
+            for j in range(1, trail_range):
                 curr_f = curr_f * factor / 256.0
                 curr_b = curr_b * factor / 256.0
                 if curr_f < 3.0 and curr_b < 3.0:
@@ -6095,6 +6316,10 @@ class FireworksApp:
             col = p['col'].copy()
             twinkle = 0.5 + 0.5 * np.sin(p['phase'])
             col[3] *= (0.3 + 0.7 * twinkle) * (0.4 + self.react_mid * 0.6)
+            if self.opt_color_mode != 'REALISTIC':
+                pal = get_palette_colors(self.opt_color_mode)
+                c_bg = pal[2 % len(pal)]
+                col[:3] = c_bg[:3]
             cols.append(col)
             sizes.append(p['size'])
 
