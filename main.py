@@ -1131,21 +1131,73 @@ class Firework:
 # Helper 3D Solid Mesh Generators for Visualizer Rarities
 # =========================================================================
 
-def make_rocky_planet(center, radius, phase):
-    """Generates a solid rocky spherical mesh (latitude-longitude grid) with height perturbance and tilting rings."""
-    lats = 16
-    lons = 24
+def get_gas_giant_color(lat, lon, phase, style):
+    # Simplify waves: reduce perturbation for a smoother, elegant gas giant look
+    perturb = np.sin(lat * 6.0 + phase) * 0.06 + np.sin(lon * 4.0 - phase * 1.2) * 0.03
+    y_band = lat + perturb
+    band_val = 0.5 + 0.5 * np.sin(y_band * 10.0)
+    band_val += 0.08 * np.cos(y_band * 24.0)
+    band_val = np.clip(band_val, 0.0, 1.0)
+    
+    # Low contrast, subtle Neptune-esque banding for all style options
+    if style == "NEPTUNE":
+        col0 = np.array([0.05, 0.12, 0.38, 1.0]) # Deep cobalt blue
+        col1 = np.array([0.08, 0.18, 0.50, 1.0]) # Royal blue
+        col2 = np.array([0.12, 0.25, 0.62, 1.0]) # Sapphire/cyan blue
+    elif style == "JUPITER":
+        col0 = np.array([0.42, 0.22, 0.14, 1.0]) # Deep terracotta reddish-brown
+        col1 = np.array([0.46, 0.26, 0.18, 1.0]) # Muted copper/bronze
+        col2 = np.array([0.50, 0.30, 0.22, 1.0]) # Soft warm tan
+    elif style == "GREEN":
+        col0 = np.array([0.02, 0.22, 0.14, 1.0]) # Deep pine green
+        col1 = np.array([0.04, 0.26, 0.18, 1.0]) # Rich emerald green
+        col2 = np.array([0.06, 0.32, 0.24, 1.0]) # Dark tealy seafoam
+    elif style == "GREEN_YELLOW":
+        col0 = np.array([0.18, 0.24, 0.08, 1.0]) # Deep olive green
+        col1 = np.array([0.22, 0.28, 0.10, 1.0]) # Golden moss
+        col2 = np.array([0.26, 0.32, 0.12, 1.0]) # Subtle warm chartreuse
+    else: # ORANGE style
+        col0 = np.array([0.40, 0.18, 0.06, 1.0]) # Deep mahogany orange
+        col1 = np.array([0.44, 0.22, 0.08, 1.0]) # Rich dark amber
+        col2 = np.array([0.48, 0.26, 0.12, 1.0]) # Soft subtle peach
+        
+    if band_val < 0.45:
+        frac = band_val / 0.45
+        base_col = col0 * (1.0 - frac) + col1 * frac
+    else:
+        frac = (band_val - 0.45) / 0.55
+        base_col = col1 * (1.0 - frac) + col2 * frac
+        
+    return base_col
+
+
+def make_rocky_planet(center, radius, phase, style="JUPITER"):
+    """Generates a beautifully lit, shaded smooth solid gas giant spherical mesh (latitude-longitude grid) with dynamic cloud-banding wave patterns."""
+    lats = 24
+    lons = 36
     vertices = []
     colors = []
     
-    def get_height(theta, phi):
-        h = np.sin(theta * 3.0) * np.cos(phi * 3.0) * 0.12
-        h += np.sin(theta * 7.0 + phi * 4.0) * 0.05
-        dist_to_crater = np.sin(theta * 5.0 - phi * 2.0)
-        if dist_to_crater > 0.8:
-            h -= 0.15
-        return h
+    L = np.array([0.7, 0.6, -0.4], dtype=np.float32)
+    L /= np.linalg.norm(L)
+    
+    def get_vertex_data(lat, lon):
+        nx = np.cos(lat) * np.cos(lon)
+        ny = np.sin(lat)
+        nz = np.cos(lat) * np.sin(lon)
+        norm = np.array([nx, ny, nz], dtype=np.float32)
         
+        p = center + norm * radius
+        base_col = get_gas_giant_color(lat, lon, phase, style)
+        
+        dot = np.dot(norm, L)
+        shade = 0.16 + 0.84 * max(0.0, dot)
+        col = [np.clip(base_col[0] * shade, 0.0, 1.0),
+               np.clip(base_col[1] * shade, 0.0, 1.0),
+               np.clip(base_col[2] * shade, 0.0, 1.0),
+               1.0]
+        return p, col
+
     for i in range(lats):
         lat0 = -np.pi/2.0 + (i / lats) * np.pi
         lat1 = -np.pi/2.0 + ((i + 1) / lats) * np.pi
@@ -1154,67 +1206,82 @@ def make_rocky_planet(center, radius, phase):
             lon0 = (j / lons) * 2.0 * np.pi + phase
             lon1 = ((j + 1) / lons) * 2.0 * np.pi + phase
             
-            # Corners
-            h00 = get_height(lat0, lon0)
-            r00 = radius * (1.0 + h00)
-            p00 = center + np.array([r00 * np.cos(lat0) * np.cos(lon0), r00 * np.cos(lat0) * np.sin(lon0), r00 * np.sin(lat0)])
-            
-            h10 = get_height(lat1, lon0)
-            r10 = radius * (1.0 + h10)
-            p10 = center + np.array([r10 * np.cos(lat1) * np.cos(lon0), r10 * np.cos(lat1) * np.sin(lon0), r10 * np.sin(lat1)])
-            
-            h01 = get_height(lat0, lon1)
-            r01 = radius * (1.0 + h01)
-            p01 = center + np.array([r01 * np.cos(lat0) * np.cos(lon1), r01 * np.cos(lat0) * np.sin(lon1), r01 * np.sin(lat0)])
-            
-            h11 = get_height(lat1, lon1)
-            r11 = radius * (1.0 + h11)
-            p11 = center + np.array([r11 * np.cos(lat1) * np.cos(lon1), r11 * np.cos(lat1) * np.sin(lon1), r11 * np.sin(lat1)])
-            
-            def get_color(h):
-                val = np.clip(0.5 + h * 2.0, 0.25, 0.85)
-                return [val * 0.62, val * 0.55, val * 0.50, 1.0] # dusty brown/gray
-                
-            c00 = get_color(h00)
-            c10 = get_color(h10)
-            c01 = get_color(h01)
-            c11 = get_color(h11)
+            p00, c00 = get_vertex_data(lat0, lon0)
+            p10, c10 = get_vertex_data(lat1, lon0)
+            p01, c01 = get_vertex_data(lat0, lon1)
+            p11, c11 = get_vertex_data(lat1, lon1)
             
             vertices.extend([p00, p10, p11])
             colors.extend([c00, c10, c11])
             vertices.extend([p00, p11, p01])
             colors.extend([c00, c11, c01])
             
-    # Concentric tilting Rings (Saturn-like)
-    num_ring_segments = 36
-    inner_r = radius * 1.5
-    outer_r = radius * 2.3
-    tilt_angle = 0.45
-    cos_t = np.cos(tilt_angle)
-    sin_t = np.sin(tilt_angle)
+    return vertices, colors
+
+
+def make_3d_asteroid(center, radius, phase):
+    """Generates a beautifully lit solid irregular 3D rocky asteroid with deep craters, surface deformation, and shadows."""
+    lats = 8
+    lons = 12
+    vertices = []
+    colors = []
     
-    for k in range(num_ring_segments):
-        ang0 = (k / num_ring_segments) * 2.0 * np.pi
-        ang1 = ((k + 1) / num_ring_segments) * 2.0 * np.pi
+    def get_height_offset(theta, phi):
+        h = np.sin(theta * 4.0) * np.cos(phi * 4.0) * 0.18
+        h += np.sin(theta * 11.0 + phi * 9.0) * 0.06
+        dist_to_crater1 = np.sin(theta * 3.0 - phi * 2.0)
+        if dist_to_crater1 > 0.7:
+            h -= 0.25
+        dist_to_crater2 = np.cos(theta * 2.0 + phi * 4.0)
+        if dist_to_crater2 > 0.75:
+            h -= 0.20
+        return h
+
+    L = np.array([0.7, 0.6, -0.4], dtype=np.float32)
+    L /= np.linalg.norm(L)
+
+    def get_asteroid_vertex(lat, lon):
+        nx = np.cos(lat) * np.cos(lon)
+        ny = np.cos(lat) * np.sin(lon)
+        nz = np.sin(lat)
+        norm = np.array([nx, ny, nz], dtype=np.float32)
         
-        p_in0 = center + np.array([inner_r * np.cos(ang0), inner_r * np.sin(ang0) * cos_t, inner_r * np.sin(ang0) * sin_t])
-        p_out0 = center + np.array([outer_r * np.cos(ang0), outer_r * np.sin(ang0) * cos_t, outer_r * np.sin(ang0) * sin_t])
-        p_in1 = center + np.array([inner_r * np.cos(ang1), inner_r * np.sin(ang1) * cos_t, inner_r * np.sin(ang1) * sin_t])
-        p_out1 = center + np.array([outer_r * np.cos(ang1), outer_r * np.sin(ang1) * cos_t, outer_r * np.sin(ang1) * sin_t])
+        h = get_height_offset(lat, lon)
+        r = radius * (1.0 + h)
+        p = center + norm * r
         
-        ring_col0 = [0.80, 0.68, 0.42, 0.8]
-        ring_col1 = [0.70, 0.58, 0.32, 0.8]
+        base_col = np.array([0.38, 0.38, 0.40, 1.0], dtype=np.float32) if h > -0.05 else np.array([0.22, 0.22, 0.24, 1.0], dtype=np.float32)
+        dot = np.dot(norm, L)
+        shade = 0.18 + 0.82 * max(0.0, dot)
+        col = [np.clip(base_col[0] * shade, 0.0, 1.0),
+               np.clip(base_col[1] * shade, 0.0, 1.0),
+               np.clip(base_col[2] * shade, 0.0, 1.0),
+               1.0]
+        return p, col
+
+    for i in range(lats):
+        lat0 = -np.pi/2.0 + (i / lats) * np.pi
+        lat1 = -np.pi/2.0 + ((i + 1) / lats) * np.pi
         
-        vertices.extend([p_in0, p_out0, p_out1])
-        colors.extend([ring_col0, ring_col1, ring_col1])
-        vertices.extend([p_in0, p_out1, p_in1])
-        colors.extend([ring_col0, ring_col1, ring_col0])
-        
+        for j in range(lons):
+            lon0 = (j / lons) * 2.0 * np.pi + phase
+            lon1 = ((j + 1) / lons) * 2.0 * np.pi + phase
+            
+            p00, c00 = get_asteroid_vertex(lat0, lon0)
+            p10, c10 = get_asteroid_vertex(lat1, lon0)
+            p01, c01 = get_asteroid_vertex(lat0, lon1)
+            p11, c11 = get_asteroid_vertex(lat1, lon1)
+            
+            vertices.extend([p00, p10, p11])
+            colors.extend([c00, c10, c11])
+            vertices.extend([p00, p11, p01])
+            colors.extend([c00, c11, c01])
+            
     return vertices, colors
 
 
 def make_solid_squid(center, direction, phase, react_bass, react_mid, react_treble):
-    """Generates an opaque maroon 3D squid mantle with side fins, black eyes, wiggling arms, and long tentacles."""
+    """Generates an opaque, matte deep-maroon 3D squid mantle with broader side fins, siphon, black eyes, wiggling arms, and extra-long tentacles."""
     sq_dir = direction / np.linalg.norm(direction)
     if abs(sq_dir[0]) < 0.9:
         sq_u = np.cross(sq_dir, [1.0, 0.0, 0.0])
@@ -1227,23 +1294,27 @@ def make_solid_squid(center, direction, phase, react_bass, react_mid, react_treb
     vertices = []
     colors = []
     
-    maroon = [0.42, 0.08, 0.12, 1.0]
+    # Matte deep maroon (completely non-glowing)
+    maroon = [0.32, 0.06, 0.09, 1.0]
+    dark_maroon = [0.24, 0.04, 0.06, 1.0]
     
-    # Cone Mantle
-    rings = 6
-    slices = 12
-    mantle_len = 1.6
-    max_rad = 0.32
+    # Cone Mantle (12 rings, 16 slices for higher polygon smoothness)
+    rings = 12
+    slices = 16
+    mantle_len = 1.8
+    max_rad = 0.35
     
     mantle_vertices = []
     mantle_colors = []
     
     for r in range(rings):
         frac = r / (rings - 1)
-        ring_rad = max_rad * np.sin(frac * np.pi) if r > 0 else 0.0
-        ring_len = mantle_len * (1.0 - frac) if r > 0 else mantle_len
+        # Bullet/cone shape
+        ring_rad = max_rad * np.sin(frac * np.pi * 0.5) if r > 0 else 0.0
+        ring_len = mantle_len * (1.0 - frac)
         
-        ring_col = [maroon[0] * (0.8 + 0.2 * np.cos(frac * np.pi)), maroon[1], maroon[2], 1.0]
+        # Muted shade gradient along the body
+        ring_col = [maroon[0] * (0.7 + 0.3 * frac), maroon[1], maroon[2], 1.0]
         
         for s in range(slices):
             ang = (s / slices) * 2.0 * np.pi
@@ -1265,42 +1336,80 @@ def make_solid_squid(center, direction, phase, react_bass, react_mid, react_treb
             vertices.extend([mantle_vertices[i00], mantle_vertices[i01], mantle_vertices[i11]])
             colors.extend([mantle_colors[i00], mantle_colors[i01], mantle_colors[i11]])
             
-    # Side Fins (Double-sided flat triangles)
+    # Broad side fins (diamond-shaped, wrapping around the mantle sides)
+    # Fins run along the rear 60% of the mantle
     for side in [-1.0, 1.0]:
-        fin_tip = center - sq_dir * mantle_len
-        fin_base = center - sq_dir * (mantle_len * 0.5)
-        fin_outer = fin_base + sq_w * (side * 0.6)
+        for r in range(rings // 2, rings - 1):
+            frac_curr = r / (rings - 1)
+            frac_next = (r + 1) / (rings - 1)
+            
+            rad_curr = max_rad * np.sin(frac_curr * np.pi * 0.5)
+            rad_next = max_rad * np.sin(frac_next * np.pi * 0.5)
+            
+            # Width peaks near the rear tip
+            width_curr = 0.7 * np.sin((frac_curr - 0.5) / 0.5 * np.pi * 0.5) * mantle_len
+            width_next = 0.7 * np.sin((frac_next - 0.5) / 0.5 * np.pi * 0.5) * mantle_len
+            
+            p_base_curr = center + sq_w * (side * rad_curr) - sq_dir * (mantle_len * (1.0 - frac_curr))
+            p_tip_curr = p_base_curr + sq_w * (side * width_curr)
+            
+            p_base_next = center + sq_w * (side * rad_next) - sq_dir * (mantle_len * (1.0 - frac_next))
+            p_tip_next = p_base_next + sq_w * (side * width_next)
+            
+            # Double-sided fin quads
+            vertices.extend([p_base_curr, p_tip_next, p_tip_curr])
+            colors.extend([maroon, maroon, maroon])
+            vertices.extend([p_base_curr, p_base_next, p_tip_next])
+            colors.extend([maroon, maroon, maroon])
+            
+            vertices.extend([p_base_curr, p_tip_curr, p_tip_next])
+            colors.extend([maroon, maroon, maroon])
+            vertices.extend([p_base_curr, p_tip_next, p_base_next])
+            colors.extend([maroon, maroon, maroon])
+            
+    # Siphon / Funnel on underside (e.g. opposite of the up direction sq_u)
+    siphon_base = center - sq_u * 0.22 - sq_dir * 0.1
+    siphon_tip = siphon_base - sq_dir * 0.45 - sq_u * 0.1
+    siphon_rad = 0.08
+    for s in range(8):
+        ang_curr = (s / 8.0) * 2.0 * np.pi
+        ang_next = ((s + 1) / 8.0) * 2.0 * np.pi
+        p_bc = siphon_base + (sq_w * np.cos(ang_curr) + sq_u * np.sin(ang_curr)) * siphon_rad
+        p_bn = siphon_base + (sq_w * np.cos(ang_next) + sq_u * np.sin(ang_next)) * siphon_rad
+        p_tc = siphon_tip + (sq_w * np.cos(ang_curr) + sq_u * np.sin(ang_curr)) * (siphon_rad * 0.5)
+        p_tn = siphon_tip + (sq_w * np.cos(ang_next) + sq_u * np.sin(ang_next)) * (siphon_rad * 0.5)
         
-        vertices.extend([fin_tip, fin_outer, fin_base])
-        colors.extend([maroon, maroon, maroon])
-        vertices.extend([fin_tip, fin_base, fin_outer])
-        colors.extend([maroon, maroon, maroon])
-        
+        vertices.extend([p_bc, p_tn, p_bn])
+        colors.extend([dark_maroon, dark_maroon, dark_maroon])
+        vertices.extend([p_bc, p_tc, p_tn])
+        colors.extend([dark_maroon, dark_maroon, dark_maroon])
+
     # Black Octahedron Eyes
-    eye_col = [0.05, 0.05, 0.05, 1.0]
+    eye_col = [0.03, 0.03, 0.03, 1.0]
     for side in [-1.0, 1.0]:
-        eye_pos = center + sq_w * (side * 0.28) + sq_u * 0.1
-        d_x, u_x, w_x = sq_dir * 0.08, sq_u * 0.08, sq_w * 0.08
+        eye_pos = center + sq_w * (side * 0.32) + sq_u * 0.12
+        d_x, u_x, w_x = sq_dir * 0.1, sq_u * 0.1, sq_w * 0.1
         pts = [eye_pos + d_x, eye_pos - d_x, eye_pos + u_x, eye_pos - u_x, eye_pos + w_x, eye_pos - w_x]
         eye_tris = [(0, 2, 4), (0, 4, 3), (0, 3, 5), (0, 5, 2), (1, 2, 5), (1, 5, 3), (1, 3, 4), (1, 4, 2)]
         for t0, t1, t2 in eye_tris:
             vertices.extend([pts[t0], pts[t1], pts[t2]])
             colors.extend([eye_col, eye_col, eye_col])
             
-    # 8 Wiggling Arms (Solid connected quads)
+    # 8 Long wiggling Arms (7 segments, length 0.28, total length ~2.0, organic sinusoidal motion)
     for i_arm in range(8):
         arm_ang = i_arm * (2.0 * np.pi / 8.0)
         arm_dir = sq_u * np.cos(arm_ang) + sq_w * np.sin(arm_ang)
-        arm_start = center + arm_dir * 0.15
+        arm_start = center + arm_dir * 0.16
         prev_pt = arm_start
-        prev_w = sq_w * 0.04
+        prev_w = sq_w * 0.05
         
-        for s in range(5):
-            dist = s * 0.22
-            wave_ph = phase * 2.0 - s * 0.6 + i_arm
-            ripple = sq_u * np.sin(wave_ph) * 0.04 * (s + 1) + sq_w * np.cos(wave_ph * 1.2) * 0.04 * (s + 1)
+        for s in range(7):
+            dist = s * 0.28
+            wave_ph = phase * 2.2 - s * 0.75 + i_arm
+            # Organic side-to-side and up-down wiggling
+            ripple = sq_u * np.sin(wave_ph) * 0.07 * (s + 1) + sq_w * np.cos(wave_ph * 1.1) * 0.07 * (s + 1)
             curr_center = arm_start - sq_dir * dist + ripple
-            curr_w = sq_w * (0.04 * (1.0 - s/5.0))
+            curr_w = sq_w * (0.05 * (1.0 - s/7.0))
             
             vertices.extend([prev_pt - prev_w, prev_pt + prev_w, curr_center + curr_w])
             colors.extend([maroon, maroon, maroon])
@@ -1308,22 +1417,33 @@ def make_solid_squid(center, direction, phase, react_bass, react_mid, react_treb
             colors.extend([maroon, maroon, maroon])
             prev_pt, prev_w = curr_center, curr_w
             
-    # 2 Long Feeding Tentacles with Clubs
+    # 2 Extra-Long Feeding Tentacles with highly emphasized 3D Clubs (12 segments, length 0.48, total length ~5.8)
     for i_tent in range(2):
         tent_ang = i_tent * np.pi + np.pi/4.0
         tent_dir = sq_u * np.cos(tent_ang) + sq_w * np.sin(tent_ang)
         tent_start = center + tent_dir * 0.18
         prev_pt = tent_start
-        prev_w = sq_w * 0.03
+        prev_w = sq_w * 0.04
         
-        for s in range(8):
-            dist = s * 0.35
-            wave_ph = phase * 1.5 - s * 0.4 + i_tent * np.pi
-            ripple = sq_u * np.sin(wave_ph) * 0.08 * (s + 1) + sq_w * np.cos(wave_ph * 1.1) * 0.08 * (s + 1)
+        for s in range(12):
+            dist = s * 0.48
+            wave_ph = phase * 1.6 - s * 0.45 + i_tent * np.pi
+            ripple = sq_u * np.sin(wave_ph) * 0.11 * (s + 1) + sq_w * np.cos(wave_ph * 1.1) * 0.11 * (s + 1)
             curr_center = tent_start - sq_dir * dist + ripple
-            curr_w = sq_w * (0.03 * (1.0 - s/8.0)) if s < 7 else sq_w * 0.08
             
-            col = maroon if s < 7 else [0.55, 0.12, 0.18, 1.0] # lighter maroon club
+            if s < 10:
+                # Slender shaft
+                curr_w = sq_w * (0.04 * (1.0 - s/11.0))
+                col = maroon
+            elif s == 10:
+                # Expanding club start
+                curr_w = sq_w * 0.14
+                col = dark_maroon
+            else:
+                # Club tip tapering back
+                curr_w = sq_w * 0.06
+                col = dark_maroon
+                
             vertices.extend([prev_pt - prev_w, prev_pt + prev_w, curr_center + curr_w])
             colors.extend([col, col, col])
             vertices.extend([prev_pt - prev_w, curr_center + curr_w, curr_center - curr_w])
@@ -1334,98 +1454,300 @@ def make_solid_squid(center, direction, phase, react_bass, react_mid, react_treb
 
 
 def make_solid_seahorse(center, phase):
-    """Generates an extruded 6-sided tube (hexagonal cross-section) along an S-curve skeleton with segmented ridges."""
+    """Generates an organic, beautifully lit, 2.5D classic seahorse profile silhouette with a realistic S-spine, wiggling tail, and elegant highlights."""
     vertices = []
     colors = []
     
-    orange = [0.85, 0.42, 0.12, 1.0]
-    yellow_trim = [0.95, 0.72, 0.15, 1.0]
+    # Deep midnight navy base, sapphire chest, and glowing cyan-blue highlights
+    spine_col = [0.02, 0.04, 0.18, 1.0]      # Deep midnight navy base
+    chest_col = [0.08, 0.18, 0.48, 1.0]      # Sapphire chest
+    cyan_highlight = [0.0, 0.72, 0.95, 1.0]  # Glowing cyan-blue highlights
     
-    segments = 24
-    hex_points = []
-    hex_cols = []
+    segments = 120
+    nodes = []
+    
+    # 1. Generate skeleton nodes relative to origin [0,0,0]
+    for i in range(segments):
+        t = i / (segments - 1)
+        
+        # Snout (t: 0.0 to 0.15)
+        if t <= 0.15:
+            frac = t / 0.15
+            x = 0.48 - frac * 0.33
+            y = 0.65 + frac * 0.08
+            
+        # Head / Crown (t: 0.15 to 0.28)
+        elif t <= 0.28:
+            frac = (t - 0.15) / 0.13
+            x = 0.15 - 0.20 * np.sin(frac * np.pi * 0.5)
+            y = 0.73 + 0.19 * np.sin(frac * np.pi * 0.5)
+            
+        # Neck / Throat (t: 0.28 to 0.42)
+        elif t <= 0.42:
+            frac = (t - 0.28) / 0.14
+            x = -0.05 - 0.07 * np.sin(frac * np.pi * 0.5)
+            y = 0.92 - 0.42 * np.sin(frac * np.pi * 0.5)
+            
+        # Chest / Trunk (t: 0.42 to 0.65)
+        elif t <= 0.65:
+            frac = (t - 0.42) / 0.23
+            x = -0.12 + 0.20 * np.sin(frac * np.pi)
+            y = 0.50 - 0.70 * frac
+            
+        # Tail Spiral (t: 0.65 to 1.0)
+        else:
+            frac = (t - 0.65) / 0.35
+            c_x, c_y = 0.05, -0.38
+            R_start = np.sqrt((-0.12 - c_x)**2 + (-0.20 - c_y)**2)
+            theta_start = np.atan2(-0.20 - c_y, -0.12 - c_x)
+            
+            theta = theta_start - frac * 3.8 * np.pi
+            R = R_start * (1.0 - 0.88 * frac) * np.exp(-0.04 * frac * 3.8 * np.pi)
+            
+            x = c_x + R * np.cos(theta)
+            y = c_y + R * np.sin(theta)
+            
+        # Dynamic wiggling tail physics synchronized with audio bobbing phase
+        if t > 0.65:
+            x += np.sin(t * 15.0 - phase * 2.5) * 0.04 * (t - 0.65)
+            
+        nodes.append(np.array([x, y], dtype=np.float32))
+
+    # 2. Compute widths (w_front and w_back) for classic profile
+    w_front = np.zeros(segments, dtype=np.float32)
+    w_back = np.zeros(segments, dtype=np.float32)
     
     for i in range(segments):
         t = i / (segments - 1)
-        offset_x = np.sin(t * np.pi * 2.0 - np.pi/2.0) * 0.42
-        if t > 0.65:
-            offset_x += np.sin(t * 9.0 + phase) * 0.22 * (t - 0.65)
+        
+        # Snout (t: 0.0 to 0.15)
+        if t <= 0.15:
+            w_front[i] = 0.02
+            w_back[i] = 0.02
+            if t < 0.04:
+                flare = 0.025 * (1.0 - t / 0.04)
+                w_front[i] += flare * 1.5
+                w_back[i] += flare * 0.5
+                
+        # Head (t: 0.15 to 0.28)
+        elif t <= 0.28:
+            frac = (t - 0.15) / 0.13
+            w_front[i] = 0.02 + 0.055 * np.sin(frac * np.pi)
+            w_back[i] = 0.02 + 0.045 * np.sin(frac * np.pi)
             
-        node_center = center + np.array([offset_x, 1.2 - t * 2.4, 0.0], dtype=np.float32)
-        rad = 0.08 + (t / 0.35) * 0.22 if t < 0.35 else 0.30 * (1.0 - (t - 0.35) / 0.65)
-        rad = max(0.02, rad) * (1.0 + 0.12 * np.cos(t * 30.0)) # bony segmented ridges
-        
-        col = [orange[0] * (0.8 + 0.2 * np.cos(t * np.pi)), orange[1] * (0.8 + 0.2 * np.cos(t * np.pi)), orange[2], 1.0]
-        
-        ring_pts = []
-        for h in range(6):
-            ang = (h / 6.0) * 2.0 * np.pi
-            ring_pts.append(node_center + np.array([rad * np.cos(ang), 0.0, rad * np.sin(ang) * 0.7]))
-        hex_points.append(ring_pts)
-        hex_cols.append(col)
-        
-    # Stitch tube
+        # Neck (t: 0.28 to 0.42)
+        elif t <= 0.42:
+            frac = (t - 0.28) / 0.14
+            w_front[i] = 0.04 - 0.015 * np.sin(frac * np.pi)
+            w_back[i] = 0.035 - 0.015 * np.sin(frac * np.pi)
+            
+        # Chest / Trunk (t: 0.42 to 0.65)
+        elif t <= 0.65:
+            frac = (t - 0.42) / 0.23
+            w_front[i] = 0.025 + 0.10 * np.sin(frac * np.pi)
+            w_back[i] = 0.02 + 0.04 * np.sin(frac * np.pi)
+            
+        # Tail (t: 0.65 to 1.0)
+        else:
+            frac = (t - 0.65) / 0.35
+            w_front[i] = max(0.005, 0.028 * (1.0 - frac))
+            w_back[i] = max(0.005, 0.024 * (1.0 - frac))
+            
+        # Bony ridges (sharp spines) along the back/left edge
+        if t > 0.20 and t < 0.85:
+            spines = np.maximum(0.0, np.sin(t * 110.0)) ** 2.5
+            w_back[i] += 0.032 * spines
+            
+        # Add a gorgeous crown (coronet) at the top of the head (t around 0.23 to 0.28)
+        if t >= 0.23 and t <= 0.28:
+            crown_frac = (t - 0.23) / 0.05
+            w_back[i] += 0.045 * np.maximum(0.0, np.sin(crown_frac * np.pi * 3.0)) ** 1.5
+
+    # 3. Build vertices segment by segment with 3D Lambertian lighting
+    L = np.array([0.6, 0.8, 0.4], dtype=np.float32)
+    L /= np.linalg.norm(L)
+    
+    def get_shaded_color(col, norm):
+        dot = np.dot(norm, L)
+        shade = 0.25 + 0.75 * max(0.0, dot)
+        return [np.clip(col[0] * shade, 0.0, 1.0),
+                np.clip(col[1] * shade, 0.0, 1.0),
+                np.clip(col[2] * shade, 0.0, 1.0),
+                col[3]]
+
+    z_thick = 0.035
+    
     for i in range(segments - 1):
-        for h in range(6):
-            h_next = (h + 1) % 6
-            p00, p10, p01, p11 = hex_points[i][h], hex_points[i][h_next], hex_points[i+1][h], hex_points[i+1][h_next]
-            col = hex_cols[i]
-            vertices.extend([p00, p11, p10])
-            colors.extend([col, col, col])
-            vertices.extend([p00, p01, p11])
-            colors.extend([col, col, col])
+        t0 = i / (segments - 1)
+        t1 = (i + 1) / (segments - 1)
+        
+        # Calculate tangent & normal for i
+        if i == 0:
+            tangent = nodes[1] - nodes[0]
+        else:
+            tangent = nodes[i+1] - nodes[i-1]
+        norm_t = tangent / np.linalg.norm(tangent) if np.linalg.norm(tangent) > 1e-4 else np.array([0.0, -1.0], dtype=np.float32)
+        normal0 = np.array([-norm_t[1], norm_t[0]], dtype=np.float32)
+        
+        # Calculate tangent & normal for i+1
+        if i + 1 == segments - 1:
+            tangent_next = nodes[-1] - nodes[-2]
+        else:
+            tangent_next = nodes[i+2] - nodes[i]
+        norm_t_next = tangent_next / np.linalg.norm(tangent_next) if np.linalg.norm(tangent_next) > 1e-4 else np.array([0.0, -1.0], dtype=np.float32)
+        normal1 = np.array([-norm_t_next[1], norm_t_next[0]], dtype=np.float32)
+        
+        # Front face coordinates (Z = +z_thick)
+        p_f_left_top = np.array([nodes[i][0] - w_back[i] * normal0[0], nodes[i][1] - w_back[i] * normal0[1], z_thick], dtype=np.float32)
+        p_f_right_top = np.array([nodes[i][0] + w_front[i] * normal0[0], nodes[i][1] + w_front[i] * normal0[1], z_thick], dtype=np.float32)
+        p_f_left_bottom = np.array([nodes[i+1][0] - w_back[i+1] * normal1[0], nodes[i+1][1] - w_back[i+1] * normal1[1], z_thick], dtype=np.float32)
+        p_f_right_bottom = np.array([nodes[i+1][0] + w_front[i+1] * normal1[0], nodes[i+1][1] + w_front[i+1] * normal1[1], z_thick], dtype=np.float32)
+        
+        # Back face coordinates (Z = -z_thick)
+        p_b_left_top = np.array([p_f_left_top[0], p_f_left_top[1], -z_thick], dtype=np.float32)
+        p_b_right_top = np.array([p_f_right_top[0], p_f_right_top[1], -z_thick], dtype=np.float32)
+        p_b_left_bottom = np.array([p_f_left_bottom[0], p_f_left_bottom[1], -z_thick], dtype=np.float32)
+        p_b_right_bottom = np.array([p_f_right_bottom[0], p_f_right_bottom[1], -z_thick], dtype=np.float32)
+        
+        # 1. Base coloring matching real seahorse visual styles
+        col_left_top = cyan_highlight if (t0 >= 0.23 and t0 <= 0.28) else spine_col
+        col_left_bottom = cyan_highlight if (t1 >= 0.23 and t1 <= 0.28) else spine_col
+        
+        col_right_top = cyan_highlight if t0 <= 0.15 else chest_col
+        col_right_bottom = cyan_highlight if t1 <= 0.15 else chest_col
+        
+        # If t is in the chest bulge, make it look beautiful with sapphire chest color
+        if t0 > 0.42 and t0 <= 0.65:
+            col_right_top = chest_col
+        if t1 > 0.42 and t1 <= 0.65:
+            col_right_bottom = chest_col
             
-    # Snout
-    head_center = np.mean(hex_points[0], axis=0)
-    snout_len, snout_rad = 0.28, 0.04
-    snout_base, snout_tip = [], []
-    for h in range(6):
-        ang = (h / 6.0) * 2.0 * np.pi
-        snout_base.append(head_center + np.array([0.0, snout_rad * np.cos(ang), snout_rad * np.sin(ang)]))
-        snout_tip.append(head_center + np.array([snout_len, snout_rad * np.cos(ang), snout_rad * np.sin(ang)]))
+        norm_front = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+        norm_back = np.array([0.0, 0.0, -1.0], dtype=np.float32)
         
-    for h in range(6):
-        h_next = (h + 1) % 6
-        vertices.extend([snout_base[h], snout_tip[h_next], snout_base[h_next]])
-        colors.extend([yellow_trim, yellow_trim, yellow_trim])
-        vertices.extend([snout_base[h], snout_tip[h], snout_tip[h_next]])
-        colors.extend([yellow_trim, yellow_trim, yellow_trim])
+        c_f_lt = get_shaded_color(col_left_top, norm_front)
+        c_f_rt = get_shaded_color(col_right_top, norm_front)
+        c_f_lb = get_shaded_color(col_left_bottom, norm_front)
+        c_f_rb = get_shaded_color(col_right_bottom, norm_front)
         
-    # Dorsal Fin
-    for i in range(6, 14):
-        p_back = hex_points[i][3]
-        fin_len = 0.28 + np.sin(phase * 8.0 - i * 0.5) * 0.08
-        p_fin = p_back + np.array([-fin_len, 0.0, 0.0])
-        p_back_n = hex_points[i+1][3]
-        p_fin_n = p_back_n + np.array([-fin_len, 0.0, 0.0])
+        c_b_lt = get_shaded_color(col_left_top, norm_back)
+        c_b_rt = get_shaded_color(col_right_top, norm_back)
+        c_b_lb = get_shaded_color(col_left_bottom, norm_back)
+        c_b_rb = get_shaded_color(col_right_bottom, norm_back)
         
-        fin_col = [1.0, 0.85, 0.2, 0.85]
-        vertices.extend([p_back, p_fin_n, p_fin])
-        colors.extend([fin_col, fin_col, fin_col])
-        vertices.extend([p_back, p_back_n, p_fin_n])
-        colors.extend([fin_col, fin_col, fin_col])
+        # 2. Add Front Face (CCW)
+        vertices.extend([p_f_left_top, p_f_right_bottom, p_f_right_top])
+        colors.extend([c_f_lt, c_f_rb, c_f_rt])
+        vertices.extend([p_f_left_top, p_f_left_bottom, p_f_right_bottom])
+        colors.extend([c_f_lt, c_f_lb, c_f_rb])
         
-    return vertices, colors
+        # 3. Add Back Face (CCW viewed from back)
+        vertices.extend([p_b_left_top, p_b_right_top, p_b_right_bottom])
+        colors.extend([c_b_lt, c_b_rt, c_b_rb])
+        vertices.extend([p_b_left_top, p_b_right_bottom, p_b_left_bottom])
+        colors.extend([c_b_lt, c_b_rb, c_b_lb])
+        
+        # 4. Add Left Side Wall (Spine edge)
+        norm_l0 = np.array([-normal0[0], -normal0[1], 0.0], dtype=np.float32)
+        c_l_lt = get_shaded_color(col_left_top, norm_l0)
+        c_l_lb = get_shaded_color(col_left_bottom, norm_l0)
+        
+        vertices.extend([p_f_left_top, p_b_left_bottom, p_b_left_top])
+        colors.extend([c_l_lt, c_l_lb, c_l_lt])
+        vertices.extend([p_f_left_top, p_f_left_bottom, p_b_left_bottom])
+        colors.extend([c_l_lt, c_l_lb, c_l_lb])
+        
+        # 5. Add Right Side Wall (Chest edge)
+        norm_r0 = np.array([normal0[0], normal0[1], 0.0], dtype=np.float32)
+        c_r_rt = get_shaded_color(col_right_top, norm_r0)
+        c_r_rb = get_shaded_color(col_right_bottom, norm_r0)
+        
+        vertices.extend([p_f_right_top, p_f_right_bottom, p_b_right_bottom])
+        colors.extend([c_r_rt, c_r_rb, c_r_rb])
+        vertices.extend([p_f_right_top, p_b_right_bottom, p_b_right_top])
+        colors.extend([c_r_rt, c_r_rb, c_r_rt])
+        
+        # 6. Elegant 2.5D Fan-like Dorsal Fin (around chest back, t from 0.40 to 0.55)
+        if t0 >= 0.40 and t0 <= 0.55:
+            fin_len = 0.20 + np.sin(phase * 6.0 - i * 0.4) * 0.05
+            p_fin_f_top = p_f_left_top - fin_len * np.array([normal0[0], normal0[1], 0.0], dtype=np.float32)
+            p_fin_b_top = p_b_left_top - fin_len * np.array([normal0[0], normal0[1], 0.0], dtype=np.float32)
+            
+            fin_len_next = 0.20 + np.sin(phase * 6.0 - (i+1) * 0.4) * 0.05
+            p_fin_f_bot = p_f_left_bottom - fin_len_next * np.array([normal1[0], normal1[1], 0.0], dtype=np.float32)
+            p_fin_b_bot = p_b_left_bottom - fin_len_next * np.array([normal1[0], normal1[1], 0.0], dtype=np.float32)
+            
+            c_fin_f = get_shaded_color(cyan_highlight, norm_front)
+            c_fin_b = get_shaded_color(cyan_highlight, norm_back)
+            c_fin_edge = get_shaded_color(cyan_highlight, norm_l0)
+            
+            # Fin Front Face (CCW)
+            vertices.extend([p_f_left_top, p_fin_f_bot, p_fin_f_top])
+            colors.extend([c_fin_f, c_fin_f, c_fin_f])
+            vertices.extend([p_f_left_top, p_f_left_bottom, p_fin_f_bot])
+            colors.extend([c_fin_f, c_fin_f, c_fin_f])
+            
+            # Fin Back Face (CCW viewed from back)
+            vertices.extend([p_b_left_top, p_fin_b_top, p_fin_b_bot])
+            colors.extend([c_fin_b, c_fin_b, c_fin_b])
+            vertices.extend([p_b_left_top, p_fin_b_bot, p_b_left_bottom])
+            colors.extend([c_fin_b, c_fin_b, c_fin_b])
+            
+            # Fin Outer Edge
+            vertices.extend([p_fin_f_top, p_fin_b_bot, p_fin_b_top])
+            colors.extend([c_fin_edge, c_fin_edge, c_fin_edge])
+            vertices.extend([p_fin_f_top, p_fin_f_bot, p_fin_b_bot])
+            colors.extend([c_fin_edge, c_fin_edge, c_fin_edge])
+
+    # 4. Apply dynamic 3D swimming/bobbing rotations to all vertices relative to origin
+    pitch_ang = 0.15 * np.cos(phase * 1.3) + 0.05 * np.sin(phase * 2.5)
+    roll_ang = 0.12 * np.sin(phase * 1.1)
+    yaw_ang = 0.08 * np.cos(phase * 0.7)
+    
+    def rotate_3d(v, pitch, roll, yaw):
+        # Pitch (around Z)
+        c, s = np.cos(pitch), np.sin(pitch)
+        x1 = c * v[0] - s * v[1]
+        y1 = s * v[0] + c * v[1]
+        z1 = v[2]
+        # Roll (around X)
+        c, s = np.cos(roll), np.sin(roll)
+        x2 = x1
+        y2 = c * y1 - s * z1
+        z2 = s * y1 + c * z1
+        # Yaw (around Y)
+        c, s = np.cos(yaw), np.sin(yaw)
+        x3 = c * x2 + s * z2
+        y3 = y2
+        z3 = -s * x2 + c * z2
+        return np.array([x3, y3, z3], dtype=np.float32)
+        
+    rotated_vertices = [rotate_3d(v, pitch_ang, roll_ang, yaw_ang) + center for v in vertices]
+    return rotated_vertices, colors
 
 
 def make_solid_manta(center, direction, phase):
-    """Generates a double-sided solid diamond wing mesh (dark-grey dorsal, light-grey ventral) with cephalic horns and tail."""
+    """Generates a high-poly smooth solid manta ray (dark matte slate dorsal, off-white ventral) swimming horizontally, flapping wings vertically with realistic lighting."""
     m_dir = direction / np.linalg.norm(direction)
-    if abs(m_dir[0]) < 0.9:
-        m_u = np.cross(m_dir, [1.0, 0.0, 0.0])
+    
+    # Wings span horizontally, perpendicular to flight direction and world vertical
+    if abs(m_dir[1]) > 0.95:
+        m_w = np.array([1.0, 0.0, 0.0], dtype=np.float32)
     else:
-        m_u = np.cross(m_dir, [0.0, 1.0, 0.0])
+        m_w = np.cross(m_dir, [0.0, 1.0, 0.0])
+        m_w /= np.linalg.norm(m_w)
+        
+    # Local up vector is perpendicular to wing span and flight direction
+    m_u = np.cross(m_w, m_dir)
     m_u /= np.linalg.norm(m_u)
-    m_w = np.cross(m_dir, m_u)
-    m_w /= np.linalg.norm(m_w)
     
     vertices = []
     colors = []
     
-    dorsal_col = [0.18, 0.20, 0.22, 1.0]
-    ventral_col = [0.85, 0.85, 0.88, 1.0]
+    dorsal_col = [0.11, 0.12, 0.13, 1.0]  # Matte dark slate/black
+    ventral_col = [0.88, 0.88, 0.90, 1.0] # Opaque off-white
     
-    u_steps, w_steps = 10, 14
+    u_steps, w_steps = 11, 14
     top_grid, bot_grid = {}, {}
     u_vals = np.linspace(-1.2, 1.2, u_steps)
     w_vals = np.linspace(-2.2, 2.2, w_steps)
@@ -1435,38 +1757,56 @@ def make_solid_manta(center, direction, phase):
         for i_w, w_local in enumerate(w_vals):
             if abs(w_local) > wing_span:
                 continue
-            y_flap = np.sin(phase - abs(w_local) * 0.7 + u_local * 0.3) * 0.35 * (abs(w_local) / 2.2)
-            thickness = 0.16 * (1.0 - abs(w_local) / max(0.1, wing_span)) * (1.0 - (u_local/1.2)**2)
             
-            p_c = center + m_dir * u_local + m_w * w_local + m_u * y_flap
+            # Elegant wave-like wing flap propagation
+            y_flap = np.sin(phase - abs(w_local) * 1.4 + u_local * 0.25) * 0.55 * (abs(w_local) / 2.2)
+            sweep_back = -0.38 * (abs(w_local) / 2.2) ** 1.8
+            u_swept = u_local + sweep_back
+            bend_down = -0.15 * (abs(w_local) / 2.2) ** 2
+            
+            thickness = 0.15 * (1.0 - abs(w_local) / max(0.1, wing_span)) * (1.0 - (u_local/1.2)**2)
+            thickness = max(0.005, thickness)
+            
+            p_c = center + m_dir * u_swept + m_w * w_local + m_u * (y_flap + bend_down)
             top_grid[(i_u, i_w)] = p_c + m_u * thickness
             bot_grid[(i_u, i_w)] = p_c - m_u * thickness
             
+    # Light source
+    L = np.array([0.7, 0.6, -0.4], dtype=np.float32)
+    L /= np.linalg.norm(L)
+    
+    def add_shaded_triangle(p0, p1, p2, base_col):
+        v1 = p1 - p0
+        v2 = p2 - p0
+        cross = np.cross(v1, v2)
+        norm_val = np.linalg.norm(cross)
+        n = cross / norm_val if norm_val > 1e-6 else m_u
+        
+        dot = np.dot(n, L)
+        shade = 0.22 + 0.78 * max(0.0, dot)
+        col = [np.clip(base_col[0] * shade, 0.0, 1.0),
+               np.clip(base_col[1] * shade, 0.0, 1.0),
+               np.clip(base_col[2] * shade, 0.0, 1.0),
+               base_col[3]]
+        vertices.extend([p0, p1, p2])
+        colors.extend([col, col, col])
+
     # Stitch grids
     for i_u in range(u_steps - 1):
         for i_w in range(w_steps - 1):
             idx00, idx10, idx01, idx11 = (i_u, i_w), (i_u + 1, i_w), (i_u, i_w + 1), (i_u + 1, i_w + 1)
             if idx00 in top_grid and idx10 in top_grid and idx01 in top_grid and idx11 in top_grid:
-                # Dorsal
-                vertices.extend([top_grid[idx00], top_grid[idx11], top_grid[idx10]])
-                colors.extend([dorsal_col, dorsal_col, dorsal_col])
-                vertices.extend([top_grid[idx00], top_grid[idx01], top_grid[idx11]])
-                colors.extend([dorsal_col, dorsal_col, dorsal_col])
-                # Ventral
-                vertices.extend([bot_grid[idx00], bot_grid[idx10], bot_grid[idx11]])
-                colors.extend([ventral_col, ventral_col, ventral_col])
-                vertices.extend([bot_grid[idx00], bot_grid[idx11], bot_grid[idx01]])
-                colors.extend([ventral_col, ventral_col, ventral_col])
+                add_shaded_triangle(top_grid[idx00], top_grid[idx11], top_grid[idx10], dorsal_col)
+                add_shaded_triangle(top_grid[idx00], top_grid[idx01], top_grid[idx11], dorsal_col)
+                add_shaded_triangle(bot_grid[idx00], bot_grid[idx10], bot_grid[idx11], ventral_col)
+                add_shaded_triangle(bot_grid[idx00], bot_grid[idx11], bot_grid[idx01], ventral_col)
                 
-                # Border Stitching
                 for neighbor, is_border_check in [((i_u, i_w + 1), (i_u + 1, i_w + 1)), ((i_u, i_w - 1), (i_u + 1, i_w - 1))]:
                     if neighbor not in top_grid or is_border_check not in top_grid:
                         p0_t, p1_t = top_grid[idx00], top_grid[idx10]
                         p0_b, p1_b = bot_grid[idx00], bot_grid[idx10]
-                        vertices.extend([p0_t, p1_b, p1_t])
-                        colors.extend([dorsal_col, ventral_col, dorsal_col])
-                        vertices.extend([p0_t, p0_b, p1_b])
-                        colors.extend([dorsal_col, ventral_col, ventral_col])
+                        add_shaded_triangle(p0_t, p1_b, p1_t, dorsal_col)
+                        add_shaded_triangle(p0_t, p0_b, p1_b, ventral_col)
                         
     # Cephalic Horns
     front_u_idx = u_steps - 1
@@ -1474,26 +1814,35 @@ def make_solid_manta(center, direction, phase):
     for side in [-1, 1]:
         w_idx = front_w_center + side * 1
         if (front_u_idx, w_idx) in top_grid:
-            p_t, p_b = top_grid[(front_u_idx, w_idx)], bot_grid[(front_u_idx, w_idx)]
-            horn_tip = p_t + m_dir * 0.35 - m_w * (side * 0.1) - m_u * 0.1
-            vertices.extend([p_t, horn_tip, p_b])
-            colors.extend([dorsal_col, dorsal_col, ventral_col])
-            
-    # Whip Tail
+            p_base_t = top_grid[(front_u_idx, w_idx)]
+            p_base_b = bot_grid[(front_u_idx, w_idx)]
+            prev_t, prev_b = p_base_t, p_base_b
+            for seg in range(3):
+                frac = (seg + 1) / 3.0
+                curl_fwd = 0.15 * frac
+                curl_in = -side * 0.08 * (frac ** 1.5)
+                curl_dn = -0.05 * frac
+                
+                curr_t = p_base_t + m_dir * curl_fwd + m_w * curl_in + m_u * curl_dn
+                curr_b = p_base_b + m_dir * curl_fwd + m_w * curl_in + m_u * curl_dn
+                add_shaded_triangle(prev_t, curr_b, curr_t, dorsal_col)
+                add_shaded_triangle(prev_t, prev_b, curr_b, ventral_col)
+                prev_t, prev_b = curr_t, curr_b
+                
+    # Whip tail
     back_u_idx, back_w_idx = 0, w_steps // 2
     if (back_u_idx, back_w_idx) in top_grid:
         prev_pt = (top_grid[(back_u_idx, back_w_idx)] + bot_grid[(back_u_idx, back_w_idx)]) * 0.5
-        tail_segments = 12
+        tail_segments = 16
         for t_idx in range(tail_segments):
             t_frac = t_idx / (tail_segments - 1)
-            p_curr = prev_pt + m_dir * (-0.15 - t_frac * 2.8) + m_u * (np.sin(phase - t_frac * 4.0) * 0.15)
-            thickness = 0.03 * (1.0 - t_frac)
+            p_curr = prev_pt + m_dir * (-0.12 - t_frac * 3.2) + m_u * (np.sin(phase - t_frac * 5.0) * 0.12)
+            thickness = 0.02 * (1.0 - t_frac)
+            thickness = max(0.003, thickness)
             p0_p, p1_p = prev_pt - m_w * thickness, prev_pt + m_w * thickness
             p0_c, p1_c = p_curr - m_w * thickness, p_curr + m_w * thickness
-            vertices.extend([p0_p, p1_p, p1_c])
-            colors.extend([dorsal_col, dorsal_col, dorsal_col])
-            vertices.extend([p0_p, p1_c, p0_c])
-            colors.extend([dorsal_col, dorsal_col, dorsal_col])
+            add_shaded_triangle(p0_p, p1_p, p1_c, dorsal_col)
+            add_shaded_triangle(p0_p, p1_c, p0_c, dorsal_col)
             prev_pt = p_curr
             
     return vertices, colors
@@ -1561,7 +1910,7 @@ def make_solid_fish(center, direction, phase, color):
 
 
 def make_solid_bird(center, direction, phase):
-    """Generates a solid bluebird 3D mesh (beak, yellow/white belly, blue back, flapping wings)."""
+    """Generates a highly realistic, detailed 3D bluebird mesh with a rounded head, slender neck, pointed yellow beak, layered flapping wings, and spread tail feathers."""
     b_dir = direction / np.linalg.norm(direction)
     if abs(b_dir[0]) < 0.9:
         b_u = np.cross(b_dir, [1.0, 0.0, 0.0])
@@ -1574,63 +1923,185 @@ def make_solid_bird(center, direction, phase):
     vertices = []
     colors = []
     
-    blue, white, orange = [0.15, 0.45, 0.85, 1.0], [0.92, 0.92, 0.95, 1.0], [0.95, 0.62, 0.1, 1.0]
-    rings, slices = 6, 8
-    body_len, max_rad = 0.45, 0.16
+    # Matte plumage colors (non-glowing)
+    blue = [0.12, 0.38, 0.78, 1.0]         # Royal bluebird back
+    orange_breast = [0.85, 0.40, 0.12, 1.0] # Warm orange breast
+    white = [0.92, 0.92, 0.95, 1.0]         # Soft white belly
+    dark_slate = [0.20, 0.22, 0.25, 1.0]    # Wing & tail flight feathers
+    yellow_beak = [0.95, 0.72, 0.15, 1.0]   # Beak
+    
+    # 1. Main Body (8 rings, 12 slices)
+    rings, slices = 8, 12
+    body_len = 0.5
+    max_rad = 0.16
     body_pts = []
+    body_cols = []
     
     for r in range(rings):
         frac = r / (rings - 1)
         ring_rad = max_rad * np.sin(frac * np.pi)
+        node_center = center - b_dir * (body_len * (frac - 0.4))
         
         pts = []
+        ring_colors = []
         for s in range(slices):
             ang = (s / slices) * 2.0 * np.pi
-            pts.append(center + b_dir * (body_len * (0.5 - frac)) + b_w * (ring_rad * np.cos(ang)) + b_u * (ring_rad * np.sin(ang)))
+            # Local position around body ring
+            p = node_center + b_w * (ring_rad * np.cos(ang)) + b_u * (ring_rad * np.sin(ang) * 0.85)
+            pts.append(p)
+            
+            # Realistic plumage color distribution
+            is_dorsal = (s <= 2 or s >= 10)  # Top part of body (back)
+            is_anterior = (frac < 0.6)       # Front part of body
+            
+            if is_dorsal:
+                col = blue
+            elif is_anterior:
+                col = orange_breast
+            else:
+                col = white
+            ring_colors.append(col)
+            
         body_pts.append(pts)
+        body_cols.append(ring_colors)
         
     for r in range(rings - 1):
         for s in range(slices):
             s_next = (s + 1) % slices
             p00, p10, p01, p11 = body_pts[r][s], body_pts[r][s_next], body_pts[r+1][s], body_pts[r+1][s_next]
-            col = white if (s >= 3 and s <= 5) else blue
-            vertices.extend([p00, p11, p10])
-            colors.extend([col, col, col])
-            vertices.extend([p00, p01, p11])
-            colors.extend([col, col, col])
+            col0, col1 = body_cols[r][s], body_cols[r+1][s]
             
-    # Beak
-    head_tip = center + b_dir * (body_len * 0.5)
-    beak_tip = head_tip + b_dir * 0.12 - b_u * 0.04
+            vertices.extend([p00, p11, p10])
+            colors.extend([col0, col1, col0])
+            vertices.extend([p00, p01, p11])
+            colors.extend([col0, col1, col1])
+            
+    # 2. Rounded Head and Slender Neck Cylinder
+    # Slender neck cylinder
+    neck_center_base = center + b_dir * (body_len * 0.4)
+    neck_center_top = neck_center_base + b_dir * 0.14 + b_u * 0.08
+    neck_rad = 0.075
+    neck_pts_base, neck_pts_top = [], []
+    for s in range(8):
+        ang = (s / 8.0) * 2.0 * np.pi
+        offset = b_w * np.cos(ang) + b_u * np.sin(ang)
+        neck_pts_base.append(neck_center_base + offset * (neck_rad * 1.1))
+        neck_pts_top.append(neck_center_top + offset * neck_rad)
+        
+    for s in range(8):
+        s_next = (s + 1) % 8
+        vertices.extend([neck_pts_base[s], neck_pts_top[s_next], neck_pts_base[s_next]])
+        colors.extend([blue, blue, blue])
+        vertices.extend([neck_pts_base[s], neck_pts_top[s], neck_pts_top[s_next]])
+        colors.extend([blue, blue, blue])
+        
+    # Head sphere (4 rings, 8 slices)
+    head_center = neck_center_top + b_dir * 0.06
+    head_rad = 0.11
+    head_pts = []
+    for r in range(4):
+        frac = r / 3.0
+        h_rad = head_rad * np.sin(frac * np.pi) if r > 0 else 0.0
+        h_len = head_rad * (1.0 - frac)
+        h_center = head_center + b_dir * (h_len - head_rad * 0.5)
+        pts = []
+        for s in range(8):
+            ang = (s / 8.0) * 2.0 * np.pi
+            pts.append(h_center + (b_w * np.cos(ang) + b_u * np.sin(ang)) * h_rad)
+        head_pts.append(pts)
+        
+    for r in range(3):
+        for s in range(8):
+            s_next = (s + 1) % 8
+            p00, p10, p01, p11 = head_pts[r][s], head_pts[r][s_next], head_pts[r+1][s], head_pts[r+1][s_next]
+            vertices.extend([p00, p11, p10])
+            colors.extend([blue, blue, blue])
+            vertices.extend([p00, p01, p11])
+            colors.extend([blue, blue, blue])
+            
+    # 3. Pointed Yellow Beak (Pointed forward/downward cone)
+    beak_base_center = head_center + b_dir * (head_rad * 0.8)
+    beak_tip = beak_base_center + b_dir * 0.16 - b_u * 0.04
+    beak_rad = 0.03
+    beak_base_pts = []
+    for s in range(slices):
+        ang = (s / slices) * 2.0 * np.pi
+        beak_base_pts.append(beak_base_center + (b_w * np.cos(ang) + b_u * np.sin(ang)) * beak_rad)
+        
     for s in range(slices):
         s_next = (s + 1) % slices
-        vertices.extend([body_pts[0][s], beak_tip, body_pts[0][s_next]])
-        colors.extend([orange, orange, orange])
+        vertices.extend([beak_base_pts[s], beak_tip, beak_base_pts[s_next]])
+        colors.extend([yellow_beak, yellow_beak, yellow_beak])
         
-    # Flapping Wings
-    wing_y = np.sin(phase * 12.0) * 0.35
-    for side, sign in [('L', 1.0), ('R', -1.0)]:
-        w_root = center + b_w * (sign * 0.12)
-        w_tip = center + b_w * (sign * 0.72) + b_u * wing_y - b_dir * 0.12
-        w_back = center + b_w * (sign * 0.12) - b_dir * 0.22
-        vertices.extend([w_root, w_tip, w_back])
-        colors.extend([blue, blue, blue])
-        vertices.extend([w_root, w_back, w_tip])
-        colors.extend([blue, blue, blue])
-        
-    # Tail feathers
-    tail_base = center - b_dir * (body_len * 0.5)
-    t_tip1, t_tip2 = tail_base - b_dir * 0.25 - b_w * 0.08, tail_base - b_dir * 0.25 + b_w * 0.08
-    vertices.extend([tail_base, t_tip1, t_tip2])
-    colors.extend([blue, blue, blue])
-    vertices.extend([tail_base, t_tip2, t_tip1])
-    colors.extend([blue, blue, blue])
+    # 4. Layered Dual-Joint Flapping Wings (Shoulder -> Elbow -> Tip)
+    # Flapping equations with phase lags
+    flap_shoulder = np.sin(phase * 12.0) * 0.42
+    flap_elbow = np.sin(phase * 12.0 - 0.5) * 0.65
     
-    return vertices, colors
+    for side, sign in [('L', 1.0), ('R', -1.0)]:
+        # Joint 0: Shoulder (at the body side)
+        shoulder = center - b_dir * 0.05 + b_w * (sign * 0.12) + b_u * 0.04
+        
+        # Joint 1: Elbow (extending outwards, flapping with shoulder angle)
+        c_sh, s_sh = np.cos(flap_shoulder), np.sin(flap_shoulder)
+        elbow = shoulder + b_w * (sign * 0.35 * c_sh) + b_u * (0.35 * s_sh) - b_dir * 0.04
+        
+        # Joint 2: Wingtip (extending further, flapping with elbow lag)
+        c_el, s_el = np.cos(flap_shoulder + flap_elbow), np.sin(flap_shoulder + flap_elbow)
+        wingtip = elbow + b_w * (sign * 0.45 * c_el) + b_u * (0.45 * s_el) - b_dir * 0.12
+        
+        # Rear wing points (trailing edges) to create 3D surface area
+        shoulder_rear = shoulder - b_dir * 0.18
+        elbow_rear = elbow - b_dir * 0.22
+        
+        # Inner Wing Panel (blue/dark slate gradient)
+        vertices.extend([shoulder, elbow, elbow_rear])
+        colors.extend([blue, blue, dark_slate])
+        vertices.extend([shoulder, elbow_rear, shoulder_rear])
+        colors.extend([blue, dark_slate, blue])
+        
+        # Outer Wing Panel (flight feathers)
+        vertices.extend([elbow, wingtip, elbow_rear])
+        colors.extend([blue, dark_slate, dark_slate])
+        
+        # Double-sided wing render
+        vertices.extend([shoulder, elbow_rear, elbow])
+        colors.extend([blue, dark_slate, blue])
+        vertices.extend([shoulder, shoulder_rear, elbow_rear])
+        colors.extend([blue, blue, dark_slate])
+        vertices.extend([elbow, elbow_rear, wingtip])
+        colors.extend([blue, dark_slate, dark_slate])
+        
+    # 5. Realistic Spread Tail Feathers
+    tail_base = center - b_dir * (body_len * 0.6)
+    tail_width = 0.18
+    # Draw 3 distinct overlapping feathers spread out in a fan
+    for f in [-1.0, 0.0, 1.0]:
+        ang_offset = f * 0.22
+        t_dir = -b_dir * np.cos(ang_offset) + b_w * np.sin(ang_offset) * tail_width
+        t_tip = tail_base + t_dir * 0.42
+        
+        t_left = tail_base + t_dir * 0.1 - b_w * 0.03
+        t_right = tail_base + t_dir * 0.1 + b_w * 0.03
+        
+        # Double-sided feathers
+        vertices.extend([tail_base, t_tip, t_left])
+        colors.extend([dark_slate, dark_slate, dark_slate])
+        vertices.extend([tail_base, t_right, t_tip])
+        colors.extend([dark_slate, dark_slate, dark_slate])
+        
+        vertices.extend([tail_base, t_left, t_tip])
+        colors.extend([dark_slate, dark_slate, dark_slate])
+        vertices.extend([tail_base, t_tip, t_right])
+        colors.extend([dark_slate, dark_slate, dark_slate])
+        
+    # Scale down bluebird 3D geometry robustly to exactly 2/3 size
+    scaled_vertices = [center + (v - center) * (2.0 / 3.0) for v in vertices]
+    return scaled_vertices, colors
 
 
 def make_solid_butterfly(center, direction, phase):
-    """Generates a solid monarch butterfly 3D mesh (black body, orange wings with black borders, flapping motion)."""
+    """Generates a highly realistic 3D Monarch butterfly with a detailed segmented body, curling antennae, and 4 high-resolution wings (large curved forewings, rounded hindwings) featuring matte orange centers and thick black borders."""
     bf_dir = direction / np.linalg.norm(direction)
     if abs(bf_dir[0]) < 0.9:
         bf_u = np.cross(bf_dir, [1.0, 0.0, 0.0])
@@ -1643,57 +2114,182 @@ def make_solid_butterfly(center, direction, phase):
     vertices = []
     colors = []
     
-    black, orange = [0.05, 0.05, 0.05, 1.0], [0.95, 0.35, 0.02, 1.0]
-    rings, slices = 5, 6
-    body_len, body_rad = 0.28, 0.03
-    body_pts = []
+    # Matte colors (non-glowing)
+    black = [0.03, 0.03, 0.03, 1.0]
+    orange = [0.95, 0.38, 0.02, 1.0]
     
-    for r in range(rings):
-        frac = r / (rings - 1)
-        ring_rad = body_rad * (1.0 - abs(frac - 0.4) * 0.8)
-        
+    # 1. Segmented Body (Head, Thorax, Abdomen)
+    body_rings = 9
+    body_slices = 8
+    body_len = 0.32
+    body_pts = []
+    for r in range(body_rings):
+        frac = r / (body_rings - 1)
+        # Abdomen, Thorax, Head thickness profile
+        if frac < 0.15:
+            b_rad = 0.02 * (frac / 0.15) # Head tip
+        elif frac < 0.35:
+            b_rad = 0.035 # Thorax
+        else:
+            b_rad = 0.026 * (1.0 - (frac - 0.35) / 0.65) # Abdomen tapering
+            
+        b_rad = max(0.005, b_rad)
+        node_center = center + bf_dir * (body_len * (0.5 - frac))
         pts = []
-        for s in range(slices):
-            ang = (s / slices) * 2.0 * np.pi
-            pts.append(center + bf_dir * (body_len * (0.5 - frac)) + bf_w * (ring_rad * np.cos(ang)) + bf_u * (ring_rad * np.sin(ang)))
+        for s in range(body_slices):
+            ang = (s / body_slices) * 2.0 * np.pi
+            pts.append(node_center + (bf_w * np.cos(ang) + bf_u * np.sin(ang)) * b_rad)
         body_pts.append(pts)
         
-    for r in range(rings - 1):
-        for s in range(slices):
-            s_next = (s + 1) % slices
+    for r in range(body_rings - 1):
+        for s in range(body_slices):
+            s_next = (s + 1) % body_slices
             p00, p10, p01, p11 = body_pts[r][s], body_pts[r][s_next], body_pts[r+1][s], body_pts[r+1][s_next]
             vertices.extend([p00, p11, p10])
             colors.extend([black, black, black])
             vertices.extend([p00, p01, p11])
             colors.extend([black, black, black])
             
-    # Flapping Wing Transformation
-    flap_ang = np.sin(phase * 16.0) * 0.55
+    # Thin Curling Antennae (two antennae curling forward-outwards from head)
+    for side in [-1.0, 1.0]:
+        a_start = center + bf_dir * 0.16 + bf_w * (side * 0.015) + bf_u * 0.01
+        prev_pt = a_start
+        for seg in range(4):
+            frac = (seg + 1) / 4.0
+            # Curl forward, outward, and slightly upward
+            offset_fwd = 0.12 * frac
+            offset_out = side * 0.06 * (frac ** 1.8)
+            offset_up = 0.03 * np.sin(frac * np.pi * 0.5)
+            curr_pt = a_start + bf_dir * offset_fwd + bf_w * offset_out + bf_u * offset_up
+            
+            # Simple line thickness quad
+            p0_p, p1_p = prev_pt - bf_w * 0.003, prev_pt + bf_w * 0.003
+            p0_c, p1_c = curr_pt - bf_w * 0.003, curr_pt + bf_w * 0.003
+            vertices.extend([p0_p, p1_p, p1_c])
+            colors.extend([black, black, black])
+            vertices.extend([p0_p, p1_c, p0_c])
+            colors.extend([black, black, black])
+            prev_pt = curr_pt
+            
+    # 2. Layered Forewings and Hindwings
+    # Flapping wing angle
+    flap_ang = np.sin(phase * 16.0) * 0.65
     cos_f, sin_f = np.cos(flap_ang), np.sin(flap_ang)
     
     for sign in [1.0, -1.0]:
-        root = center
-        # Forewing
-        tip = center + bf_w * (sign * 0.52 * cos_f) + bf_u * (0.52 * sin_f) + bf_dir * 0.15
-        back = center + bf_w * (sign * 0.32 * cos_f) + bf_u * (0.32 * sin_f) - bf_dir * 0.15
-        vertices.extend([root, tip, back])
+        # Local wing axes (sweeping upward as they flap)
+        w_local = bf_w * (sign * cos_f) + bf_u * sin_f
+        dir_local = bf_dir
+        
+        # Wing root is at the thorax
+        root = center + bf_dir * 0.04
+        
+        # --- FOREWING (Large, curved) ---
+        pA = root + dir_local * 0.15 + w_local * 0.12
+        pB = root + dir_local * 0.22 + w_local * 0.58
+        pC = root - dir_local * 0.12 + w_local * 0.50
+        pD = root - dir_local * 0.15 + w_local * 0.18
+        
+        # Orange Interior
+        p_mid = root + w_local * 0.12
+        vertices.extend([root, p_mid, pA])
         colors.extend([orange, orange, orange])
-        vertices.extend([root, back, tip])
+        vertices.extend([p_mid, pC, pB])
+        colors.extend([orange, orange, orange])
+        vertices.extend([p_mid, pB, pA])
+        colors.extend([orange, orange, orange])
+        vertices.extend([root, pD, p_mid])
+        colors.extend([orange, orange, orange])
+        vertices.extend([p_mid, pD, pC])
         colors.extend([orange, orange, orange])
         
-        # Border
-        btip = tip + bf_w * (sign * 0.05 * cos_f) + bf_u * (0.05 * sin_f)
-        vertices.extend([tip, btip, back])
+        # Thick Black Outer Borders
+        p_border_tip = pB + w_local * 0.05 + dir_local * 0.02
+        p_border_mid = pC + w_local * 0.04 - dir_local * 0.03
+        
+        vertices.extend([pA, p_border_tip, pB])
         colors.extend([black, black, black])
-        vertices.extend([tip, back, btip])
+        vertices.extend([pB, p_border_tip, p_border_mid])
+        colors.extend([black, black, black])
+        vertices.extend([pB, p_border_mid, pC])
+        colors.extend([black, black, black])
+        vertices.extend([pC, p_border_mid, pD])
         colors.extend([black, black, black])
         
-        # Hindwing
-        tip_h = center + bf_w * (sign * 0.38 * cos_f) + bf_u * (0.38 * sin_f) - bf_dir * 0.22
-        vertices.extend([root, back, tip_h])
+        # Double-sided forewing
+        vertices.extend([root, pA, p_mid])
         colors.extend([orange, orange, orange])
-        vertices.extend([root, tip_h, back])
+        vertices.extend([p_mid, pB, pC])
         colors.extend([orange, orange, orange])
+        vertices.extend([p_mid, pA, pB])
+        colors.extend([orange, orange, orange])
+        vertices.extend([root, p_mid, pD])
+        colors.extend([orange, orange, orange])
+        vertices.extend([p_mid, pC, pD])
+        colors.extend([orange, orange, orange])
+        
+        vertices.extend([pA, pB, p_border_tip])
+        colors.extend([black, black, black])
+        vertices.extend([pB, p_border_mid, p_border_tip])
+        colors.extend([black, black, black])
+        vertices.extend([pB, pC, p_border_mid])
+        colors.extend([black, black, black])
+        vertices.extend([pC, p_D if 'p_D' in locals() else pD, p_border_mid])
+        colors.extend([black, black, black])
+        
+        # --- HINDWING (Smaller, rounded) ---
+        root_h = center - bf_dir * 0.04
+        pH_A = root_h + dir_local * 0.02 + w_local * 0.22
+        pH_B = root_h - dir_local * 0.15 + w_local * 0.42
+        pH_C = root_h - dir_local * 0.35 + w_local * 0.32
+        pH_D = root_h - dir_local * 0.28 + w_local * 0.10
+        
+        # Orange Interior
+        pH_mid = root_h - dir_local * 0.12 + w_local * 0.15
+        vertices.extend([root_h, pH_mid, pH_A])
+        colors.extend([orange, orange, orange])
+        vertices.extend([pH_mid, pH_B, pH_A])
+        colors.extend([orange, orange, orange])
+        vertices.extend([pH_mid, pH_C, pH_B])
+        colors.extend([orange, orange, orange])
+        vertices.extend([root_h, pH_D, pH_mid])
+        colors.extend([orange, orange, orange])
+        vertices.extend([pH_mid, pH_D, pH_C])
+        colors.extend([orange, orange, orange])
+        
+        # Black border for hindwing
+        pH_border_outer = pH_B + w_local * 0.04 - dir_local * 0.02
+        pH_border_rear = pH_C + w_local * 0.02 - dir_local * 0.04
+        
+        vertices.extend([pH_A, pH_border_outer, pH_B])
+        colors.extend([black, black, black])
+        vertices.extend([pH_B, pH_border_outer, pH_border_rear])
+        colors.extend([black, black, black])
+        vertices.extend([pH_B, pH_border_rear, pH_C])
+        colors.extend([black, black, black])
+        vertices.extend([pH_C, pH_border_rear, pH_D])
+        colors.extend([black, black, black])
+        
+        # Double-sided hindwing
+        vertices.extend([root_h, pH_A, pH_mid])
+        colors.extend([orange, orange, orange])
+        vertices.extend([pH_mid, pH_A, pH_B])
+        colors.extend([orange, orange, orange])
+        vertices.extend([pH_mid, pH_B, pH_C])
+        colors.extend([orange, orange, orange])
+        vertices.extend([root_h, pH_mid, pH_D])
+        colors.extend([orange, orange, orange])
+        vertices.extend([pH_mid, pH_C, pH_D])
+        colors.extend([orange, orange, orange])
+        
+        vertices.extend([pH_A, pH_B, pH_border_outer])
+        colors.extend([black, black, black])
+        vertices.extend([pH_B, pH_border_rear, pH_border_outer])
+        colors.extend([black, black, black])
+        vertices.extend([pH_B, pH_C, pH_border_rear])
+        colors.extend([black, black, black])
+        vertices.extend([pH_C, pH_D, pH_border_rear])
+        colors.extend([black, black, black])
         
     return vertices, colors
 
@@ -1782,6 +2378,14 @@ class FireworksApp:
         self.rarity_cooldown = 45.0  # Spawns first rarity ~15s after launching
         self.rarity_queued_type = None
         self.active_rarity = None
+        self.current_rarity_cycle_name = "None"
+        self.rarity_cycle_list = [
+            "SQUID", "MANTA", "SEAHORSE", "LANTERN_FISH",
+            "PLANET", "GALAXY", "ASTEROIDS",
+            "CATHERINE_WHEEL",
+            "BIRD", "SMOKE", "SUN_BURST", "BUTTERFLY"
+        ]
+        self.rarity_cycle_idx = -1
         self.lightning_active_timer = 0.0
         self.active_lightning_bolts = []
         self.wormhole_supernova_age = 0.0
@@ -1994,6 +2598,10 @@ class FireworksApp:
         self.lbl_mode_toggle.set_halign(Gtk.Align.START)
         self.legend_box.append(self.lbl_mode_toggle)
         
+        self.lbl_rarity_cycle = Gtk.Label()
+        self.lbl_rarity_cycle.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_rarity_cycle)
+        
         self.update_legend_labels()
         
         lbl_clear = Gtk.Label(label="[C]      - Clear Active Particles")
@@ -2118,6 +2726,9 @@ class FireworksApp:
             self.lbl_legend_toggle.set_text("[H]      - Toggle Keyboard Controls HUD")
         if hasattr(self, 'lbl_mode_toggle') and self.lbl_mode_toggle:
             self.lbl_mode_toggle.set_text(f"[V]      - Cycle Visual Mode ({self.major_mode})")
+        if hasattr(self, 'lbl_rarity_cycle') and self.lbl_rarity_cycle:
+            rarity_name = getattr(self, 'current_rarity_cycle_name', 'None')
+            self.lbl_rarity_cycle.set_text(f"[K]      - Cycle Rarities ({rarity_name})")
             
         if hasattr(self, 'lbl_r1'):
             if self.major_mode == "FIREWORKS":
@@ -2335,7 +2946,7 @@ class FireworksApp:
         # 2. PLANET RARITY (solid 3D rocky sphere with tilting rings)
         if self.active_rarity is not None and self.active_rarity['type'] == 'PLANET':
             r = self.active_rarity
-            p_pts, p_cols = make_rocky_planet(r['pos'], 2.3, r['phase'])
+            p_pts, p_cols = make_rocky_planet(r['pos'], 2.3, r['phase'], r.get('style', 'JUPITER'))
             # Apply bend offsets to planet triangles before buffering
             bent_pts = []
             for pt in p_pts:
@@ -2376,26 +2987,24 @@ class FireworksApp:
                 aurora_col.append(col)
                 aurora_size.append(size_pt)
                 
-        # 4. ASTEROIDS RARITY (tumbling rocks drifting past)
+        # 4. ASTEROIDS RARITY (tumbling rocks drifting past as solid 3D meshes)
         if self.active_rarity is not None and self.active_rarity['type'] == 'ASTEROIDS':
             r = self.active_rarity
             center = r['pos']
             for k in range(len(r['offsets'])):
                 ast_pos = center + r['offsets'][k]
                 rot = r['rotations'][k]
-                bx, by = get_bend_offsets(ast_pos[2])
-                for pt_ast in range(6):
-                    pt_ang = pt_ast * (2.0 * np.pi / 6.0) + rot
-                    pt_r = 0.5 + np.sin(pt_ang * 3.0) * 0.15
-                    pt_world = ast_pos + np.array([pt_r * np.cos(pt_ang), pt_r * np.sin(pt_ang), 0.0], dtype=np.float32)
-                    px = pt_world[0] + bx
-                    py = pt_world[1] + by + 4.0
-                    pz = pt_world[2]
-                    
+                rad_ast = 0.55 + 0.15 * np.sin(k * 4.0)
+                a_pts, a_cols = make_3d_asteroid(ast_pos, rad_ast, rot)
+                for pt, col in zip(a_pts, a_cols):
+                    bx, by = get_bend_offsets(pt[2])
+                    px = pt[0] + bx
+                    py = pt[1] + by + 4.0
+                    pz = pt[2]
                     fog_factor = np.clip((pz + 50.0) / 50.0, 0.0, 1.0)
-                    aurora_pos.append([px, py, pz])
-                    aurora_col.append([0.5, 0.4, 0.35, 0.75 * fog_factor])
-                    aurora_size.append(7.0)
+                    c_fog = [col[0], col[1], col[2], col[3] * fog_factor]
+                    hood_tri_pos.append([px, py, pz])
+                    hood_tri_col.append(c_fog)
                     
         # 5. REAL SUPERNOVA SHOCKWAVE EXPANSION SHELL (Blinding core with filaments)
         if self.wormhole_supernova_active:
@@ -2651,6 +3260,7 @@ class FireworksApp:
         self.squid_dir /= np.linalg.norm(self.squid_dir)
         self.squid_vel = np.array([0.0, 0.0, 0.0], dtype=np.float32)
         self.squid_phase = 0.0
+        self.squid_jet_cooldown = 0.0
             
         # Initialize plankton and seabed phosphorescence twinkling states
         self.algae_twinkle_phase = np.random.uniform(0.0, 2 * np.pi, N_algae).astype(np.float32)
@@ -2859,10 +3469,10 @@ class FireworksApp:
             self.jelly_pos[i, 1] += 0.22 * dt
             
             # Reset jellyfish if they exit the water ceiling (expanded height limit to match bubbles)
-            if self.jelly_pos[i, 1] > 15.0:
-                self.jelly_pos[i, 1] = -2.2
-                self.jelly_pos[i, 0] = np.random.uniform(-6.0, 6.0)
-                self.jelly_pos[i, 2] = np.random.uniform(-2.0, 12.0)
+            if self.jelly_pos[i, 1] > 16.0:
+                self.jelly_pos[i, 1] = -11.0 # travel completely off-screen from bottom to top
+                self.jelly_pos[i, 0] = np.random.uniform(-10.0, 10.0)
+                self.jelly_pos[i, 2] = np.random.uniform(-4.0, 12.0)
                 self.jelly_vel[i] = [0.0, 0.0, 0.0]
                 self.jelly_dir[i] = self.get_tangential_jelly_dir(self.jelly_pos[i])
                 
@@ -2871,22 +3481,50 @@ class FireworksApp:
             bpm_rate = self.script_bpm / 60.0
             self.squid_phase += (bpm_rate * 0.7 + self.react_bass * 7.0) * dt
             cos_sq = np.cos(self.squid_phase)
+            
+            # Cooldown ticks down
+            if not hasattr(self, 'squid_jet_cooldown'):
+                self.squid_jet_cooldown = 0.0
+            if self.squid_jet_cooldown > 0.0:
+                self.squid_jet_cooldown -= dt
+
+            # Big beat hit -> jet ink and speed off!
+            if self.react_bass > 0.85 and self.squid_jet_cooldown <= 0.0:
+                self.squid_vel += self.squid_dir * 18.0
+                self.squid_jet_cooldown = 1.2
+                
+                # Jet ink: spawn a burst of dark ink bubbles behind the squid
+                for _ in range(18):
+                    idx = self.next_bubble_idx
+                    self.bubble_pos[idx] = self.squid_pos - self.squid_dir * 1.5 + np.random.uniform(-0.35, 0.35, 3)
+                    self.bubble_size[idx] = np.random.uniform(5.5, 10.0)
+                    self.bubble_vel[idx] = -self.squid_dir * np.random.uniform(2.0, 5.0) + np.random.uniform(-0.6, 0.6, 3)
+                    self.bubble_col[idx] = [0.01, 0.005, 0.03, 0.95] # dark ink
+                    self.bubble_phase[idx] = np.random.uniform(0.0, 2.0 * np.pi)
+                    self.bubble_active[idx] = True
+                    self.bubble_is_fragment[idx] = False
+                    self.next_bubble_idx = (self.next_bubble_idx + 1) % len(self.bubble_pos)
+
             if cos_sq > 0.0:
-                sq_thrust = 4.5 * cos_sq * (1.0 + self.react_bass * 1.5)
+                # Cruising speed slowed down to 1/4 (thrust is scaled down from 4.5 to 1.125)
+                sq_thrust = 1.125 * cos_sq * (1.0 + self.react_bass * 1.5)
                 self.squid_vel += self.squid_dir * sq_thrust * dt
-            else:
-                sq_drag = 1.2
-                self.squid_vel -= self.squid_vel * sq_drag * dt
+            
+            # Drag is applied continuously to make impulse and cruising velocity decay naturally
+            sq_drag = 1.2 if cos_sq <= 0.0 else 0.4
+            self.squid_vel -= self.squid_vel * sq_drag * dt
             self.squid_pos += self.squid_vel * dt
             target_dir = np.array([-self.squid_pos[0]*0.1, 0.1, 4.0 - self.squid_pos[2]*0.2], dtype=np.float32)
             if np.linalg.norm(target_dir) > 1e-4:
                 target_dir /= np.linalg.norm(target_dir)
                 self.squid_dir = 0.95 * self.squid_dir + 0.05 * target_dir
+                # Restrict squid direction vector to within 30 degrees of camera-perpendicular X-Y plane
+                self.squid_dir[2] = np.clip(self.squid_dir[2], -0.45, 0.45)
                 self.squid_dir /= np.linalg.norm(self.squid_dir)
-            if self.squid_pos[1] > 14.0 or self.squid_pos[1] < -2.0 or abs(self.squid_pos[0]) > 12.0 or self.squid_pos[2] < -4.0 or self.squid_pos[2] > 14.0:
-                self.squid_pos = np.array([np.random.uniform(-4.0, 4.0), np.random.uniform(1.0, 6.0), np.random.uniform(0.0, 8.0)], dtype=np.float32)
+            if self.squid_pos[1] > 18.0 or self.squid_pos[1] < -18.0 or abs(self.squid_pos[0]) > 24.0 or self.squid_pos[2] < -18.0 or self.squid_pos[2] > 24.0:
+                self.squid_pos = np.array([np.random.uniform(-12.0, 12.0), np.random.uniform(-12.0, -4.0), np.random.uniform(-6.0, 8.0)], dtype=np.float32)
                 self.squid_vel = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-                self.squid_dir = np.array([np.random.uniform(-1.0, 1.0), np.random.uniform(-0.2, 0.2), np.random.uniform(-1.0, 1.0)], dtype=np.float32)
+                self.squid_dir = np.array([np.random.uniform(-1.0, 1.0), np.random.uniform(-0.2, 0.2), np.random.uniform(-0.45, 0.45)], dtype=np.float32)
                 self.squid_dir /= np.linalg.norm(self.squid_dir)
 
     def render_underwater(self):
@@ -2998,9 +3636,9 @@ class FireworksApp:
                 
                 # Glowing transparency profiles (increased opacity for gorgeous translucent bells)
                 if species == 0:     # Moon Jelly: round, flatter profile
-                    alpha_val = (0.24 - h_frac * 0.11) * (0.35 + self.react_treble * 0.85)
-                else:               # Crystal Jelly: taller conical profile
                     alpha_val = (0.16 - h_frac * 0.08) * (0.35 + self.react_treble * 0.85)
+                else:               # Crystal Jelly: taller conical profile
+                    alpha_val = (0.11 - h_frac * 0.05) * (0.35 + self.react_treble * 0.85)
                 
                 col = [base_col[0], base_col[1], base_col[2], alpha_val]
                 
@@ -3152,7 +3790,8 @@ class FireworksApp:
                 for k in range(len(r['offsets'])):
                     fish_pos = center + r['offsets'][k]
                     fish_pos[1] += np.sin(self.get_sim_time() * 8.0 + k) * 0.15
-                    col_fish = [0.12, 0.72, 0.92, 1.0] if k % 2 == 0 else [0.95, 0.22, 0.55, 1.0]
+                    # Recolor fish bodies to beautiful matte deep purple-blue and indigo
+                    col_fish = [0.18, 0.15, 0.45, 1.0] if k % 2 == 0 else [0.08, 0.05, 0.32, 1.0]
                     lf_pts, lf_cols = make_solid_fish(fish_pos, r['dir'], self.get_sim_time() + k, col_fish)
                     hood_tri_pos.extend(lf_pts)
                     hood_tri_col.extend(lf_cols)
@@ -3316,16 +3955,10 @@ class FireworksApp:
             r = self.active_rarity
             r_pos_list, r_col_list, r_size_list = [], [], []
             if r['type'] == 'BIRD':
-                # Render high-quality 3D Bird singleton/pair directly as solid asymmetrics
+                # Render high-quality 3D Bird singleton directly as solid asymmetric (no pairs!)
                 b_pts, b_cols = make_solid_bird(r['pos'], np.array([np.cos(r['ang']), np.sin(r['ang']), 0.0]), r['phase'])
                 mandala_tri_pos.extend(b_pts)
                 mandala_tri_col.extend(b_cols)
-                
-                # Draw a pair of birds flying together
-                p_offset = np.array([0.45, 0.22, -0.15], dtype=np.float32)
-                b2_pts, b2_cols = make_solid_bird(r['pos'] + p_offset, np.array([np.cos(r['ang']), np.sin(r['ang']), 0.0]), r['phase'] + 0.8)
-                mandala_tri_pos.extend(b2_pts)
-                mandala_tri_col.extend(b2_cols)
             elif r['type'] == 'SMOKE':
                 for j in range(len(r['particles_pos'])):
                     pt_relative = r['particles_pos'][j] - np.array([0.0, 4.0, 0.0])
@@ -3349,16 +3982,10 @@ class FireworksApp:
                         r_col_list.append([1.0, 0.4 + 0.55 * (1.0 - pt_frac), 0.0, alpha])
                         r_size_list.append(16.0 * (1.0 - pt_frac * 0.3))
             elif r['type'] == 'BUTTERFLY':
-                # Render high-quality 3D Butterfly singleton/pair directly as solid asymmetrics
+                # Render high-quality 3D Butterfly singleton directly as solid asymmetric (no pairs!)
                 bf_pts, bf_cols = make_solid_butterfly(r['pos'], np.array([np.cos(r['ang']), np.sin(r['ang']), 0.0]), r['phase'])
                 mandala_tri_pos.extend(bf_pts)
                 mandala_tri_col.extend(bf_cols)
-                
-                # Draw a pair of butterflies flying together
-                p_offset = np.array([-0.35, 0.25, 0.1], dtype=np.float32)
-                bf2_pts, bf2_cols = make_solid_butterfly(r['pos'] + p_offset, np.array([np.cos(r['ang']), np.sin(r['ang']), 0.0]), r['phase'] + 1.2)
-                mandala_tri_pos.extend(bf2_pts)
-                mandala_tri_col.extend(bf2_cols)
                 
             if len(r_pos_list) > 0:
                 sym_pos, sym_col, sym_size = [], [], []
@@ -3408,7 +4035,7 @@ class FireworksApp:
                     self.bubble_is_fragment[idx] = False
                     self.next_bubble_idx = (self.next_bubble_idx + 1) % len(self.bubble_pos)
                 if self.active_rarity is not None and self.active_rarity['type'] == 'SQUID':
-                    self.squid_vel = self.squid_dir * 8.0
+                    self.squid_vel = self.squid_dir * 2.0 # slowed down to 1/4 from 8.0
                     self.squid_phase = 0.0
             elif routine_name == "Shooting Star":
                 # Underwater shooting stars: cyan bioluminescent trails streaking horizontally
@@ -3562,67 +4189,77 @@ class FireworksApp:
         print(f"SPAWNING RARITY: {r_type}!")
         if r_type == "SQUID":
             pos = np.array([np.random.uniform(-4.0, 4.0), np.random.uniform(1.0, 2.5), np.random.uniform(0.0, 4.0)], dtype=np.float32)
-            direction = np.array([np.random.uniform(-1.0, 1.0), np.random.uniform(-0.1, 0.1), np.random.uniform(-1.0, 1.0)], dtype=np.float32)
+            # Restrict squid direction vector to within 30 degrees of camera-perpendicular X-Y plane
+            theta = np.random.uniform(0.0, 2.0 * np.pi)
+            dx = np.cos(theta)
+            dy = np.sin(theta)
+            dz = np.random.uniform(-0.45, 0.45)
+            direction = np.array([dx, dy, dz], dtype=np.float32)
             direction /= np.linalg.norm(direction)
             self.squid_pos = pos
             self.squid_dir = direction
-            self.squid_vel = direction * 4.0
+            self.squid_vel = direction * 1.0 # slowed down to 1/4 from 4.0
             self.squid_phase = 0.0
             self.active_rarity = {
                 'type': 'SQUID',
-                'life': 20.0,
-                'max_life': 20.0
+                'life': 30.0,
+                'max_life': 30.0
             }
         elif r_type == "MANTA":
-            pos = np.array([-12.0, np.random.uniform(2.0, 7.0), np.random.uniform(0.0, 6.0)], dtype=np.float32)
+            # Expand spawn starting point to -24.0 for full screen boundary clearance
+            pos = np.array([-24.0, np.random.uniform(2.0, 7.0), np.random.uniform(0.0, 6.0)], dtype=np.float32)
             direction = np.array([1.0, np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1)], dtype=np.float32)
             direction /= np.linalg.norm(direction)
             self.active_rarity = {
                 'type': 'MANTA',
                 'pos': pos,
                 'dir': direction,
-                'vel': direction * 4.2,
+                'vel': direction * 1.75,
                 'phase': 0.0,
-                'life': 18.0,
-                'max_life': 18.0
+                'life': 25.0,
+                'max_life': 25.0
             }
         elif r_type == "SEAHORSE":
-            pos = np.array([np.random.uniform(-5.0, 5.0), -2.2, np.random.uniform(1.0, 6.0)], dtype=np.float32)
+            # Spawn just below seabed (Y=-6.0) so it rises into view quickly
+            pos = np.array([np.random.uniform(-4.0, 4.0), -6.0, np.random.uniform(1.0, 5.0)], dtype=np.float32)
             direction = np.array([np.random.uniform(-0.15, 0.15), 1.0, np.random.uniform(-0.15, 0.15)], dtype=np.float32)
             direction /= np.linalg.norm(direction)
             self.active_rarity = {
                 'type': 'SEAHORSE',
                 'pos': pos,
                 'dir': direction,
-                'vel': direction * 1.6,
+                'vel': direction * 1.15, # majestic upward swim speed
                 'phase': 0.0,
-                'life': 22.0,
-                'max_life': 22.0
+                'life': 30.0,
+                'max_life': 30.0
             }
         elif r_type == "LANTERN_FISH":
-            pos = np.array([-13.0, np.random.uniform(1.0, 7.0), np.random.uniform(0.0, 6.0)], dtype=np.float32)
+            # Spawn at -24.0 horizontally and keep deep in background (Z in [-15.0, -13.0])
+            pos = np.array([-24.0, np.random.uniform(1.0, 7.0), np.random.uniform(-15.0, -13.0)], dtype=np.float32)
             direction = np.array([1.0, np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1)], dtype=np.float32)
             direction /= np.linalg.norm(direction)
-            offsets = [np.random.uniform(-1.5, 1.5, 3) for _ in range(8)]
+            offsets = [np.array([np.random.uniform(-1.5, 1.5), np.random.uniform(-1.2, 1.2), np.random.uniform(-1.0, 1.0)], dtype=np.float32) for _ in range(8)]
             self.active_rarity = {
                 'type': 'LANTERN_FISH',
                 'pos': pos,
                 'dir': direction,
-                'vel': direction * 4.5,
+                'vel': direction * 1.4, # slowed from 2.2 to 1.4
                 'offsets': offsets,
-                'life': 16.0,
-                'max_life': 16.0
+                'life': 30.0,
+                'max_life': 30.0
             }
         elif r_type == "PLANET":
-            # Rocky planet initialization
+            # Gas giant planet initialization
             ang = np.random.uniform(0.0, 2 * np.pi)
             r_dist = 13.0
             pos = np.array([r_dist * np.cos(ang), r_dist * np.sin(ang), -55.0], dtype=np.float32)
+            style = "NEPTUNE"
             self.active_rarity = {
                 'type': 'PLANET',
                 'pos': pos,
                 'vel': np.array([0.0, 0.0, 15.0], dtype=np.float32),
                 'phase': 0.0,
+                'style': style,
                 'life': 7.0,
                 'max_life': 7.0
             }
@@ -3641,7 +4278,7 @@ class FireworksApp:
             }
         elif r_type == "ASTEROIDS":
             pos = np.array([0.0, 0.0, -55.0], dtype=np.float32)
-            offsets = [np.random.uniform(-15.0, 15.0, 3) for _ in range(15)]
+            offsets = [np.random.uniform(-15.0, 15.0, 3) for _ in range(10)]
             for ao in offsets:
                 ao[2] = np.random.uniform(-8.0, 8.0)
                 ao[0] = np.sign(ao[0]) * max(11.0, abs(ao[0]))
@@ -3651,25 +4288,15 @@ class FireworksApp:
                 'pos': pos,
                 'vel': np.array([0.0, 0.0, 23.0], dtype=np.float32),
                 'offsets': offsets,
-                'rotations': [np.random.uniform(0.0, 2*np.pi) for _ in range(15)],
-                'rot_vels': [np.random.uniform(0.5, 2.5) for _ in range(15)],
+                'rotations': [np.random.uniform(0.0, 2*np.pi) for _ in range(10)],
+                'rot_vels': [np.random.uniform(0.5, 2.5) for _ in range(10)],
                 'life': 5.0,
                 'max_life': 5.0
             }
-        elif r_type == "SHOOTING_STAR":
-            pos = np.array([np.random.uniform(-25.0, -10.0), 30.0, np.random.uniform(-15.0, -5.0)], dtype=np.float32)
-            vel = np.array([28.0, -16.0, 2.0], dtype=np.float32)
-            self.active_rarity = {
-                'type': 'SHOOTING_STAR',
-                'pos': pos,
-                'vel': vel,
-                'trail': [pos.copy()],
-                'life': 1.6,
-                'max_life': 1.6
-            }
+
         elif r_type == "CATHERINE_WHEEL":
-            # Lower Catherine Wheel to ground level flush with seabed floor (Y = -11.2)
-            pos = np.array([np.random.uniform(-10.0, 10.0), -11.2, np.random.uniform(-5.0, -1.0)], dtype=np.float32)
+            # Move Catherine Wheel center up to align with screen bottom (Y = -4.5)
+            pos = np.array([np.random.uniform(-10.0, 10.0), -4.5, np.random.uniform(-5.0, -1.0)], dtype=np.float32)
             self.active_rarity = {
                 'type': 'CATHERINE_WHEEL',
                 'pos': pos,
@@ -3688,8 +4315,8 @@ class FireworksApp:
                 'pos': np.array([0.0, 4.0, 0.0], dtype=np.float32),
                 'ang': np.random.uniform(0.0, 2*np.pi),
                 'phase': 0.0,
-                'life': 4.5,
-                'max_life': 4.5
+                'life': 12.0,
+                'max_life': 12.0
             }
         elif r_type == "SMOKE":
             self.active_rarity = {
@@ -3713,8 +4340,8 @@ class FireworksApp:
                 'pos': np.array([0.0, 4.0, 0.0], dtype=np.float32),
                 'ang': np.random.uniform(0.0, 2*np.pi),
                 'phase': 0.0,
-                'life': 5.0,
-                'max_life': 5.0
+                'life': 15.0,
+                'max_life': 15.0
             }
 
     def update_active_rarity(self, dt):
@@ -3725,43 +4352,49 @@ class FireworksApp:
             return
         t_type = r['type']
         if t_type == "SQUID":
+            # Squid is updated inside update_underwater_mode
             pass
         elif t_type == "MANTA":
             r['pos'] += r['vel'] * dt
-            r['phase'] += dt * 4.5
-            if r['pos'][0] > 15.0:
+            # Precisely match the wing flap to the music track's BPM (1 flap every 8 beats)
+            r['phase'] += dt * (self.script_bpm / 60.0) * 0.25 * np.pi
+            # Fully swims off the screen boundaries before deactivating
+            if r['pos'][0] > 24.0:
                 self.active_rarity = None
         elif t_type == "SEAHORSE":
             r['pos'] += r['vel'] * dt
-            r['phase'] += dt * 2.5
-            r['pos'][1] += np.sin(r['phase']) * dt * 0.4
-            if r['pos'][1] > 14.0:
+            # Bobbing phase synchronized with audio
+            r['phase'] += dt * (2.5 + self.react_bass * 5.0)
+            # Add horizontal/vertical bobbing physics synchronized with audio
+            bob_h = np.sin(r['phase'] * 1.2) * 0.8 * (1.0 + self.react_bass * 1.5)
+            bob_v = np.cos(r['phase'] * 0.8) * 0.65 * (1.0 + self.react_bass * 1.5)
+            r['pos'][0] += bob_h * dt
+            r['pos'][1] += bob_v * dt
+            # Fully bob/swim off screen boundaries before deactivating
+            if r['pos'][1] > 11.0:
                 self.active_rarity = None
         elif t_type == "LANTERN_FISH":
             r['pos'] += r['vel'] * dt
-            if r['pos'][0] > 15.0:
+            # Fully swims off screen boundaries before deactivating
+            if r['pos'][0] > 24.0:
                 self.active_rarity = None
         elif t_type == "PLANET":
             r['pos'] += r['vel'] * dt
             r['phase'] += dt * 0.75
-            if r['pos'][2] > 12.0:
+            if r['pos'][2] > 18.0:
                 self.active_rarity = None
         elif t_type == "GALAXY":
             r['pos'] += r['vel'] * dt
             r['phase'] += dt * 0.5
-            if r['pos'][2] > 12.0:
+            if r['pos'][2] > 18.0:
                 self.active_rarity = None
         elif t_type == "ASTEROIDS":
             r['pos'] += r['vel'] * dt
             for i in range(len(r['rotations'])):
                 r['rotations'][i] += r['rot_vels'][i] * dt
-            if r['pos'][2] > 12.0:
+            if r['pos'][2] > 18.0:
                 self.active_rarity = None
-        elif t_type == "SHOOTING_STAR":
-            r['pos'] += r['vel'] * dt
-            r['trail'].append(r['pos'].copy())
-            if len(r['trail']) > 15:
-                r['trail'].pop(0)
+
         elif t_type == "CATHERINE_WHEEL":
             r['phase'] += r['spin_vel'] * dt
             for i in range(4):
@@ -3805,7 +4438,8 @@ class FireworksApp:
             speed = 4.2 * (1.0 + self.react_mid * 0.5)
             r['pos'][0] += np.cos(r['ang']) * speed * dt
             r['pos'][1] += np.sin(r['ang']) * speed * dt
-            if np.linalg.norm(r['pos'] - np.array([0.0, 4.0, 0.0])) > 15.0:
+            # Fully flies off screen boundaries before deactivating
+            if np.linalg.norm(r['pos'] - np.array([0.0, 4.0, 0.0])) > 24.0:
                 self.active_rarity = None
         elif t_type == "SMOKE":
             # Spawn 4 smoke particles per frame at slightly offset spiral progression angles
@@ -3831,12 +4465,19 @@ class FireworksApp:
         elif t_type == "SUN_BURST":
             r['phase'] += dt * 0.4
         elif t_type == "BUTTERFLY":
-            r['phase'] += dt * 24.0
-            r['ang'] += np.random.uniform(-0.8, 0.8) * dt * 4.0
-            speed = 3.6
-            r['pos'][0] += np.cos(r['ang']) * speed * dt
-            r['pos'][1] += np.sin(r['ang']) * speed * dt
-            if np.linalg.norm(r['pos'] - np.array([0.0, 4.0, 0.0])) > 15.0:
+            # Music-modulated wing flap rate
+            flap_rate = 24.0 + self.react_treble * 35.0
+            r['phase'] += dt * flap_rate
+            # Music-modulated turning angles/speeds
+            erratic_factor = 6.0 + self.react_bass * 12.0
+            r['ang'] += np.random.uniform(-1.8, 1.8) * dt * erratic_factor
+            # Music-modulated speed and bobbing amplitude
+            speed = 3.6 + self.react_mid * 5.0
+            bob_amp = 1.5 + self.react_bass * 4.0
+            r['pos'][0] += (np.cos(r['ang']) * speed + np.sin(r['phase'] * 3.0) * bob_amp) * dt
+            r['pos'][1] += (np.sin(r['ang']) * speed + np.cos(r['phase'] * 3.5) * bob_amp) * dt
+            # Fully flies off screen boundaries before deactivating
+            if np.linalg.norm(r['pos'] - np.array([0.0, 4.0, 0.0])) > 24.0:
                 self.active_rarity = None
 
     def update_rarity_system(self, dt):
@@ -3848,7 +4489,7 @@ class FireworksApp:
                 elif self.major_mode == "TUNNEL Wormhole":
                     self.rarity_queued_type = random.choice(["PLANET", "GALAXY", "ASTEROIDS"])
                 elif self.major_mode == "FIREWORKS":
-                    self.rarity_queued_type = random.choice(["SHOOTING_STAR", "CATHERINE_WHEEL"])
+                    self.rarity_queued_type = "CATHERINE_WHEEL" 
                 elif self.major_mode == "MANDALA Sacred":
                     self.rarity_queued_type = random.choice(["BIRD", "SMOKE", "SUN_BURST", "BUTTERFLY"])
                 if self.rarity_queued_type is not None:
@@ -4291,20 +4932,7 @@ class FireworksApp:
                             part_col.append(step_colors)
                             part_size.append(step_sizes)
                             
-            # Draw Fireworks Shooting Star Rarity
-            if self.active_rarity is not None and self.active_rarity['type'] == 'SHOOTING_STAR':
-                r = self.active_rarity
-                part_pos.append([r['pos']])
-                part_col.append([[1.0, 1.0, 1.0, 1.0]])
-                part_size.append([12.0])
-                if len(r['trail']) > 1:
-                    for idx in range(len(r['trail']) - 1):
-                        line_pos.append(r['trail'][idx])
-                        line_pos.append(r['trail'][idx + 1])
-                        alpha = idx / len(r['trail'])
-                        line_col.append([0.15, 0.85, 1.0, alpha])
-                        line_col.append([0.15, 0.85, 1.0, alpha])
-                        
+
             # Draw Catherine Wheel Nozzle sparks & Pinwheel
             if self.active_rarity is not None and self.active_rarity['type'] == 'CATHERINE_WHEEL':
                 r = self.active_rarity
@@ -4392,7 +5020,11 @@ class FireworksApp:
                     gl.glBufferData(gl.GL_ARRAY_BUFFER, h_col.nbytes, h_col, gl.GL_DYNAMIC_DRAW)
                     
                     gl.glDisable(gl.GL_CULL_FACE)
+                    # Switch to matte standard alpha blending for solid meshes
+                    gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
                     gl.glDrawArrays(gl.GL_TRIANGLES, 0, len(h_pos))
+                    # Restore back to additive blending
+                    gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE)
                     gl.glBindVertexArray(0)
             except Exception as e:
                 import traceback
@@ -4673,6 +5305,46 @@ class FireworksApp:
             else:
                 self.win.fullscreen()
                 self.is_fullscreen = True
+            return True
+        elif keyval in (Gdk.KEY_k, Gdk.KEY_K):
+            if not hasattr(self, 'rarity_cycle_list'):
+                self.rarity_cycle_list = [
+                    "SQUID", "MANTA", "SEAHORSE", "LANTERN_FISH",
+                    "PLANET", "GALAXY", "ASTEROIDS",
+                    "CATHERINE_WHEEL",
+                    "BIRD", "SMOKE", "SUN_BURST", "BUTTERFLY"
+                ]
+                self.rarity_cycle_idx = -1
+            self.rarity_cycle_idx = (self.rarity_cycle_idx + 1) % len(self.rarity_cycle_list)
+            r_type = self.rarity_cycle_list[self.rarity_cycle_idx]
+            self.current_rarity_cycle_name = r_type
+            
+            # Auto-initialize and switch major mode
+            if r_type in ["SQUID", "MANTA", "SEAHORSE", "LANTERN_FISH"]:
+                target_mode = "UNDERWATER Lava"
+            elif r_type in ["PLANET", "GALAXY", "ASTEROIDS"]:
+                target_mode = "TUNNEL Wormhole"
+            elif r_type in ["CATHERINE_WHEEL"]:
+                target_mode = "FIREWORKS"
+            elif r_type in ["BIRD", "SMOKE", "SUN_BURST", "BUTTERFLY"]:
+                target_mode = "MANDALA Sacred"
+                
+            self.major_mode = target_mode
+            self.major_mode_idx = self.modes.index(target_mode)
+            
+            # Make sure mode structures are initialized
+            if self.major_mode == "TUNNEL Wormhole":
+                if not hasattr(self, 'gem_z'):
+                    self.init_tunnel_mode()
+            elif self.major_mode == "UNDERWATER Lava":
+                if not hasattr(self, 'bubble_pos'):
+                    self.init_underwater_mode()
+            elif self.major_mode == "MANDALA Sacred":
+                if not hasattr(self, 'mandala_base_pos'):
+                    self.init_mandala_mode()
+                    
+            self.spawn_rarity(r_type)
+            self.update_legend_labels()
             return True
         return False
 
