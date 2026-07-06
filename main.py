@@ -2655,9 +2655,9 @@ class FireworksApp:
         if playlist_files:
             raw_paths.extend(playlist_files)
             
-        self.playlist = self.load_playlist_files(raw_paths) if raw_paths else ["01.Come Together - The Beatles.flac"]
+        self.playlist = self.load_playlist_files(raw_paths) if raw_paths else []
         self.playlist_idx = 0
-        self.audio_path = self.playlist[self.playlist_idx] if self.playlist else "01.Come Together - The Beatles.flac"
+        self.audio_path = self.playlist[self.playlist_idx] if self.playlist else ""
         self.audio_explicit = bool(raw_paths)
         self.script_path = self.get_mangled_script_path(self.audio_path)
         
@@ -6406,6 +6406,33 @@ class FireworksApp:
             with open(filepath, 'r') as f:
                 script = json.load(f)
             self.script_events = script.get("events", [])
+            
+            # Post-process to find climax events eligible for random mode changes.
+            # An eligible climax has no "section" event within 30 seconds after it.
+            # "Just before" means 0.05 seconds before the climax.
+            if self.script_events:
+                new_events = list(self.script_events)
+                climax_times = [ev["time"] for ev in self.script_events if ev.get("type") == "climax"]
+                section_times = [ev["time"] for ev in self.script_events if ev.get("type") == "section"]
+                
+                for c_time in climax_times:
+                    has_section_after = False
+                    for s_time in section_times:
+                        if c_time < s_time <= c_time + 30.0:
+                            has_section_after = True
+                            break
+                    if not has_section_after:
+                        trigger_time = max(0.0, c_time - 0.05)
+                        new_events.append({
+                            "time": trigger_time,
+                            "type": "climax_random_mode_change",
+                            "climax_time": c_time
+                        })
+                        print(f"[Random Mode Plan] Scheduled a random mode change at {trigger_time:.2f}s just before climax at {c_time:.2f}s (no section change within 30s after)")
+                
+                new_events.sort(key=lambda x: x.get("time", 0.0))
+                self.script_events = new_events
+
             metadata = script.get("metadata", {})
             self.loaded_script_name = os.path.basename(filepath)
             self.script_duration = metadata.get("duration", 0.0)
@@ -6558,6 +6585,12 @@ class FireworksApp:
             if getattr(self, 'preset_random_mode', False) and getattr(self, 'preset_random_timer', 0.0) >= 45.0:
                 print(f"[Random Mode] Triggering preset switch at start of section: {name}")
                 self.pick_random_preset()
+                
+        elif event_type == "climax_random_mode_change":
+            if getattr(self, 'preset_random_mode', False):
+                climax_time = event.get("climax_time", 0.0)
+                print(f"[Random Mode] Triggering preset switch just before climax at {climax_time:.2f}s (trigger time: {event.get('time', 0.0):.2f}s)")
+                self.pick_random_preset()
 
     def start_recording_process(self, w, h):
         if w % 2 != 0:
@@ -6589,7 +6622,7 @@ class FireworksApp:
             self.ffmpeg_process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
             print("Successfully opened FFmpeg libx265 encoding process pipe.")
             self.auto_launch = False
-            self.auto_rotate = True
+            self.auto_rotate = False
             self.playback_start_time = 0.0
             self.record_time = 0.0
             self.next_event_idx = 0
