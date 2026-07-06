@@ -16,6 +16,8 @@ import OpenGL.contextdata
 # Bypass PyOpenGL GLX/EGL detection mismatch by mocking context getter
 OpenGL.contextdata.getContext = lambda context=None: 1
 
+RARITY_INTERVAL = 60.0
+
 # Vibrant emission spectra colors corresponding to real-world metal salts
 COLORS = {
     "strontium_red": (1.0, 0.15, 0.1, 1.0),
@@ -2375,7 +2377,7 @@ class FireworksApp:
         self.tempo_phase = 0.0
         
         # Rarity system properties
-        self.rarity_cooldown = 45.0  # Spawns first rarity ~15s after launching
+        self.rarity_cooldown = random.randint(0, int(RARITY_INTERVAL))
         self.rarity_queued_type = None
         self.active_rarity = None
         self.current_rarity_cycle_name = "None"
@@ -4498,7 +4500,7 @@ class FireworksApp:
     def update_rarity_system(self, dt):
         if self.active_rarity is None and self.rarity_queued_type is None:
             self.rarity_cooldown += dt
-            if self.rarity_cooldown >= 5.0:
+            if self.rarity_cooldown >= RARITY_INTERVAL:
                 if self.major_mode == "UNDERWATER Lava":
                     self.rarity_queued_type = random.choice(["SQUID", "MANTA", "SEAHORSE", "LANTERN_FISH"])
                 elif self.major_mode == "TUNNEL Wormhole":
