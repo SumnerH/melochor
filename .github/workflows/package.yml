@@ -58,7 +58,7 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: msys2 {0}
         run: |
-          pyinstaller --onefile --noconsole --add-binary "ffmpeg.exe;." --name="Melochor" main.py
+          pyinstaller --onefile --noconsole --collect-all gi --add-binary "ffmpeg.exe;." --name="Melochor" main.py
 
       # ==========================================
       # MACOS-SPECIFIC SETUP
@@ -93,7 +93,7 @@ jobs:
       - name: Build Standalone Executable (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          pyinstaller --windowed --add-binary "ffmpeg:." --name="Melochor" main.py
+          pyinstaller --windowed --collect-all gi --add-binary "ffmpeg:." --name="Melochor" main.py
 
       # ==========================================
       # ARTIFACT UPLOAD
