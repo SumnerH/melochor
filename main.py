@@ -10,7 +10,11 @@ import math
 
 # --- MELOCHOR RUNTIME BOOTSTRAPPER FOR PYINSTALLER STANDALONE PORTABILITY ---
 if sys.platform == 'win32':
-    os.environ['PYOPENGL_PLATFORM'] = 'win32'
+    # Force PyOpenGL to use the Windows 'nt' (WGL) platform plugin
+    os.environ['PYOPENGL_PLATFORM'] = 'nt'
+    # Clear host environment leaks when running under Wine
+    for var in ['XDG_SESSION_TYPE', 'WAYLAND_DISPLAY', 'DISPLAY']:
+        os.environ.pop(var, None)
 
 if getattr(sys, 'frozen', False):
     base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
