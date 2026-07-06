@@ -6,10 +6,32 @@ import numpy as np
 import os
 import json
 import subprocess
+import math
 
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GLib, Gdk, GObject
+
+# Suppress verbose and deprecation-related GTK theme/parsing warnings
+def gtk_log_writer_func(log_level, fields, *args):
+    try:
+        log_domain = ""
+        for field in fields:
+            if field.key == "GLIB_DOMAIN":
+                log_domain = field.value
+                break
+        is_warning_or_lower = not (log_level & (GLib.LogLevelFlags.LEVEL_ERROR | GLib.LogLevelFlags.LEVEL_CRITICAL))
+        if log_domain in ("Gtk", "Gdk") and is_warning_or_lower:
+            return GLib.LogWriterOutput.HANDLED
+    except Exception:
+        pass
+    user_data = args[-1] if args else None
+    return GLib.log_writer_default(log_level, fields, user_data)
+
+try:
+    GLib.log_set_writer_func(gtk_log_writer_func, None)
+except Exception:
+    pass
 
 import OpenGL.GL as gl
 import OpenGL.contextdata
@@ -64,6 +86,25 @@ def get_palette_colors(mode):
     elif mode == 'METAL':
         return METAL_PALETTE
     return None
+
+SUPPORTED_ROUTINES = {
+    "FIREWORKS": [
+        "American Flag", "Liberty Bell", "Statue of Liberty",
+        "Flower Bouquet", "The Dragon", "Supernova", "Shooting Star"
+    ],
+    "TUNNEL Wormhole": [
+        "Lightning Flash", "Supernova", "Shooting Star"
+    ],
+    "UNDERWATER Lava": [
+        "Supernova", "Shooting Star"
+    ],
+    "MANDALA Sacred": [
+        "Peace Symbol", "Halo Effect", "Supernova", "Shooting Star"
+    ],
+    "SYNAESTHESIA Classic": [
+        "Star Burst"
+    ]
+}
 
 # Modern CPU-side matrix helper functions
 def perspective_matrix(fovy, aspect, znear, zfar):
@@ -485,14 +526,19 @@ class Firework:
         if x_offset is None:
             x_offset = random.uniform(-10.0, 10.0)
         self.launch_pos = np.array([x_offset, -12.0, random.uniform(-6.0, 6.0)], dtype=np.float32)
+        if Firework.app and Firework.app.opt_height_restrict:
+            y_vel = random.uniform(21.0, 26.0)
+        else:
+            y_vel = random.uniform(10.0, 26.0)
+            
         self.launch_vel = np.array([
             random.uniform(-2.0, 2.0),
-            random.uniform(21.0, 26.0),
+            y_vel,
             random.uniform(-2.0, 2.0)
         ], dtype=np.float32)
         
         self.launch_age = 0.0
-        self.launch_fuse = random.uniform(1.25, 1.55)
+        self.launch_fuse = 999.0
         
         self.launch_trail = []
         self.launch_trail_max = 15
@@ -1540,7 +1586,7 @@ def make_solid_seahorse(center, phase):
     chest_col = [0.08, 0.18, 0.48, 1.0]      # Sapphire chest
     cyan_highlight = [0.0, 0.72, 0.95, 1.0]  # Glowing cyan-blue highlights
     
-    segments = 120
+    segments = 16
     nodes = []
     
     # 1. Generate skeleton nodes relative to origin [0,0,0]
@@ -1556,43 +1602,43 @@ def make_solid_seahorse(center, phase):
         # Head / Crown (t: 0.15 to 0.28)
         elif t <= 0.28:
             frac = (t - 0.15) / 0.13
-            x = 0.15 - 0.20 * np.sin(frac * np.pi * 0.5)
-            y = 0.73 + 0.19 * np.sin(frac * np.pi * 0.5)
+            x = 0.15 - 0.20 * math.sin(frac * math.pi * 0.5)
+            y = 0.73 + 0.19 * math.sin(frac * math.pi * 0.5)
             
         # Neck / Throat (t: 0.28 to 0.42)
         elif t <= 0.42:
             frac = (t - 0.28) / 0.14
-            x = -0.05 - 0.07 * np.sin(frac * np.pi * 0.5)
-            y = 0.92 - 0.42 * np.sin(frac * np.pi * 0.5)
+            x = -0.05 - 0.07 * math.sin(frac * math.pi * 0.5)
+            y = 0.92 - 0.42 * math.sin(frac * math.pi * 0.5)
             
         # Chest / Trunk (t: 0.42 to 0.65)
         elif t <= 0.65:
             frac = (t - 0.42) / 0.23
-            x = -0.12 + 0.20 * np.sin(frac * np.pi)
+            x = -0.12 + 0.20 * math.sin(frac * math.pi)
             y = 0.50 - 0.70 * frac
             
         # Tail Spiral (t: 0.65 to 1.0)
         else:
             frac = (t - 0.65) / 0.35
             c_x, c_y = 0.05, -0.38
-            R_start = np.sqrt((-0.12 - c_x)**2 + (-0.20 - c_y)**2)
-            theta_start = np.atan2(-0.20 - c_y, -0.12 - c_x)
+            R_start = math.sqrt((-0.12 - c_x)**2 + (-0.20 - c_y)**2)
+            theta_start = math.atan2(-0.20 - c_y, -0.12 - c_x)
             
-            theta = theta_start - frac * 3.8 * np.pi
-            R = R_start * (1.0 - 0.88 * frac) * np.exp(-0.04 * frac * 3.8 * np.pi)
+            theta = theta_start - frac * 3.8 * math.pi
+            R = R_start * (1.0 - 0.88 * frac) * math.exp(-0.04 * frac * 3.8 * math.pi)
             
-            x = c_x + R * np.cos(theta)
-            y = c_y + R * np.sin(theta)
+            x = c_x + R * math.cos(theta)
+            y = c_y + R * math.sin(theta)
             
         # Dynamic wiggling tail physics synchronized with audio bobbing phase
         if t > 0.65:
-            x += np.sin(t * 15.0 - phase * 2.5) * 0.04 * (t - 0.65)
+            x += math.sin(t * 15.0 - phase * 2.5) * 0.04 * (t - 0.65)
             
-        nodes.append(np.array([x, y], dtype=np.float32))
+        nodes.append([x, y])
 
     # 2. Compute widths (w_front and w_back) for classic profile
-    w_front = np.zeros(segments, dtype=np.float32)
-    w_back = np.zeros(segments, dtype=np.float32)
+    w_front = [0.0] * segments
+    w_back = [0.0] * segments
     
     for i in range(segments):
         t = i / (segments - 1)
@@ -1609,20 +1655,20 @@ def make_solid_seahorse(center, phase):
         # Head (t: 0.15 to 0.28)
         elif t <= 0.28:
             frac = (t - 0.15) / 0.13
-            w_front[i] = 0.02 + 0.055 * np.sin(frac * np.pi)
-            w_back[i] = 0.02 + 0.045 * np.sin(frac * np.pi)
+            w_front[i] = 0.02 + 0.055 * math.sin(frac * math.pi)
+            w_back[i] = 0.02 + 0.045 * math.sin(frac * math.pi)
             
         # Neck (t: 0.28 to 0.42)
         elif t <= 0.42:
             frac = (t - 0.28) / 0.14
-            w_front[i] = 0.04 - 0.015 * np.sin(frac * np.pi)
-            w_back[i] = 0.035 - 0.015 * np.sin(frac * np.pi)
+            w_front[i] = 0.04 - 0.015 * math.sin(frac * math.pi)
+            w_back[i] = 0.035 - 0.015 * math.sin(frac * math.pi)
             
         # Chest / Trunk (t: 0.42 to 0.65)
         elif t <= 0.65:
             frac = (t - 0.42) / 0.23
-            w_front[i] = 0.025 + 0.10 * np.sin(frac * np.pi)
-            w_back[i] = 0.02 + 0.04 * np.sin(frac * np.pi)
+            w_front[i] = 0.025 + 0.10 * math.sin(frac * math.pi)
+            w_back[i] = 0.02 + 0.04 * math.sin(frac * math.pi)
             
         # Tail (t: 0.65 to 1.0)
         else:
@@ -1632,24 +1678,27 @@ def make_solid_seahorse(center, phase):
             
         # Bony ridges (sharp spines) along the back/left edge
         if t > 0.20 and t < 0.85:
-            spines = np.maximum(0.0, np.sin(t * 110.0)) ** 2.5
+            spines = max(0.0, math.sin(t * 110.0)) ** 2.5
             w_back[i] += 0.032 * spines
             
-        # Add a gorgeous crown (coronet) at the top of the head (t around 0.23 to 0.28)
+        # Add a gorgeous crown (coronet) at the top of the head
         if t >= 0.23 and t <= 0.28:
             crown_frac = (t - 0.23) / 0.05
-            w_back[i] += 0.045 * np.maximum(0.0, np.sin(crown_frac * np.pi * 3.0)) ** 1.5
+            w_back[i] += 0.045 * max(0.0, math.sin(crown_frac * math.pi * 3.0)) ** 1.5
 
-    # 3. Build vertices segment by segment with 3D Lambertian lighting
-    L = np.array([0.6, 0.8, 0.4], dtype=np.float32)
-    L /= np.linalg.norm(L)
+    # 3. Light vector L
+    Lx, Ly, Lz = 0.6, 0.8, 0.4
+    L_len = math.sqrt(Lx*Lx + Ly*Ly + Lz*Lz)
+    Lx /= L_len
+    Ly /= L_len
+    Lz /= L_len
     
-    def get_shaded_color(col, norm):
-        dot = np.dot(norm, L)
+    def get_shaded_color(col, nx, ny, nz):
+        dot = nx*Lx + ny*Ly + nz*Lz
         shade = 0.25 + 0.75 * max(0.0, dot)
-        return [np.clip(col[0] * shade, 0.0, 1.0),
-                np.clip(col[1] * shade, 0.0, 1.0),
-                np.clip(col[2] * shade, 0.0, 1.0),
+        return [max(0.0, min(1.0, col[0] * shade)),
+                max(0.0, min(1.0, col[1] * shade)),
+                max(0.0, min(1.0, col[2] * shade)),
                 col[3]]
 
     z_thick = 0.035
@@ -1660,57 +1709,68 @@ def make_solid_seahorse(center, phase):
         
         # Calculate tangent & normal for i
         if i == 0:
-            tangent = nodes[1] - nodes[0]
+            tx = nodes[1][0] - nodes[0][0]
+            ty = nodes[1][1] - nodes[0][1]
         else:
-            tangent = nodes[i+1] - nodes[i-1]
-        norm_t = tangent / np.linalg.norm(tangent) if np.linalg.norm(tangent) > 1e-4 else np.array([0.0, -1.0], dtype=np.float32)
-        normal0 = np.array([-norm_t[1], norm_t[0]], dtype=np.float32)
+            tx = nodes[i+1][0] - nodes[i-1][0]
+            ty = nodes[i+1][1] - nodes[i-1][1]
+        t_len = math.sqrt(tx*tx + ty*ty)
+        if t_len > 1e-4:
+            tx /= t_len
+            ty /= t_len
+        else:
+            tx, ty = 0.0, -1.0
+        normal0_x = -ty
+        normal0_y = tx
         
         # Calculate tangent & normal for i+1
         if i + 1 == segments - 1:
-            tangent_next = nodes[-1] - nodes[-2]
+            tx_next = nodes[-1][0] - nodes[-2][0]
+            ty_next = nodes[-1][1] - nodes[-2][1]
         else:
-            tangent_next = nodes[i+2] - nodes[i]
-        norm_t_next = tangent_next / np.linalg.norm(tangent_next) if np.linalg.norm(tangent_next) > 1e-4 else np.array([0.0, -1.0], dtype=np.float32)
-        normal1 = np.array([-norm_t_next[1], norm_t_next[0]], dtype=np.float32)
+            tx_next = nodes[i+2][0] - nodes[i][0]
+            ty_next = nodes[i+2][1] - nodes[i][1]
+        t_len_next = math.sqrt(tx_next*tx_next + ty_next*ty_next)
+        if t_len_next > 1e-4:
+            tx_next /= t_len_next
+            ty_next /= t_len_next
+        else:
+            tx_next, ty_next = 0.0, -1.0
+        normal1_x = -ty_next
+        normal1_y = tx_next
         
         # Front face coordinates (Z = +z_thick)
-        p_f_left_top = np.array([nodes[i][0] - w_back[i] * normal0[0], nodes[i][1] - w_back[i] * normal0[1], z_thick], dtype=np.float32)
-        p_f_right_top = np.array([nodes[i][0] + w_front[i] * normal0[0], nodes[i][1] + w_front[i] * normal0[1], z_thick], dtype=np.float32)
-        p_f_left_bottom = np.array([nodes[i+1][0] - w_back[i+1] * normal1[0], nodes[i+1][1] - w_back[i+1] * normal1[1], z_thick], dtype=np.float32)
-        p_f_right_bottom = np.array([nodes[i+1][0] + w_front[i+1] * normal1[0], nodes[i+1][1] + w_front[i+1] * normal1[1], z_thick], dtype=np.float32)
+        p_f_left_top = [nodes[i][0] - w_back[i] * normal0_x, nodes[i][1] - w_back[i] * normal0_y, z_thick]
+        p_f_right_top = [nodes[i][0] + w_front[i] * normal0_x, nodes[i][1] + w_front[i] * normal0_y, z_thick]
+        p_f_left_bottom = [nodes[i+1][0] - w_back[i+1] * normal1_x, nodes[i+1][1] - w_back[i+1] * normal1_y, z_thick]
+        p_f_right_bottom = [nodes[i+1][0] + w_front[i+1] * normal1_x, nodes[i+1][1] + w_front[i+1] * normal1_y, z_thick]
         
         # Back face coordinates (Z = -z_thick)
-        p_b_left_top = np.array([p_f_left_top[0], p_f_left_top[1], -z_thick], dtype=np.float32)
-        p_b_right_top = np.array([p_f_right_top[0], p_f_right_top[1], -z_thick], dtype=np.float32)
-        p_b_left_bottom = np.array([p_f_left_bottom[0], p_f_left_bottom[1], -z_thick], dtype=np.float32)
-        p_b_right_bottom = np.array([p_f_right_bottom[0], p_f_right_bottom[1], -z_thick], dtype=np.float32)
+        p_b_left_top = [p_f_left_top[0], p_f_left_top[1], -z_thick]
+        p_b_right_top = [p_f_right_top[0], p_f_right_top[1], -z_thick]
+        p_b_left_bottom = [p_f_left_bottom[0], p_f_left_bottom[1], -z_thick]
+        p_b_right_bottom = [p_f_right_bottom[0], p_f_right_bottom[1], -z_thick]
         
-        # 1. Base coloring matching real seahorse visual styles
         col_left_top = cyan_highlight if (t0 >= 0.23 and t0 <= 0.28) else spine_col
         col_left_bottom = cyan_highlight if (t1 >= 0.23 and t1 <= 0.28) else spine_col
         
         col_right_top = cyan_highlight if t0 <= 0.15 else chest_col
         col_right_bottom = cyan_highlight if t1 <= 0.15 else chest_col
         
-        # If t is in the chest bulge, make it look beautiful with sapphire chest color
         if t0 > 0.42 and t0 <= 0.65:
             col_right_top = chest_col
         if t1 > 0.42 and t1 <= 0.65:
             col_right_bottom = chest_col
             
-        norm_front = np.array([0.0, 0.0, 1.0], dtype=np.float32)
-        norm_back = np.array([0.0, 0.0, -1.0], dtype=np.float32)
+        c_f_lt = get_shaded_color(col_left_top, 0.0, 0.0, 1.0)
+        c_f_rt = get_shaded_color(col_right_top, 0.0, 0.0, 1.0)
+        c_f_lb = get_shaded_color(col_left_bottom, 0.0, 0.0, 1.0)
+        c_f_rb = get_shaded_color(col_right_bottom, 0.0, 0.0, 1.0)
         
-        c_f_lt = get_shaded_color(col_left_top, norm_front)
-        c_f_rt = get_shaded_color(col_right_top, norm_front)
-        c_f_lb = get_shaded_color(col_left_bottom, norm_front)
-        c_f_rb = get_shaded_color(col_right_bottom, norm_front)
-        
-        c_b_lt = get_shaded_color(col_left_top, norm_back)
-        c_b_rt = get_shaded_color(col_right_top, norm_back)
-        c_b_lb = get_shaded_color(col_left_bottom, norm_back)
-        c_b_rb = get_shaded_color(col_right_bottom, norm_back)
+        c_b_lt = get_shaded_color(col_left_top, 0.0, 0.0, -1.0)
+        c_b_rt = get_shaded_color(col_right_top, 0.0, 0.0, -1.0)
+        c_b_lb = get_shaded_color(col_left_bottom, 0.0, 0.0, -1.0)
+        c_b_rb = get_shaded_color(col_right_bottom, 0.0, 0.0, -1.0)
         
         # 2. Add Front Face (CCW)
         vertices.extend([p_f_left_top, p_f_right_bottom, p_f_right_top])
@@ -1725,9 +1785,8 @@ def make_solid_seahorse(center, phase):
         colors.extend([c_b_lt, c_b_rb, c_b_lb])
         
         # 4. Add Left Side Wall (Spine edge)
-        norm_l0 = np.array([-normal0[0], -normal0[1], 0.0], dtype=np.float32)
-        c_l_lt = get_shaded_color(col_left_top, norm_l0)
-        c_l_lb = get_shaded_color(col_left_bottom, norm_l0)
+        c_l_lt = get_shaded_color(col_left_top, -normal0_x, -normal0_y, 0.0)
+        c_l_lb = get_shaded_color(col_left_bottom, -normal1_x, -normal1_y, 0.0)
         
         vertices.extend([p_f_left_top, p_b_left_bottom, p_b_left_top])
         colors.extend([c_l_lt, c_l_lb, c_l_lt])
@@ -1735,71 +1794,44 @@ def make_solid_seahorse(center, phase):
         colors.extend([c_l_lt, c_l_lb, c_l_lb])
         
         # 5. Add Right Side Wall (Chest edge)
-        norm_r0 = np.array([normal0[0], normal0[1], 0.0], dtype=np.float32)
-        c_r_rt = get_shaded_color(col_right_top, norm_r0)
-        c_r_rb = get_shaded_color(col_right_bottom, norm_r0)
+        c_r_rt = get_shaded_color(col_right_top, normal0_x, normal0_y, 0.0)
+        c_r_rb = get_shaded_color(col_right_bottom, normal1_x, normal1_y, 0.0)
         
         vertices.extend([p_f_right_top, p_f_right_bottom, p_b_right_bottom])
         colors.extend([c_r_rt, c_r_rb, c_r_rb])
         vertices.extend([p_f_right_top, p_b_right_bottom, p_b_right_top])
         colors.extend([c_r_rt, c_r_rb, c_r_rt])
         
-        # 6. Elegant 2.5D Fan-like Dorsal Fin (around chest back, t from 0.40 to 0.55)
-        if t0 >= 0.40 and t0 <= 0.55:
-            fin_len = 0.20 + np.sin(phase * 6.0 - i * 0.4) * 0.05
-            p_fin_f_top = p_f_left_top - fin_len * np.array([normal0[0], normal0[1], 0.0], dtype=np.float32)
-            p_fin_b_top = p_b_left_top - fin_len * np.array([normal0[0], normal0[1], 0.0], dtype=np.float32)
-            
-            fin_len_next = 0.20 + np.sin(phase * 6.0 - (i+1) * 0.4) * 0.05
-            p_fin_f_bot = p_f_left_bottom - fin_len_next * np.array([normal1[0], normal1[1], 0.0], dtype=np.float32)
-            p_fin_b_bot = p_b_left_bottom - fin_len_next * np.array([normal1[0], normal1[1], 0.0], dtype=np.float32)
-            
-            c_fin_f = get_shaded_color(cyan_highlight, norm_front)
-            c_fin_b = get_shaded_color(cyan_highlight, norm_back)
-            c_fin_edge = get_shaded_color(cyan_highlight, norm_l0)
-            
-            # Fin Front Face (CCW)
-            vertices.extend([p_f_left_top, p_fin_f_bot, p_fin_f_top])
-            colors.extend([c_fin_f, c_fin_f, c_fin_f])
-            vertices.extend([p_f_left_top, p_f_left_bottom, p_fin_f_bot])
-            colors.extend([c_fin_f, c_fin_f, c_fin_f])
-            
-            # Fin Back Face (CCW viewed from back)
-            vertices.extend([p_b_left_top, p_fin_b_top, p_fin_b_bot])
-            colors.extend([c_fin_b, c_fin_b, c_fin_b])
-            vertices.extend([p_b_left_top, p_fin_b_bot, p_b_left_bottom])
-            colors.extend([c_fin_b, c_fin_b, c_fin_b])
-            
-            # Fin Outer Edge
-            vertices.extend([p_fin_f_top, p_fin_b_bot, p_fin_b_top])
-            colors.extend([c_fin_edge, c_fin_edge, c_fin_edge])
-            vertices.extend([p_fin_f_top, p_fin_f_bot, p_fin_b_bot])
-            colors.extend([c_fin_edge, c_fin_edge, c_fin_edge])
-
-    # 4. Apply dynamic 3D swimming/bobbing rotations to all vertices relative to origin
-    pitch_ang = 0.15 * np.cos(phase * 1.3) + 0.05 * np.sin(phase * 2.5)
-    roll_ang = 0.12 * np.sin(phase * 1.1)
-    yaw_ang = 0.08 * np.cos(phase * 0.7)
+    # 4. Apply dynamic 3D swimming/bobbing rotations to all vertices relative to origin using vectorized NumPy transformations
+    pitch_ang = 0.15 * math.cos(phase * 1.3) + 0.05 * math.sin(phase * 2.5)
+    roll_ang = 0.12 * math.sin(phase * 1.1)
+    yaw_ang = 0.08 * math.cos(phase * 0.7)
     
-    def rotate_3d(v, pitch, roll, yaw):
-        # Pitch (around Z)
-        c, s = np.cos(pitch), np.sin(pitch)
-        x1 = c * v[0] - s * v[1]
-        y1 = s * v[0] + c * v[1]
-        z1 = v[2]
-        # Roll (around X)
-        c, s = np.cos(roll), np.sin(roll)
-        x2 = x1
-        y2 = c * y1 - s * z1
-        z2 = s * y1 + c * z1
-        # Yaw (around Y)
-        c, s = np.cos(yaw), np.sin(yaw)
-        x3 = c * x2 + s * z2
-        y3 = y2
-        z3 = -s * x2 + c * z2
-        return np.array([x3, y3, z3], dtype=np.float32)
+    cp, sp = math.cos(pitch_ang), math.sin(pitch_ang)
+    cr, sr = math.cos(roll_ang), math.sin(roll_ang)
+    cy, sy = math.cos(yaw_ang), math.sin(yaw_ang)
+    
+    cx, cy, cz = center[0], center[1], center[2]
+    
+    if len(vertices) > 0:
+        v_arr = np.array(vertices, dtype=np.float32)
+        x, y, z = v_arr[:, 0], v_arr[:, 1], v_arr[:, 2]
+        x1 = cp * x - sp * y
+        y1 = sp * x + cp * y
+        z1 = z
         
-    rotated_vertices = [rotate_3d(v, pitch_ang, roll_ang, yaw_ang) + center for v in vertices]
+        x2 = x1
+        y2 = cr * y1 - sr * z1
+        z2 = sr * y1 + cr * z1
+        
+        x3 = cy * x2 + sy * z2
+        y3 = y2
+        z3 = -sy * x2 + cy * z2
+        
+        rotated_vertices = np.stack([x3 + cx, y3 + cy, z3 + cz], axis=1).tolist()
+    else:
+        rotated_vertices = []
+        
     return rotated_vertices, colors
 
 
@@ -2372,12 +2404,102 @@ def make_solid_butterfly(center, direction, phase):
 
 
 class FireworksApp:
-    def __init__(self, record_path=None, audio_path=None):
+    def __init__(self, record_path=None, audio_path=None, playlist_files=None, random_mode=False):
         Firework.app = self
         self.opt_trailers = 0        # 0: off, 1..10 range
         self.opt_gravity = 1.0       # 0.0 to 10.0 range
         self.opt_star_shape = 0      # 0: default, 1..6 shapes
         self.opt_color_mode = 'REALISTIC' # 'REALISTIC', 'NEON', 'TRANQUIL', 'METAL'
+        self.opt_height_restrict = True
+        self.mandala_slices = 12
+        
+        self.active_presets = [
+            {
+                "name": "Fireworks",
+                "major_mode": "FIREWORKS",
+                "show_rockets": True,
+                "opt_color_mode": "REALISTIC",
+                "opt_trailers": 0,
+                "opt_gravity": 1.0,
+                "opt_height_restrict": True,
+                "opt_star_shape": 0
+            },
+            {
+                "name": "Glory",
+                "major_mode": "FIREWORKS",
+                "show_rockets": False,
+                "opt_color_mode": "NEON",
+                "opt_trailers": 10,
+                "opt_gravity": 0.0,
+                "opt_height_restrict": False,
+                "opt_star_shape": 2 # small diamonds
+            },
+            {
+                "name": "Wormhole",
+                "major_mode": "TUNNEL Wormhole",
+                "show_rockets": True,
+                "opt_color_mode": "REALISTIC",
+                "opt_trailers": 0,
+                "opt_gravity": 1.0,
+                "opt_height_restrict": True,
+                "opt_star_shape": 0
+            },
+            {
+                "name": "Mandala",
+                "major_mode": "MANDALA Sacred",
+                "show_rockets": True,
+                "opt_color_mode": "REALISTIC",
+                "opt_trailers": 0,
+                "opt_gravity": 1.0,
+                "opt_height_restrict": True,
+                "opt_star_shape": 0,
+                "mandala_slices": 12
+            },
+            {
+                "name": "Trance",
+                "major_mode": "MANDALA Sacred",
+                "show_rockets": True,
+                "opt_color_mode": "TRANQUIL",
+                "opt_trailers": 10,
+                "opt_gravity": 0.5,
+                "opt_height_restrict": False,
+                "opt_star_shape": 2, # larger diamonds
+                "mandala_slices": 4
+            },
+            {
+                "name": "Underwater",
+                "major_mode": "UNDERWATER Lava",
+                "show_rockets": True,
+                "opt_color_mode": "REALISTIC",
+                "opt_trailers": 0,
+                "opt_gravity": 1.0,
+                "opt_height_restrict": True,
+                "opt_star_shape": 0
+            },
+            {
+                "name": "Synaesthesia",
+                "major_mode": "SYNAESTHESIA Classic",
+                "show_rockets": True,
+                "opt_color_mode": "REALISTIC",
+                "opt_trailers": 0,
+                "opt_gravity": 1.0,
+                "opt_height_restrict": True,
+                "opt_star_shape": 5, # shape star (5 points)
+                "syn_star_size": 0.25,
+                "syn_fade_mode": "Wave"
+            },
+            {
+                "name": "Random",
+                "major_mode": None,
+                "random_preset": True
+            }
+        ]
+        self.preset_idx = 0
+        self.preset_random_mode = random_mode
+        self.preset_random_timer = 0.0
+        
+        self.syn_star_size = 0.5
+        self.syn_fade_mode = "Stars"
 
         self.record_path = record_path
         self.is_recording = record_path is not None
@@ -2388,8 +2510,16 @@ class FireworksApp:
         self.temp_video_path = "temp_recording.mp4"
         
         # Configure dynamic audio & display script path
-        self.audio_path = audio_path if audio_path else "01.Come Together - The Beatles.flac"
-        self.audio_explicit = audio_path is not None
+        raw_paths = []
+        if audio_path:
+            raw_paths.append(audio_path)
+        if playlist_files:
+            raw_paths.extend(playlist_files)
+            
+        self.playlist = self.load_playlist_files(raw_paths) if raw_paths else ["01.Come Together - The Beatles.flac"]
+        self.playlist_idx = 0
+        self.audio_path = self.playlist[self.playlist_idx] if self.playlist else "01.Come Together - The Beatles.flac"
+        self.audio_explicit = bool(raw_paths)
         self.script_path = os.path.splitext(self.audio_path)[0] + "_display.json"
         
         self.show_rockets = True
@@ -2479,6 +2609,241 @@ class FireworksApp:
         self.wormhole_shooting_star_z = 0.0
         self.peace_symbol_timer = 0.0
         self.halo_timer = 0.0
+
+    def load_playlist_files(self, paths):
+        resolved = []
+        for p in paths:
+            if not p:
+                continue
+            if p.lower().endswith('.m3u'):
+                if os.path.exists(p):
+                    try:
+                        with open(p, 'r', encoding='utf-8', errors='ignore') as f:
+                            for line in f:
+                                line = line.strip()
+                                if line and not line.startswith('#'):
+                                    resolved.append(line)
+                    except Exception as e:
+                        print(f"Error reading playlist file {p}: {e}")
+                else:
+                    print(f"Playlist file {p} not found!")
+            else:
+                resolved.append(p)
+        return resolved
+
+    def load_and_play_track(self):
+        # 1. Stop current sync playback
+        self.stop_sync_playback()
+        
+        # Clear existing visualizer events
+        self.script_events = []
+        self.next_event_idx = 0
+        self.loaded_script_name = "None"
+        self.update_legend_labels()
+        
+        if not self.audio_path or not os.path.exists(self.audio_path):
+            print(f"Audio file not found: {self.audio_path}")
+            return
+            
+        print(f"Loading and playing track: {self.audio_path}")
+        
+        # 2. Check if JSON script exists and is up-to-date
+        json_exists = False
+        import audio_analyzer
+        if os.path.exists(self.script_path):
+            try:
+                with open(self.script_path, 'r') as f:
+                    data = json.load(f)
+                ver = data.get("metadata", {}).get("analyzer_version", 0)
+                if ver >= audio_analyzer.ANALYZER_VERSION:
+                    json_exists = True
+            except Exception as e:
+                print(f"Error checking JSON validity: {e}")
+                
+        # 3. Play audio IMMEDIATELY
+        self.saved_auto_launch = self.auto_launch
+        self.auto_launch = False
+        self.fireworks.clear()
+        
+        try:
+            cmd = ["/usr/bin/mpv", "--no-video", "--volume=100", self.audio_path]
+            self.music_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.music_playing = True
+            self.playback_start_time = time.time()
+            print(f"Immediate mpv audio playback started for: {self.audio_path}")
+        except Exception as e:
+            print(f"Failed to start mpv playback: {e}")
+            self.auto_launch = self.saved_auto_launch
+            self.update_legend_labels()
+            return
+
+        # 4. If JSON is valid, load it immediately and start sync
+        if json_exists:
+            print("Up-to-date JSON found. Loading immediately...")
+            self.load_sync_script(self.script_path)
+            self.next_event_idx = 0
+            self.check_pregenerate_next_track()
+        else:
+            # 5. Otherwise, start asynchronous background generation
+            print("No up-to-date JSON found. Starting background analysis thread...")
+            import threading
+            threading.Thread(target=self.async_analyze_and_activate, daemon=True).start()
+
+    def async_analyze_and_activate(self):
+        try:
+            import audio_analyzer
+            print(f"[Async Analyzer] Analyzing {self.audio_path} in background...")
+            hints = getattr(self, 'color_hints', None) or ["strontium_red", "magnesium_white", "copper_blue"]
+            script = audio_analyzer.analyze_audio(self.audio_path, hints)
+            
+            with open(self.script_path, 'w') as f:
+                json.dump(script, f, indent=2)
+            print(f"[Async Analyzer] Background analysis completed and saved to {self.script_path}")
+            
+            GLib.idle_add(self.activate_async_json, self.script_path)
+        except Exception as e:
+            print(f"[Async Analyzer] Error in background analysis: {e}")
+
+    def activate_async_json(self, filepath):
+        expected_script_path = os.path.splitext(self.audio_path)[0] + "_display.json"
+        if filepath != expected_script_path:
+            print(f"Background analysis finished for {filepath}, but active track has changed. Ignoring.")
+            return False
+            
+        print(f"Activating asynchronously generated JSON: {filepath}")
+        if self.load_sync_script(filepath):
+            elapsed = time.time() - self.playback_start_time
+            idx = 0
+            while idx < len(self.script_events) and self.script_events[idx].get("time", 0.0) < elapsed:
+                idx += 1
+            self.next_event_idx = idx
+            print(f"Choreography synced to elapsed play time: {elapsed:.2f}s (starting at event index {idx})")
+            
+            self.check_pregenerate_next_track()
+            
+        return False
+
+    def check_pregenerate_next_track(self):
+        if not self.playlist or len(self.playlist) <= 1:
+            return
+            
+        next_idx = (self.playlist_idx + 1) % len(self.playlist)
+        next_audio_path = self.playlist[next_idx]
+        next_script_path = os.path.splitext(next_audio_path)[0] + "_display.json"
+        
+        json_exists = False
+        import audio_analyzer
+        if os.path.exists(next_script_path):
+            try:
+                with open(next_script_path, 'r') as f:
+                    data = json.load(f)
+                ver = data.get("metadata", {}).get("analyzer_version", 0)
+                if ver >= audio_analyzer.ANALYZER_VERSION:
+                    json_exists = True
+            except Exception:
+                pass
+                
+        if not json_exists:
+            print(f"Pre-emptive Cache: Next track '{os.path.basename(next_audio_path)}' has no up-to-date JSON.")
+            print(f"Starting pre-emptive background analysis for next track...")
+            import threading
+            threading.Thread(target=self.async_pregenerate_track, args=(next_audio_path, next_script_path), daemon=True).start()
+        else:
+            print(f"Pre-emptive Cache: Next track '{os.path.basename(next_audio_path)}' already has up-to-date JSON.")
+
+    def async_pregenerate_track(self, audio_path, script_path):
+        try:
+            import audio_analyzer
+            print(f"[Pre-emptive Analyzer] Pre-generating JSON for {audio_path} in background...")
+            hints = ["strontium_red", "magnesium_white", "copper_blue"]
+            script = audio_analyzer.analyze_audio(audio_path, hints)
+            with open(script_path, 'w') as f:
+                json.dump(script, f, indent=2)
+            print(f"[Pre-emptive Analyzer] Finished pre-generating JSON for {audio_path}.")
+        except Exception as e:
+            print(f"[Pre-emptive Analyzer] Error pre-generating JSON for {audio_path}: {e}")
+
+    def play_next_track(self):
+        if not self.playlist:
+            return
+        next_idx = (self.playlist_idx + 1) % len(self.playlist)
+        self.playlist_idx = next_idx
+        self.audio_path = self.playlist[self.playlist_idx]
+        self.script_path = os.path.splitext(self.audio_path)[0] + "_display.json"
+        self.load_and_play_track()
+
+    def play_previous_track(self):
+        if not self.playlist:
+            return
+        prev_idx = (self.playlist_idx - 1) % len(self.playlist)
+        self.playlist_idx = prev_idx
+        self.audio_path = self.playlist[self.playlist_idx]
+        self.script_path = os.path.splitext(self.audio_path)[0] + "_display.json"
+        self.load_and_play_track()
+
+    def apply_preset(self, idx):
+        self.preset_idx = idx
+        preset = self.active_presets[idx]
+        
+        if preset.get("random_preset"):
+            self.preset_random_mode = True
+            self.preset_random_timer = 0.0
+            self.pick_random_preset()
+        else:
+            self.preset_random_mode = False
+            self.apply_preset_settings(preset)
+
+    def apply_preset_settings(self, preset):
+        # Clear any active or queued rarity from previous modes
+        self.active_rarity = None
+        self.rarity_queued_type = None
+        
+        self.major_mode = preset["major_mode"]
+        if self.major_mode in self.modes:
+            self.major_mode_idx = self.modes.index(self.major_mode)
+            
+        if self.major_mode != "FIREWORKS":
+            self.fireworks.clear()
+            
+        self.show_rockets = preset["show_rockets"]
+        self.opt_color_mode = preset["opt_color_mode"]
+        self.opt_trailers = preset["opt_trailers"]
+        self.opt_gravity = preset["opt_gravity"]
+        self.opt_height_restrict = preset["opt_height_restrict"]
+        self.opt_star_shape = preset["opt_star_shape"]
+        
+        if self.major_mode == "SYNAESTHESIA Classic":
+            if self.opt_star_shape in (1, 2, 3):
+                self.syn_points_are_diamonds = True
+            elif self.opt_star_shape in (4, 5, 6):
+                self.syn_points_are_diamonds = False
+        
+        if "syn_star_size" in preset:
+            self.syn_star_size = preset["syn_star_size"]
+        if "syn_fade_mode" in preset:
+            self.syn_fade_mode = preset["syn_fade_mode"]
+            
+        self.mandala_slices = preset.get("mandala_slices", 12)
+        self.update_legend_labels()
+
+    def pick_random_preset(self):
+        candidates = list(range(len(self.active_presets) - 1))
+        if hasattr(self, 'last_random_preset_idx') and self.last_random_preset_idx in candidates and len(candidates) > 1:
+            candidates.remove(self.last_random_preset_idx)
+        chosen_idx = random.choice(candidates)
+        self.last_random_preset_idx = chosen_idx
+        
+        preset = self.active_presets[chosen_idx]
+        print(f"RANDOM PRESET SWITCH: Switching to {preset['name']}!")
+        self.apply_preset_settings(preset)
+
+    def update_preset_random_timer(self, dt):
+        if hasattr(self, 'preset_random_mode') and self.preset_random_mode:
+            self.preset_random_timer += dt
+            # Random Timeout
+            if self.preset_random_timer >= 60.0:
+                self.preset_random_timer = 0.0
+                self.pick_random_preset()
 
     def get_sim_time(self):
         if hasattr(self, 'is_recording') and self.is_recording:
@@ -2706,6 +3071,14 @@ class FireworksApp:
         self.lbl_opt_trailers.set_halign(Gtk.Align.START)
         self.legend_box.append(self.lbl_opt_trailers)
         
+        self.lbl_opt_height = Gtk.Label()
+        self.lbl_opt_height.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_opt_height)
+        
+        self.lbl_mandala_slices = Gtk.Label()
+        self.lbl_mandala_slices.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_mandala_slices)
+        
         self.update_legend_labels()
         
         lbl_clear = Gtk.Label(label="[C]      - Clear Active Particles")
@@ -2776,37 +3149,24 @@ class FireworksApp:
         self.win.connect("close-request", self.on_close_request)
         
         # Explicit audio script parsing & auto-start
-        if self.audio_explicit:
-            print(f"Explicit audio file specified: {self.audio_path}. Running analyzer...")
-            try:
-                import audio_analyzer
-                script = audio_analyzer.analyze_audio(self.audio_path)
-                with open(self.script_path, 'w') as f:
-                    json.dump(script, f, indent=2)
-                self.load_sync_script(self.script_path)
-                # Launch synchronized playback automatically on startup
-                GLib.idle_add(self.start_sync_playback)
-            except Exception as e:
-                print(f"Failed to auto-generate and play script: {e}")
+        if self.preset_random_mode:
+            self.apply_preset(len(self.active_presets) - 1)
+
+        if self.is_recording:
+            if not os.path.exists(self.script_path):
+                print(f"No display script found for recording. Generating synchronously: {self.script_path}...")
+                try:
+                    import audio_analyzer
+                    script = audio_analyzer.analyze_audio(self.audio_path, ["strontium_red", "magnesium_white", "copper_blue"])
+                    with open(self.script_path, 'w') as f:
+                        json.dump(script, f, indent=2)
+                except Exception as e:
+                    print(f"Failed to generate script for recording: {e}")
+                    sys.exit(1)
+            self.load_sync_script(self.script_path)
         else:
-            # Fall back to default behavior
-            if os.path.exists(self.script_path):
-                self.load_sync_script(self.script_path)
-                
-            if self.is_recording and not self.script_events:
-                if os.path.exists(self.script_path):
-                    self.load_sync_script(self.script_path)
-                else:
-                    print(f"No display script found. Auto-generating {self.script_path} first...")
-                    try:
-                        import audio_analyzer
-                        script = audio_analyzer.analyze_audio(self.audio_path, ["strontium_red", "magnesium_white", "copper_blue"])
-                        with open(self.script_path, 'w') as f:
-                            json.dump(script, f, indent=2)
-                        self.load_sync_script(self.script_path)
-                    except Exception as e:
-                        print(f"Failed to auto-generate display script: {e}")
-                        sys.exit(1)
+            # Play first track immediately (analyzes asynchronously in background if needed)
+            GLib.idle_add(self.load_and_play_track)
             
         self.win.present()
         
@@ -2826,6 +3186,11 @@ class FireworksApp:
         if hasattr(self, 'lbl_opt_trailers') and self.lbl_opt_trailers:
             trail_desc = "OFF" if self.opt_trailers == 0 else f"Len {self.opt_trailers}"
             self.lbl_opt_trailers.set_text(f"[L]      - Trailers: {trail_desc}")
+        if hasattr(self, 'lbl_opt_height') and self.lbl_opt_height:
+            height_desc = "ON" if self.opt_height_restrict else "OFF"
+            self.lbl_opt_height.set_text(f"[Y]      - Height Restriction: {height_desc}")
+        if hasattr(self, 'lbl_mandala_slices') and self.lbl_mandala_slices:
+            self.lbl_mandala_slices.set_text(f"[S]      - Mandala Slices: {self.mandala_slices}")
 
         self.lbl_auto_launch.set_text(f"[A]      - Toggle Auto-Launcher ({'ON' if self.auto_launch else 'OFF'})")
         self.lbl_auto_rotate.set_text(f"[R]      - Toggle Camera Auto-Rotation ({'ON' if self.auto_rotate else 'OFF'})")
@@ -2841,7 +3206,12 @@ class FireworksApp:
         if hasattr(self, 'lbl_legend_toggle') and self.lbl_legend_toggle:
             self.lbl_legend_toggle.set_text("[H]      - Toggle Keyboard Controls HUD")
         if hasattr(self, 'lbl_mode_toggle') and self.lbl_mode_toggle:
-            self.lbl_mode_toggle.set_text(f"[V]      - Cycle Visual Mode ({self.major_mode})")
+            preset_name = self.active_presets[self.preset_idx]["name"]
+            if getattr(self, 'preset_random_mode', False) and hasattr(self, 'last_random_preset_idx'):
+                cur_preset = self.active_presets[self.last_random_preset_idx]["name"]
+                self.lbl_mode_toggle.set_text(f"[V]      - Cycle Visual Mode: {preset_name} ({cur_preset})")
+            else:
+                self.lbl_mode_toggle.set_text(f"[V]      - Cycle Visual Mode: {preset_name}")
         if hasattr(self, 'lbl_rarity_cycle') and self.lbl_rarity_cycle:
             rarity_name = getattr(self, 'current_rarity_cycle_name', 'None')
             self.lbl_rarity_cycle.set_text(f"[K]      - Cycle Rarities ({rarity_name})")
@@ -3018,11 +3388,13 @@ class FireworksApp:
             
             self.next_spark_idx = (self.next_spark_idx + 1) % len(self.spark_pos)
 
+    def get_bend_offsets(self, z_arr):
+        bx = self.wormhole_bend_x * np.sin(z_arr * 0.06 + self.wormhole_phase_x)
+        by = self.wormhole_bend_y * np.cos(z_arr * 0.06 + self.wormhole_phase_y)
+        return bx, by
+
     def render_tunnel(self):
-        def get_bend_offsets(z_arr):
-            bx = self.wormhole_bend_x * np.sin(z_arr * 0.06 + self.wormhole_phase_x)
-            by = self.wormhole_bend_y * np.cos(z_arr * 0.06 + self.wormhole_phase_y)
-            return bx, by
+        get_bend_offsets = self.get_bend_offsets
             
         hood_tri_pos = []
         hood_tri_col = []
@@ -3943,7 +4315,8 @@ class FireworksApp:
 
     def init_mandala_mode(self):
         M = 250
-        self.mandala_slices = 12
+        if not hasattr(self, 'mandala_slices'):
+            self.mandala_slices = 12
         self.mandala_base_pos = np.zeros((M, 3), dtype=np.float32)
         self.mandala_base_pos[:, 1] = 4.0
         self.mandala_base_vel = np.zeros((M, 3), dtype=np.float32)
@@ -4265,6 +4638,7 @@ class FireworksApp:
                 self.jelly_col[i, 3] = 1.0
                 
         elif self.major_mode == "TUNNEL Wormhole":
+            get_bend_offsets = self.get_bend_offsets
             if routine_name == "Lightning Flash":
                 self.lightning_active_timer = 0.4
                 self.active_lightning_bolts = []
@@ -4926,6 +5300,7 @@ class FireworksApp:
         self.sky_inv_vp_loc = gl.glGetUniformLocation(self.sky_program, "uInvVP")
 
     def on_render(self, area, context):
+        get_bend_offsets = self.get_bend_offsets
         if self.sky_program is None:
             return False
             
@@ -5253,6 +5628,7 @@ class FireworksApp:
         dt = now - self.last_time
         self.last_time = now
         dt = min(dt, 0.1)
+        self.update_preset_random_timer(dt)
         
         # Decay envelopes
         decay_rate = 5.0
@@ -5290,11 +5666,17 @@ class FireworksApp:
         if self.music_playing:
             # Check if mpv process has terminated
             if self.music_process and self.music_process.poll() is not None:
-                self.stop_sync_playback()
+                if self.playlist and len(self.playlist) > 0:
+                    self.play_next_track()
+                else:
+                    self.stop_sync_playback()
             else:
                 elapsed = time.time() - self.playback_start_time
-                if elapsed >= self.script_duration:
-                    self.stop_sync_playback()
+                if self.script_events and self.script_duration > 0 and elapsed >= self.script_duration:
+                    if self.playlist and len(self.playlist) > 0:
+                        self.play_next_track()
+                    else:
+                        self.stop_sync_playback()
                 else:
                     while (self.next_event_idx < len(self.script_events) and 
                            self.script_events[self.next_event_idx]["time"] <= elapsed):
@@ -5326,7 +5708,7 @@ class FireworksApp:
             if self.camera_theta > 2 * np.pi:
                 self.camera_theta -= 2 * np.pi
                 
-        if self.auto_launch:
+        if self.auto_launch or (self.music_playing and not getattr(self, 'script_events', None)):
             self.launch_timer += dt
             if self.launch_timer >= self.next_launch_interval:
                 self.launch_timer = 0.0
@@ -5388,12 +5770,18 @@ class FireworksApp:
             self.routine_lbl.set_text("Routine: None")
             
         if self.music_playing:
-            self.music_track_lbl.set_text(f"Track: {self.loaded_script_name} ({self.script_bpm:.1f} BPM)")
+            if self.script_events:
+                self.music_track_lbl.set_text(f"Track: {self.loaded_script_name} ({self.script_bpm:.1f} BPM)")
+            else:
+                self.music_track_lbl.set_text(f"Track: {os.path.basename(self.audio_path)} (Analyzing...)")
             m_sec = int(elapsed) % 60
             m_min = int(elapsed) // 60
-            total_sec = int(self.script_duration) % 60
-            total_min = int(self.script_duration) // 60
-            self.music_time_lbl.set_text(f"Time: {m_min:02d}:{m_sec:02d} / {total_min:02d}:{total_sec:02d}")
+            if self.script_duration > 0:
+                total_sec = int(self.script_duration) % 60
+                total_min = int(self.script_duration) // 60
+                self.music_time_lbl.set_text(f"Time: {m_min:02d}:{m_sec:02d} / {total_min:02d}:{total_sec:02d}")
+            else:
+                self.music_time_lbl.set_text(f"Time: {m_min:02d}:{m_sec:02d} / --:--")
         else:
             if len(self.script_events) > 0:
                 self.music_track_lbl.set_text(f"Track: {self.loaded_script_name} (Ready)")
@@ -5439,6 +5827,7 @@ class FireworksApp:
                 self.trigger_routine("American Flag", self.launch_american_flag)
             elif self.major_mode == "SYNAESTHESIA Classic":
                 self.syn_points_are_diamonds = not self.syn_points_are_diamonds
+                self.opt_star_shape = 2 if self.syn_points_are_diamonds else 5
                 print(f"Synaesthesia Shape changed. Diamonds: {self.syn_points_are_diamonds}")
                 self.update_legend_labels()
             else:
@@ -5506,10 +5895,11 @@ class FireworksApp:
                 self.trigger_climax_event(intensity=1.6, routine_name="Shooting Star")
             return True
         elif keyval in (Gdk.KEY_v, Gdk.KEY_V):
-            self.major_mode_idx = (self.major_mode_idx + 1) % len(self.modes)
-            self.major_mode = self.modes[self.major_mode_idx]
-            if self.major_mode != "FIREWORKS":
-                self.fireworks.clear()
+            next_idx = (self.preset_idx + 1) % len(self.active_presets)
+            self.apply_preset(next_idx)
+            return True
+        elif keyval in (Gdk.KEY_y, Gdk.KEY_Y):
+            self.opt_height_restrict = not self.opt_height_restrict
             self.update_legend_labels()
             return True
         elif keyval in (Gdk.KEY_a, Gdk.KEY_A):
@@ -5534,6 +5924,11 @@ class FireworksApp:
             return True
         elif keyval in (Gdk.KEY_p, Gdk.KEY_P):
             self.opt_star_shape = (self.opt_star_shape + 1) % 7
+            if self.major_mode == "SYNAESTHESIA Classic":
+                if self.opt_star_shape in (1, 2, 3):
+                    self.syn_points_are_diamonds = True
+                elif self.opt_star_shape in (4, 5, 6):
+                    self.syn_points_are_diamonds = False
             self.update_legend_labels()
             return True
         elif keyval in (Gdk.KEY_g, Gdk.KEY_G):
@@ -5549,6 +5944,19 @@ class FireworksApp:
         elif keyval in (Gdk.KEY_t, Gdk.KEY_T):
             self.show_rockets = not self.show_rockets
             self.update_legend_labels()
+            return True
+        elif keyval in (Gdk.KEY_s, Gdk.KEY_S):
+            slices_options = [3, 4, 5, 6, 8, 12, 18, 24]
+            idx = slices_options.index(self.mandala_slices) if self.mandala_slices in slices_options else 5
+            self.mandala_slices = slices_options[(idx + 1) % len(slices_options)]
+            print(f"Mandala Slices: {self.mandala_slices}")
+            self.update_legend_labels()
+            return True
+        elif keyval == Gdk.KEY_Left or keyval == getattr(Gdk, 'KEY_AudioPrev', -1):
+            self.play_previous_track()
+            return True
+        elif keyval == Gdk.KEY_Right or keyval == getattr(Gdk, 'KEY_AudioNext', -1):
+            self.play_next_track()
             return True
         elif keyval in (Gdk.KEY_h, Gdk.KEY_H):
             self.show_legend = not self.show_legend
@@ -5770,6 +6178,12 @@ class FireworksApp:
             
         elif event_type == "routine":
             name = event.get("name")
+            supported = SUPPORTED_ROUTINES.get(self.major_mode, [])
+            if supported and name not in supported:
+                old_name = name
+                name = random.choice(supported)
+                print(f"[Fallback] Routine '{old_name}' not supported in {self.major_mode}. Selected random fallback: '{name}'")
+                
             if self.major_mode == "FIREWORKS":
                 routines_map = {
                     "American Flag": self.launch_american_flag,
@@ -5855,6 +6269,7 @@ class FireworksApp:
 
     def on_recording_tick(self):
         dt = self.record_dt
+        self.update_preset_random_timer(dt)
         elapsed = self.record_time
         
         # Decay envelopes in recording
@@ -6056,15 +6471,23 @@ class FireworksApp:
     # MODE 5: SYNAESTHESIA CLASSIC (3D Real-time Spatial Music Visualizer)
     # =========================================================================
     def init_synaesthesia_mode(self):
-        self.syn_points_are_diamonds = True
-        self.syn_star_size = 0.5
-        self.syn_brightness = 0.35
-        self.syn_fade_mode = "Stars"
+        if not hasattr(self, 'syn_points_are_diamonds'):
+            self.syn_points_are_diamonds = True
+        if not hasattr(self, 'syn_star_size'):
+            self.syn_star_size = 0.5
+        if not hasattr(self, 'syn_brightness'):
+            self.syn_brightness = 0.35
+        if not hasattr(self, 'syn_fade_mode'):
+            self.syn_fade_mode = "Stars"
+        if not hasattr(self, 'syn_fg_red_slider'):
+            self.syn_fg_red_slider = 0.0
+        if not hasattr(self, 'syn_fg_green_slider'):
+            self.syn_fg_green_slider = 0.5
+        if not hasattr(self, 'syn_bg_red_slider'):
+            self.syn_bg_red_slider = 0.75
+        if not hasattr(self, 'syn_bg_green_slider'):
+            self.syn_bg_green_slider = 0.4
         self.syn_stars = []
-        self.syn_fg_red_slider = 0.0
-        self.syn_fg_green_slider = 0.5
-        self.syn_bg_red_slider = 0.75
-        self.syn_bg_green_slider = 0.4
 
     def update_synaesthesia(self, dt):
         # Move and filter active stars
@@ -6083,6 +6506,20 @@ class FireworksApp:
             
             star['pos'] += star['vel'] * dt
             star['life'] -= dt
+            
+            # Record position history for trailers if enabled
+            if self.opt_trailers > 0:
+                if 'history' not in star or star['history'] is None:
+                    star['history'] = []
+                star['history'].append(star['pos'].copy())
+                # Limit history to match the trailers range
+                target_len = self.opt_trailers * 2 + 1
+                while len(star['history']) > target_len:
+                    star['history'].pop(0)
+            else:
+                if 'history' in star:
+                    star['history'] = None
+
             if star['life'] > 0.0:
                 active_stars.append(star)
         self.syn_stars = active_stars
@@ -6266,7 +6703,8 @@ class FireworksApp:
             curr_b = b
             step_size = 0.09 * self.syn_star_size * star.get('size_coef', 1.0)
 
-            trail_range = self.opt_trailers * 3 + 1 if self.opt_trailers > 0 else 9
+            # Draw base star with constant trail range (9) so size remains constant
+            trail_range = 9
             for j in range(1, trail_range):
                 curr_f = curr_f * factor / 256.0
                 curr_b = curr_b * factor / 256.0
@@ -6294,6 +6732,55 @@ class FireworksApp:
                     for _ in range(4):
                         cols.append(color)
                         sizes.append(4.0 * self.syn_brightness * star.get('size_coef', 1.0))
+
+            # Draw trailers along movement history if enabled
+            if self.opt_trailers > 0 and 'history' in star and star['history']:
+                history_list = star['history']
+                num_trailers = self.opt_trailers
+                for i in range(1, num_trailers + 1):
+                    # We space them out backward (e.g. 2 steps per trailer level)
+                    idx = -1 - i * 2
+                    if abs(idx) <= len(history_list):
+                        tcx, tcy, tcz = history_list[idx]
+                        
+                        # Decay factor for this trailer level
+                        trail_decay = (1.0 - (i / (num_trailers + 1.0)))
+                        tf = f * trail_decay
+                        tb = b * trail_decay
+                        
+                        # Draw center of the trailer point
+                        t_color = map_color(tf, tb)
+                        life_frac = star['life'] / 3.5
+                        t_color[3] = min(1.0, max(0.0, life_frac)) * trail_decay
+                        pts.append([tcx, tcy, tcz])
+                        cols.append(t_color)
+                        sizes.append(4.0 * self.syn_brightness * star.get('size_coef', 1.0) * trail_decay)
+                        
+                        # Draw a smaller cross/diamond around the trailer point for a smooth glow
+                        t_step_size = 0.09 * self.syn_star_size * star.get('size_coef', 1.0) * trail_decay
+                        for tj in range(1, 3):
+                            t_curr_f = tf * (0.6 ** tj)
+                            t_curr_b = tb * (0.6 ** tj)
+                            t_color_j = map_color(t_curr_f, t_curr_b)
+                            t_color_j[3] = min(1.0, max(0.0, life_frac)) * trail_decay
+                            
+                            if self.syn_points_are_diamonds:
+                                for tk in range(tj):
+                                    pts.append([tcx + (-tj + tk) * t_step_size, tcy - tk * t_step_size, tcz])
+                                    pts.append([tcx + tk * t_step_size, tcy - (tj - tk) * t_step_size, tcz])
+                                    pts.append([tcx + (tj - tk) * t_step_size, tcy + tk * t_step_size, tcz])
+                                    pts.append([tcx - tk * t_step_size, tcy + (tj - tk) * t_step_size, tcz])
+                                    for _ in range(4):
+                                        cols.append(t_color_j)
+                                        sizes.append(3.0 * self.syn_brightness * star.get('size_coef', 1.0) * trail_decay)
+                            else:
+                                pts.append([tcx + tj * t_step_size, tcy, tcz])
+                                pts.append([tcx, tcy + tj * t_step_size, tcz])
+                                pts.append([tcx - tj * t_step_size, tcy, tcz])
+                                pts.append([tcx, tcy - tj * t_step_size, tcz])
+                                for _ in range(4):
+                                    cols.append(t_color_j)
+                                    sizes.append(3.0 * self.syn_brightness * star.get('size_coef', 1.0) * trail_decay)
 
         if not hasattr(self, 'syn_bg_particles'):
             self.syn_bg_particles = []
@@ -6333,12 +6820,14 @@ if __name__ == "__main__":
     import json
     import sys
     parser = argparse.ArgumentParser(description="3D Pyro-Engine Screensaver")
+    parser.add_argument("--random", action="store_true", default=False, help="Start in random mode immediately")
     parser.add_argument("--record", type=str, default=None, help="Output file path to record the MP4 to")
     parser.add_argument("--audio", type=str, default=None, help="Audio file to run against")
+    parser.add_argument("playlist_files", nargs="*", help="Audio files or m3u playlist to play")
     args, unknown = parser.parse_known_args()
     
     app = Gtk.Application(application_id="org.fireworks.demo")
-    pyro_app = FireworksApp(record_path=args.record, audio_path=args.audio)
+    pyro_app = FireworksApp(record_path=args.record, audio_path=args.audio, playlist_files=args.playlist_files, random_mode=args.random)
     app.connect("activate", pyro_app.on_activate)
     
     gtk_args = [sys.argv[0]] + unknown
