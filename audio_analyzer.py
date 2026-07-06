@@ -77,7 +77,15 @@ def get_spectrum_color(t_sec, t, mag, bass_bins, mid_bins, high_bins, palette_ov
         return str(np.random.choice(h_colors))
 
 def find_ffmpeg_binary():
+    import sys
     import shutil
+    # 0. Try PyInstaller bundled location first
+    if hasattr(sys, "frozen") and hasattr(sys, "_MEIPASS"):
+        for name in ["ffmpeg", "ffmpeg.exe"]:
+            p = os.path.join(sys._MEIPASS, name)
+            if os.path.exists(p):
+                return p
+
     # Try custom path first
     custom_path = "/home/sumner/bin/ffmpeg"
     if os.path.exists(custom_path):
