@@ -2719,17 +2719,32 @@ class FireworksApp:
 
     def load_playlist_files(self, paths):
         resolved = []
+        audio_exts = ('.mp3', '.wav', '.ogg', '.opus', '.flac', '.m4a', '.aac')
         for p in paths:
             if not p or p.lower().endswith('.json'):
                 continue
-            if p.lower().endswith('.m3u'):
+            if os.path.isdir(p):
+                try:
+                    for root, dirs, files in os.walk(p):
+                        files.sort()
+                        for f in files:
+                            if f.lower().endswith(audio_exts):
+                                resolved.append(os.path.join(root, f))
+                except Exception as e:
+                    print(f"Error scanning directory {p}: {e}")
+            elif p.lower().endswith('.m3u'):
                 if os.path.exists(p):
+                    m3u_dir = os.path.dirname(os.path.abspath(p))
                     try:
                         with open(p, 'r', encoding='utf-8', errors='ignore') as f:
                             for line in f:
                                 line = line.strip()
                                 if line and not line.startswith('#'):
-                                    resolved.append(line)
+                                    if not os.path.isabs(line):
+                                        full_path = os.path.abspath(os.path.join(m3u_dir, line))
+                                    else:
+                                        full_path = line
+                                    resolved.append(full_path)
                     except Exception as e:
                         print(f"Error reading playlist file {p}: {e}")
                 else:
@@ -3126,9 +3141,13 @@ class FireworksApp:
         leg_title.set_halign(Gtk.Align.START)
         self.legend_box.append(leg_title)
         
-        lbl_space = Gtk.Label(label="[SPACE]  - Launch Manual Shell")
+        lbl_space = Gtk.Label(label="[SPACE]  - Play/Pause Sync Playback")
         lbl_space.set_halign(Gtk.Align.START)
         self.legend_box.append(lbl_space)
+
+        lbl_return = Gtk.Label(label="[ENTER]  - Launch Manual Shell")
+        lbl_return.set_halign(Gtk.Align.START)
+        self.legend_box.append(lbl_return)
         
         self.lbl_auto_launch = Gtk.Label()
         self.lbl_auto_launch.set_halign(Gtk.Align.START)
@@ -3250,6 +3269,20 @@ class FireworksApp:
         scroll_controller = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL)
         scroll_controller.connect("scroll", self.on_scroll)
         self.gl_area.add_controller(scroll_controller)
+
+        # File Drag and Drop Support
+        try:
+            drop_target = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
+            drop_target.connect("drop", self.on_file_drop)
+            self.win.add_controller(drop_target)
+        except Exception as e:
+            print(f"Failed to initialize Drag & Drop: {e}")
+
+        # Context Menu Right-Click Gestures
+        right_click = Gtk.GestureClick.new()
+        right_click.set_button(3) # Right mouse button
+        right_click.connect("pressed", self.on_right_click)
+        self.gl_area.add_controller(right_click)
         
         GLib.timeout_add(16, self.on_tick)
         
@@ -5921,13 +5954,23 @@ class FireworksApp:
         return True
 
     def on_key_pressed(self, controller, keyval, keycode, state):
+        is_control = (state & Gdk.ModifierType.CONTROL_MASK) != 0
+        if is_control:
+            if keyval in (Gdk.KEY_f, Gdk.KEY_F, Gdk.KEY_o, Gdk.KEY_O):
+                self.show_file_chooser()
+                return True
+            return False
+
         unicode_val = Gdk.keyval_to_unicode(keyval)
         key_char = chr(unicode_val) if unicode_val > 0 else ""
         
         if keyval in (Gdk.KEY_Escape, Gdk.KEY_q, Gdk.KEY_Q):
             self.win.close()
             return True
-        elif keyval == Gdk.KEY_space:
+        elif keyval in (Gdk.KEY_space, getattr(Gdk, 'KEY_AudioPlay', -1), getattr(Gdk, 'KEY_AudioPlayPause', -1)):
+            self.toggle_sync_playback()
+            return True
+        elif keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
             self.fireworks.append(Firework())
             return True
         elif key_char == '1':
@@ -6134,6 +6177,150 @@ class FireworksApp:
     def on_scroll(self, controller, dx, dy):
         self.camera_dist = np.clip(self.camera_dist + dy * 1.5, 10.0, 80.0)
         return True
+
+    def on_file_drop(self, target, value, x, y):
+        if isinstance(value, Gdk.FileList):
+            files = value.get_files()
+            paths = []
+            for f in files:
+                path = f.get_path()
+                if path:
+                    paths.append(path)
+            if paths:
+                print(f"Drag & Drop files received: {paths}")
+                self.playlist = self.load_playlist_files(paths)
+                self.playlist_idx = 0
+                if self.playlist:
+                    self.audio_path = self.playlist[self.playlist_idx]
+                    self.script_path = self.get_mangled_script_path(self.audio_path)
+                    self.load_and_play_track()
+                return True
+        return False
+
+    def show_file_chooser(self):
+        dialog = Gtk.FileChooserNative.new(
+            title="Open Audio File",
+            parent=self.win,
+            action=Gtk.FileChooserAction.OPEN,
+            accept_label="_Open",
+            cancel_label="_Cancel"
+        )
+        
+        filter_audio = Gtk.FileFilter()
+        filter_audio.set_name("Audio Files")
+        filter_audio.add_mime_type("audio/*")
+        for ext in ["mp3", "wav", "ogg", "opus", "flac", "m4a", "aac"]:
+            filter_audio.add_pattern(f"*.{ext}")
+            filter_audio.add_pattern(f"*.{ext.upper()}")
+        dialog.add_filter(filter_audio)
+        
+        filter_m3u = Gtk.FileFilter()
+        filter_m3u.set_name("Playlists (*.m3u)")
+        filter_m3u.add_pattern("*.m3u")
+        filter_m3u.add_pattern("*.M3U")
+        dialog.add_filter(filter_m3u)
+        
+        filter_all = Gtk.FileFilter()
+        filter_all.set_name("All Files")
+        filter_all.add_pattern("*")
+        dialog.add_filter(filter_all)
+        
+        def on_response(dialog, response_id):
+            if response_id == Gtk.ResponseType.ACCEPT:
+                file_obj = dialog.get_file()
+                if file_obj:
+                    path = file_obj.get_path()
+                    if path:
+                        print(f"File dialog selected: {path}")
+                        self.playlist = self.load_playlist_files([path])
+                        self.playlist_idx = 0
+                        if self.playlist:
+                            self.audio_path = self.playlist[self.playlist_idx]
+                            self.script_path = self.get_mangled_script_path(self.audio_path)
+                            self.load_and_play_track()
+            dialog.destroy()
+            
+        dialog.connect("response", on_response)
+        dialog.show()
+
+    def on_right_click(self, gesture, n_press, x, y):
+        # Create a Popover
+        popover = Gtk.Popover()
+        popover.set_parent(self.gl_area)
+        rect = Gdk.Rectangle()
+        rect.x = int(x)
+        rect.y = int(y)
+        rect.width = 1
+        rect.height = 1
+        popover.set_pointing_to(rect)
+        popover.set_has_arrow(False)
+        
+        # Build menu content
+        menu_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        menu_box.set_margin_start(8)
+        menu_box.set_margin_end(8)
+        menu_box.set_margin_top(8)
+        menu_box.set_margin_bottom(8)
+        menu_box.add_css_class("hud-legend")
+        
+        # Helper to create buttons
+        def make_menu_item(label, callback):
+            btn = Gtk.Button(label=label)
+            btn.set_has_frame(False)
+            btn.set_halign(Gtk.Align.FILL)
+            # Create a left-aligned label style inside the button
+            child = btn.get_child()
+            if isinstance(child, Gtk.Label):
+                child.set_xalign(0.0)
+            btn.connect("clicked", lambda b: (popover.popdown(), callback()))
+            return btn
+            
+        # File Open
+        menu_box.append(make_menu_item("📂 Open Audio...", self.show_file_chooser))
+        
+        # Play / Pause
+        play_label = "⏸ Pause Sync" if self.music_playing else "▶ Play Sync"
+        menu_box.append(make_menu_item(play_label, self.toggle_sync_playback))
+        
+        # Next / Prev Track
+        menu_box.append(make_menu_item("⏭ Next Track", self.play_next_track))
+        menu_box.append(make_menu_item("⏮ Previous Track", self.play_previous_track))
+        
+        # Separator
+        sep1 = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        sep1.set_margin_top(4)
+        sep1.set_margin_bottom(4)
+        menu_box.append(sep1)
+        
+        # Preset Mode list
+        modes_label = Gtk.Label(label="VISUALIZATION MODES:")
+        modes_label.add_css_class("hud-legend-title")
+        modes_label.set_halign(Gtk.Align.START)
+        modes_label.set_margin_start(4)
+        menu_box.append(modes_label)
+        
+        # Add preset buttons
+        for idx, preset in enumerate(self.active_presets):
+            name = preset["name"]
+            # Highlight current active preset
+            active_marker = "● " if (idx == self.preset_idx and not getattr(self, 'preset_random_mode', False)) else "  "
+            menu_box.append(make_menu_item(f"{active_marker}{name}", lambda i=idx: self.apply_preset(i)))
+            
+        # Random Mode button
+        random_marker = "● " if getattr(self, 'preset_random_mode', False) else "  "
+        menu_box.append(make_menu_item(f"{random_marker}Random Mode", lambda: self.apply_preset(len(self.active_presets) - 1)))
+        
+        # Separator
+        sep2 = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        sep2.set_margin_top(4)
+        sep2.set_margin_bottom(4)
+        menu_box.append(sep2)
+        
+        # Exit
+        menu_box.append(make_menu_item("❌ Exit Screensaver", self.win.close))
+        
+        popover.set_child(menu_box)
+        popover.popup()
 
     def load_sync_script(self, filepath):
         import audio_analyzer
