@@ -26,20 +26,30 @@ if sys.platform == 'win32':
     # 1. Gather all core GTK4 DLLs and their dependencies using a recursive dependency searcher
     dll_dir = os.path.join(mingw_prefix, 'bin')
     
-    # Core DLLs to bundle
-    core_dlls = [
-        'libgtk-4-0.dll',
-        'libgdk_pixbuf-2.0-0.dll',
-        'libgirepository-1.0-1.dll',
-        'libpango-1.0-0.dll',
-        'libpangocairo-1.0-0.dll',
-        'libgsk-4-0.dll',
-        'libgraphene-1.0-0.dll',
-        'libepoxy-0.dll',
-        'libffi-8.dll',
-        'libwinpthread-1.dll',
+    core_prefixes = [
+        'libgtk-4',
+        'libgdk',
+        'libgsk-4',
+        'libgirepository',
+        'libpango',
+        'libcairo',
+        'libgraphene',
+        'libepoxy',
+        'libglib',
+        'libgobject',
+        'libgio',
+        'libgmodule',
     ]
     
+    core_dlls = []
+    if os.path.exists(dll_dir):
+        for f in os.listdir(dll_dir):
+            if f.endswith('.dll'):
+                for prefix in core_prefixes:
+                    if f.lower().startswith(prefix.lower()):
+                        core_dlls.append(f)
+                        break
+                        
     import subprocess
     visited = set()
     to_visit = [os.path.join(dll_dir, d) for d in core_dlls if os.path.exists(os.path.join(dll_dir, d))]
@@ -76,6 +86,12 @@ if sys.platform == 'win32':
         datas.append((schemas_src, 'share/glib-2.0/schemas'))
         print(f"Bundling GSettings schemas from {schemas_src}")
 
+    # 3. Explicitly bundle all typelibs to bypass any buggy PyInstaller gi hooks on MSYS2
+    typelibs_src = os.path.join(mingw_prefix, 'lib/girepository-1.0')
+    if os.path.exists(typelibs_src):
+        datas.append((typelibs_src, 'gi_typelibs'))
+        print(f"Bundling GI typelibs from {typelibs_src}")
+
 elif sys.platform == 'darwin':
     # On macOS, we can find brew prefix
     brew_prefixes = ['/opt/homebrew', '/usr/local']
@@ -87,17 +103,31 @@ elif sys.platform == 'darwin':
             
     if brew_prefix:
         lib_dir = os.path.join(brew_prefix, 'lib')
-        core_dylibs = [
-            'libgtk-4.dylib',
-            'libgdk_pixbuf-2.0.dylib',
-            'libgirepository-1.0.dylib',
-            'libpango-1.0.dylib',
-            'libpangocairo-1.0.dylib',
-            'libgsk-4.dylib',
-            'libgraphene-1.0.dylib',
-            'libepoxy.dylib',
+        
+        core_prefixes = [
+            'libgtk-4',
+            'libgdk',
+            'libgsk-4',
+            'libgirepository',
+            'libpango',
+            'libcairo',
+            'libgraphene',
+            'libepoxy',
+            'libglib',
+            'libgobject',
+            'libgio',
+            'libgmodule',
         ]
         
+        core_dylibs = []
+        if os.path.exists(lib_dir):
+            for f in os.listdir(lib_dir):
+                if f.endswith('.dylib'):
+                    for prefix in core_prefixes:
+                        if f.lower().startswith(prefix.lower()):
+                            core_dylibs.append(f)
+                            break
+                            
         import subprocess
         visited = set()
         to_visit = [os.path.join(lib_dir, d) for d in core_dylibs if os.path.exists(os.path.join(lib_dir, d))]
@@ -128,6 +158,12 @@ elif sys.platform == 'darwin':
         if os.path.exists(schemas_src):
             datas.append((schemas_src, 'share/glib-2.0/schemas'))
             print(f"Bundling GSettings schemas from {schemas_src}")
+
+        # Explicitly bundle all typelibs on macOS too!
+        typelibs_src = os.path.join(brew_prefix, 'lib/girepository-1.0')
+        if os.path.exists(typelibs_src):
+            datas.append((typelibs_src, 'gi_typelibs'))
+            print(f"Bundling GI typelibs from {typelibs_src}")
 
 a = Analysis(
     ['main.py'],
