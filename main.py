@@ -3044,7 +3044,7 @@ class FireworksApp:
 
     def on_activate(self, app):
         self.win = Gtk.ApplicationWindow(application=app)
-        self.win.set_title("3D OpenGL Fireworks Demo")
+        self.win.set_title("Melochor: 3D OpenGL Audio Visualizer")
         self.win.set_default_size(1280, 720)
         
         self.load_css()
@@ -3064,12 +3064,12 @@ class FireworksApp:
         self.hud_box.set_margin_start(20)
         self.hud_box.set_margin_top(20)
         
-        title_lbl = Gtk.Label(label="PYRO-ENGINE 3D")
+        title_lbl = Gtk.Label(label="MELOCHOR 3D")
         title_lbl.add_css_class("hud-title")
         title_lbl.set_halign(Gtk.Align.START)
         self.hud_box.append(title_lbl)
         
-        sub_lbl = Gtk.Label(label="High-Performance OpenGL Screensaver")
+        sub_lbl = Gtk.Label(label="Interactive OpenGL Audio Visualizer & Screensaver")
         sub_lbl.add_css_class("hud-subtitle")
         sub_lbl.set_halign(Gtk.Align.START)
         self.hud_box.append(sub_lbl)
@@ -7117,7 +7117,7 @@ if __name__ == "__main__":
     import argparse
     import json
     import sys
-    parser = argparse.ArgumentParser(description="3D Pyro-Engine Screensaver")
+    parser = argparse.ArgumentParser(description="Melochor: 3D OpenGL Audio Visualizer & Screensaver")
     parser.add_argument("--random", action="store_true", default=False, help="Start in random mode immediately")
     parser.add_argument("--record", type=str, default=None, help="Output file path to record the MP4 to")
     parser.add_argument("--audio", type=str, default=None, help="Audio file to run against")
@@ -7125,7 +7125,7 @@ if __name__ == "__main__":
     parser.add_argument("playlist_files", nargs="*", help="Audio files or m3u playlist to play")
     args, unknown = parser.parse_known_args()
     
-    app = Gtk.Application(application_id="org.fireworks.demo")
+    app = Gtk.Application(application_id="org.melochor.visualizer")
     pyro_app = FireworksApp(record_path=args.record, audio_path=args.audio, playlist_files=args.playlist_files, random_mode=args.random, tmp_dir=args.tmpdir)
     app.connect("activate", pyro_app.on_activate)
     
