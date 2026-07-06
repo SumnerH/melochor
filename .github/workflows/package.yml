@@ -37,15 +37,31 @@ jobs:
           pip install pyinstaller
           pip install -r requirements.txt
 
+      - name: Download Static FFmpeg (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          curl.exe -L -o ffmpeg.zip https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-win-64.zip
+          Expand-Archive ffmpeg.zip -DestinationPath .
+          Remove-Item ffmpeg.zip
+
+      - name: Download Static FFmpeg (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          curl -L -o ffmpeg.zip https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-osx-64.zip
+          unzip ffmpeg.zip
+          chmod +x ffmpeg
+          rm ffmpeg.zip
+
       - name: Build Standalone Executable (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          pyinstaller --onefile --noconsole --name="FireworksVisualizer" main.py
+          pyinstaller --onefile --noconsole --add-binary "ffmpeg.exe;." --name="FireworksVisualizer" main.py
 
       - name: Build Standalone Executable (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          pyinstaller --windowed --name="FireworksVisualizer" main.py
+          pyinstaller --windowed --add-binary "ffmpeg:." --name="FireworksVisualizer" main.py
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -55,3 +71,4 @@ jobs:
             dist/FireworksVisualizer.exe
             dist/FireworksVisualizer.app
             dist/FireworksVisualizer
+
