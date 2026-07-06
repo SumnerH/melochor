@@ -2632,6 +2632,10 @@ class FireworksApp:
         return resolved
 
     def load_and_play_track(self):
+        if getattr(self, 'preset_random_mode', False) and getattr(self, 'preset_random_timer', 0.0) >= 45.0:
+            print(f"[Random Mode] Triggering preset switch at start of track: {os.path.basename(self.audio_path) if self.audio_path else 'None'}")
+            self.pick_random_preset()
+
         # 1. Stop current sync playback
         self.stop_sync_playback()
         
@@ -2827,6 +2831,7 @@ class FireworksApp:
         self.update_legend_labels()
 
     def pick_random_preset(self):
+        self.preset_random_timer = 0.0
         candidates = list(range(len(self.active_presets) - 1))
         if hasattr(self, 'last_random_preset_idx') and self.last_random_preset_idx in candidates and len(candidates) > 1:
             candidates.remove(self.last_random_preset_idx)
@@ -2840,10 +2845,6 @@ class FireworksApp:
     def update_preset_random_timer(self, dt):
         if hasattr(self, 'preset_random_mode') and self.preset_random_mode:
             self.preset_random_timer += dt
-            # Random Timeout
-            if self.preset_random_timer >= 60.0:
-                self.preset_random_timer = 0.0
-                self.pick_random_preset()
 
     def get_sim_time(self):
         if hasattr(self, 'is_recording') and self.is_recording:
@@ -6222,6 +6223,9 @@ class FireworksApp:
             name = event.get("name", "Unknown")
             if hasattr(self, 'music_section_lbl') and self.music_section_lbl:
                 self.music_section_lbl.set_text(f"Section: {name}")
+            if getattr(self, 'preset_random_mode', False) and getattr(self, 'preset_random_timer', 0.0) >= 45.0:
+                print(f"[Random Mode] Triggering preset switch at start of section: {name}")
+                self.pick_random_preset()
 
     def start_recording_process(self, w, h):
         if w % 2 != 0:
