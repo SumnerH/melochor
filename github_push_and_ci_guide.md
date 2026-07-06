@@ -9,7 +9,7 @@ This guide details the step-by-step process of pushing your local Git repository
 ### Step 1: Create a Repository on GitHub
 1. Go to [github.com](https://github.com) and log in.
 2. In the top-right corner, click the **`+`** icon and select **New repository**.
-3. Name your repository (e.g., `fireworks-screensaver`).
+3. Name your repository (e.g., `melochor`).
 4. Keep the repository **Public** or **Private** as desired.
 5. > [!IMPORTANT]
    > Do **NOT** check "Add a README file", "Add .gitignore", or "Choose a license". Our local repository already contains a customized `.gitignore` and files, and we want to push our clean history without conflicts.
@@ -35,7 +35,7 @@ If you prefer HTTPS authentication:
 ---
 
 ### Step 3: Add Remote and Push
-On your local machine, open your terminal in the codebase folder (`/home/sumner/src/fireworks`) and execute:
+On your local machine, open your terminal in the codebase folder (`/home/sumner/src/melochor`) and execute:
 
 ```bash
 # 1. (Optional) Rename your default branch to 'main' to match modern GitHub standards
@@ -43,10 +43,10 @@ git branch -M main
 
 # 2. Add the remote GitHub origin (replace with your username and repo name)
 # If using SSH:
-git remote add origin git@github.com:your_username/fireworks-screensaver.git
+git remote add origin git@github.com:your_username/melochor.git
 
 # If using HTTPS (you will use your Personal Access Token as the password):
-git remote add origin https://github.com/your_username/fireworks-screensaver.git
+git remote add origin https://github.com/your_username/melochor.git
 
 # 3. Push your main branch up to GitHub
 git push -u origin main
