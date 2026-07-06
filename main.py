@@ -9,6 +9,9 @@ import subprocess
 import math
 
 # --- MELOCHOR RUNTIME BOOTSTRAPPER FOR PYINSTALLER STANDALONE PORTABILITY ---
+if sys.platform == 'win32':
+    os.environ['PYOPENGL_PLATFORM'] = 'win32'
+
 if getattr(sys, 'frozen', False):
     base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
     
