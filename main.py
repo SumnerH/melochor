@@ -8,6 +8,45 @@ import json
 import subprocess
 import math
 
+# --- MELOCHOR RUNTIME BOOTSTRAPPER FOR PYINSTALLER STANDALONE PORTABILITY ---
+if getattr(sys, 'frozen', False):
+    base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+    
+    # 1. Set GI_TYPELIB_PATH so PyGObject can locate Gtk/Gdk/Gsk/Pango typelibs
+    possible_typelib_paths = [
+        os.path.join(base_dir, 'gi_typelibs'),
+        os.path.join(base_dir, '_internal', 'gi_typelibs'),
+        os.path.join(base_dir, 'lib', 'girepository-1.0'),
+    ]
+    for path in possible_typelib_paths:
+        if os.path.exists(path):
+            os.environ['GI_TYPELIB_PATH'] = path
+            break
+            
+    # 2. Set GSETTINGS_SCHEMA_DIR so GIO can find compiled schemas
+    possible_schema_paths = [
+        os.path.join(base_dir, 'share', 'glib-2.0', 'schemas'),
+        os.path.join(base_dir, '_internal', 'share', 'glib-2.0', 'schemas'),
+    ]
+    for path in possible_schema_paths:
+        if os.path.exists(path):
+            os.environ['GSETTINGS_SCHEMA_DIR'] = path
+            break
+
+    # 3. Add base_dir and _internal to DLL search path on Windows for ctypes/LoadLibrary
+    if sys.platform == 'win32' and hasattr(os, 'add_dll_directory'):
+        try:
+            os.add_dll_directory(base_dir)
+        except Exception:
+            pass
+        internal_dir = os.path.join(base_dir, '_internal')
+        if os.path.exists(internal_dir):
+            try:
+                os.add_dll_directory(internal_dir)
+            except Exception:
+                pass
+# ----------------------------------------------------------------------------
+
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GLib, Gdk, GObject

@@ -58,7 +58,13 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: msys2 {0}
         run: |
-          pyinstaller --onefile --noconsole --collect-all gi --add-binary "ffmpeg.exe;." --name="Melochor" main.py
+          pyinstaller Melochor.spec
+
+      - name: Compress Executable Folder (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/Melochor -DestinationPath dist/Melochor-Windows.zip
 
       # ==========================================
       # MACOS-SPECIFIC SETUP
@@ -93,7 +99,7 @@ jobs:
       - name: Build Standalone Executable (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          pyinstaller --windowed --collect-all gi --add-binary "ffmpeg:." --name="Melochor" main.py
+          pyinstaller Melochor.spec
 
       # ==========================================
       # ARTIFACT UPLOAD
@@ -103,7 +109,7 @@ jobs:
         with:
           name: Melochor-${{ matrix.os }}
           path: |
-            dist/Melochor.exe
+            dist/Melochor-Windows.zip
             dist/Melochor.app
             dist/Melochor
           if-no-files-found: ignore

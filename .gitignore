@@ -17,3 +17,7 @@ my_test_cache/
 *.flac
 *.mp3
 *_display.json
+
+# PyInstaller build files
+build/
+dist/
