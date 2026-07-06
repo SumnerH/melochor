@@ -56,19 +56,19 @@ jobs:
       - name: Build Standalone Executable (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          pyinstaller --onefile --noconsole --add-binary "ffmpeg.exe;." --name="FireworksVisualizer" main.py
+          pyinstaller --onefile --noconsole --add-binary "ffmpeg.exe;." --name="Melochor" main.py
 
       - name: Build Standalone Executable (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          pyinstaller --windowed --add-binary "ffmpeg:." --name="FireworksVisualizer" main.py
+          pyinstaller --windowed --add-binary "ffmpeg:." --name="Melochor" main.py
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: FireworksVisualizer-${{ matrix.os }}
+          name: Melochor-${{ matrix.os }}
           path: |
-            dist/FireworksVisualizer.exe
-            dist/FireworksVisualizer.app
-            dist/FireworksVisualizer
+            dist/Melochor.exe
+            dist/Melochor.app
+            dist/Melochor
 
