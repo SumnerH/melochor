@@ -2360,7 +2360,7 @@ class FireworksApp:
         self.saved_auto_launch = True
 
         # Dynamic Psychedelic Modes
-        self.modes = ["FIREWORKS", "TUNNEL Wormhole", "MANDALA Sacred", "UNDERWATER Lava"]
+        self.modes = ["FIREWORKS", "TUNNEL Wormhole", "MANDALA Sacred", "UNDERWATER Lava", "SYNAESTHESIA Classic"]
         self.major_mode_idx = 0
         self.major_mode = self.modes[self.major_mode_idx]
         self.react_bass = 0.0
@@ -2755,15 +2755,26 @@ class FireworksApp:
                 self.lbl_r3.set_text("[3]  - Infinite Pulse")
                 self.lbl_r4.set_text("[4]  - Geometric Collapse")
                 self.lbl_r5.set_text("[5]  - Astral Projection")
+            elif self.major_mode == "SYNAESTHESIA Classic":
+                shape_name = "Diamond" if getattr(self, 'syn_points_are_diamonds', True) else "Star"
+                self.lbl_r1.set_text(f"[1]  - Shape: {shape_name}")
+                self.lbl_r2.set_text(f"[2]  - Star Size: {getattr(self, 'syn_star_size', 0.5)}")
+                self.lbl_r3.set_text(f"[3]  - Brightness: {getattr(self, 'syn_brightness', 0.35)}")
+                self.lbl_r4.set_text(f"[4]  - Fade Mode: {getattr(self, 'syn_fade_mode', 'Stars')}")
+                self.lbl_r5.set_text("[5]  - Trigger Star Burst")
                 
         if hasattr(self, 'lbl_r6'):
             if self.major_mode == "MANDALA Sacred":
                 self.lbl_r6.set_text("[6]  - Peace Symbol")
+            elif self.major_mode == "SYNAESTHESIA Classic":
+                self.lbl_r6.set_text("")
             else:
                 self.lbl_r6.set_text("[6]  - Supernova")
         if hasattr(self, 'lbl_r7'):
             if self.major_mode == "MANDALA Sacred":
                 self.lbl_r7.set_text("[7]  - Halo & Outward Sparks")
+            elif self.major_mode == "SYNAESTHESIA Classic":
+                self.lbl_r7.set_text("")
             else:
                 self.lbl_r7.set_text("[7]  - Shooting Star")
 
@@ -2971,8 +2982,8 @@ class FireworksApp:
                 px = p_world[0] + bx
                 py = p_world[1] + by + 4.0
                 pz = p_world[2]
-                
-                fog_factor = np.clip((pz + 50.0) / 50.0, 0.0, 1.0)
+                # Adjust fog boundary specifically for Galaxy since it starts at Z = -85.0
+                fog_factor = np.clip((pz + 85.0) / 60.0, 0.0, 1.0)
                 alpha = (1.0 - t_frac * 0.5) * (0.6 + np.sin(time_val * 6.0 + i_g) * 0.3) * fog_factor
                 if t_frac < 0.15:
                     col = [1.0, 0.85, 1.0, alpha] # Core starburst
@@ -3450,13 +3461,15 @@ class FireworksApp:
 
         # Update Jellyfish pulsing and movement physics
         for i in range(self.num_jelly):
-            # Timed directly to the music: flap rate scales heavily with bass beats
-            bpm_rate = self.script_bpm / 60.0
-            self.jelly_phase[i] += (bpm_rate * 0.8 + self.react_bass * 6.5) * dt * (0.8 + 0.4 * (i % 3))
+            # Phase-locked directly to global tempo_phase to prevent drift and lock strictly on beat
+            pulse_rate = 0.5 if (i % 2 == 1) else 1.0
+            stagger = i * 0.25
+            self.jelly_phase[i] = 2.0 * np.pi * (self.tempo_phase * pulse_rate + stagger)
             
             cos_val = np.cos(self.jelly_phase[i])
             if cos_val > 0.0:
-                thrust = 2.4 * cos_val * (1.0 + self.react_bass * 1.0)
+                # Thrust synchronized directly with beat and amplified by real-time bass reactions
+                thrust = 3.2 * cos_val * (1.0 + self.react_bass * 2.2)
                 self.jelly_vel[i] += self.jelly_dir[i] * thrust * dt
             else:
                 drag = 1.0
@@ -4184,6 +4197,8 @@ class FireworksApp:
                     self.mandala_base_max_ages[idx] = np.random.uniform(1.8, 2.8)
                     self.mandala_base_col[idx] = [0.1, 0.9, 1.0, 1.0]
                     self.mandala_base_size[idx] = np.random.uniform(8.0, 14.0)
+        elif self.major_mode == "SYNAESTHESIA Classic":
+            self.trigger_syn_star_burst()
 
     def spawn_rarity(self, r_type):
         print(f"SPAWNING RARITY: {r_type}!")
@@ -4962,6 +4977,13 @@ class FireworksApp:
             part_pos.append(m_pos)
             part_col.append(m_col)
             part_size.append(m_size)
+        elif self.major_mode == "SYNAESTHESIA Classic":
+            if not hasattr(self, 'syn_stars'):
+                self.init_synaesthesia_mode()
+            s_pos, s_col, s_size, h_pos, h_col = self.render_synaesthesia()
+            part_pos.append(s_pos)
+            part_col.append(s_col)
+            part_size.append(s_size)
         else:
             h_pos = np.zeros((0, 3), dtype=np.float32)
             h_col = np.zeros((0, 4), dtype=np.float32)
@@ -5166,6 +5188,10 @@ class FireworksApp:
             if not hasattr(self, 'mandala_base_pos'):
                 self.init_mandala_mode()
             self.update_mandala(dt)
+        elif self.major_mode == "SYNAESTHESIA Classic":
+            if not hasattr(self, 'syn_stars'):
+                self.init_synaesthesia_mode()
+            self.update_synaesthesia(dt)
             
         self.update_rarity_system(dt)
         
@@ -5203,6 +5229,8 @@ class FireworksApp:
                             (self.num_jelly * 46 if hasattr(self, 'num_jelly') else 0))
         elif self.major_mode == "MANDALA Sacred":
             active_stars = len(self.mandala_base_pos) * self.mandala_slices if hasattr(self, 'mandala_base_pos') else 0
+        elif self.major_mode == "SYNAESTHESIA Classic":
+            active_stars = len(self.syn_stars) * 20 + 300 if hasattr(self, 'syn_stars') else 0
             
         self.shell_lbl.set_text(f"Active Shells: {active_rockets}")
         self.part_lbl.set_text(f"Simulated Particles: {active_stars:,}")
@@ -5223,30 +5251,55 @@ class FireworksApp:
         elif key_char == '1':
             if self.major_mode == "FIREWORKS":
                 self.trigger_routine("American Flag", self.launch_american_flag)
+            elif self.major_mode == "SYNAESTHESIA Classic":
+                self.syn_points_are_diamonds = not self.syn_points_are_diamonds
+                print(f"Synaesthesia Shape changed. Diamonds: {self.syn_points_are_diamonds}")
+                self.update_legend_labels()
             else:
                 self.trigger_climax_event(intensity=1.1, routine_name="Coral Pulse" if self.major_mode == "UNDERWATER Lava" else "Lotus Bloom" if self.major_mode == "MANDALA Sacred" else "Plasma Burst")
             return True
         elif key_char == '2':
             if self.major_mode == "FIREWORKS":
                 self.trigger_routine("Liberty Bell", self.launch_liberty_bell)
+            elif self.major_mode == "SYNAESTHESIA Classic":
+                sizes = [0.1, 0.25, 0.5, 0.75, 1.0]
+                idx = sizes.index(self.syn_star_size) if self.syn_star_size in sizes else 2
+                self.syn_star_size = sizes[(idx + 1) % len(sizes)]
+                print(f"Synaesthesia Star Size: {self.syn_star_size}")
+                self.update_legend_labels()
             else:
                 self.trigger_climax_event(intensity=1.2, routine_name="Geyser Eruption" if self.major_mode == "UNDERWATER Lava" else "Cosmic Spin" if self.major_mode == "MANDALA Sacred" else "Gravity Surge")
             return True
         elif key_char == '3':
             if self.major_mode == "FIREWORKS":
                 self.trigger_routine("Statue of Liberty", self.launch_statue_of_liberty)
+            elif self.major_mode == "SYNAESTHESIA Classic":
+                brights = [0.1, 0.25, 0.35, 0.5, 0.7, 1.0]
+                idx = brights.index(self.syn_brightness) if self.syn_brightness in brights else 2
+                self.syn_brightness = brights[(idx + 1) % len(brights)]
+                print(f"Synaesthesia Brightness: {self.syn_brightness}")
+                self.update_legend_labels()
             else:
                 self.trigger_climax_event(intensity=1.3, routine_name="Plankton Surge" if self.major_mode == "UNDERWATER Lava" else "Infinite Pulse" if self.major_mode == "MANDALA Sacred" else "Stardust Stream")
             return True
         elif key_char == '4':
             if self.major_mode == "FIREWORKS":
                 self.trigger_routine("Flower Bouquet", self.launch_flower_bouquet)
+            elif self.major_mode == "SYNAESTHESIA Classic":
+                modes = ["Stars", "Wave", "Flame"]
+                idx = modes.index(self.syn_fade_mode) if self.syn_fade_mode in modes else 0
+                self.syn_fade_mode = modes[(idx + 1) % len(modes)]
+                print(f"Synaesthesia Fade Mode: {self.syn_fade_mode}")
+                self.update_legend_labels()
             else:
                 self.trigger_climax_event(intensity=1.4, routine_name="Deep Vent Blast" if self.major_mode == "UNDERWATER Lava" else "Geometric Collapse" if self.major_mode == "MANDALA Sacred" else "Event Horizon")
             return True
         elif key_char == '5':
             if self.major_mode == "FIREWORKS":
                 self.trigger_routine("The Dragon", self.launch_the_dragon)
+            elif self.major_mode == "SYNAESTHESIA Classic":
+                self.trigger_syn_star_burst()
+                self.update_legend_labels()
             else:
                 self.trigger_climax_event(intensity=1.8, routine_name="Bioluminescent Rainbow" if self.major_mode == "UNDERWATER Lava" else "Astral Projection" if self.major_mode == "MANDALA Sacred" else "Lightning Flash")
             return True
@@ -5664,6 +5717,10 @@ class FireworksApp:
             if not hasattr(self, 'mandala_base_pos'):
                 self.init_mandala_mode()
             self.update_mandala(dt)
+        elif self.major_mode == "SYNAESTHESIA Classic":
+            if not hasattr(self, 'syn_stars'):
+                self.init_synaesthesia_mode()
+            self.update_synaesthesia(dt)
         
         self.fps_lbl.set_text(f"FPS: RECORDING ({self.record_fps} FPS)")
         if self.active_routine_name:
@@ -5692,6 +5749,9 @@ class FireworksApp:
             active_rockets = 0
         elif self.major_mode == "MANDALA Sacred":
             active_stars = len(self.mandala_base_pos) * self.mandala_slices if hasattr(self, 'mandala_base_pos') else 0
+            active_rockets = 0
+        elif self.major_mode == "SYNAESTHESIA Classic":
+            active_stars = len(self.syn_stars) * 20 + 300 if hasattr(self, 'syn_stars') else 0
             active_rockets = 0
             
         self.shell_lbl.set_text(f"Active Shells: {active_rockets}")
@@ -5785,6 +5845,260 @@ class FireworksApp:
             self.finish_recording(close_window=False)
             return True
         return False
+
+    # =========================================================================
+    # MODE 5: SYNAESTHESIA CLASSIC (3D Real-time Spatial Music Visualizer)
+    # =========================================================================
+    def init_synaesthesia_mode(self):
+        self.syn_points_are_diamonds = True
+        self.syn_star_size = 0.5
+        self.syn_brightness = 0.35
+        self.syn_fade_mode = "Stars"
+        self.syn_stars = []
+        self.syn_fg_red_slider = 0.0
+        self.syn_fg_green_slider = 0.5
+        self.syn_bg_red_slider = 0.75
+        self.syn_bg_green_slider = 0.4
+
+    def update_synaesthesia(self, dt):
+        # Move and filter active stars
+        active_stars = []
+        for star in self.syn_stars:
+            # Smoothly transition existing particles if user toggles fade mode in real-time
+            if self.syn_fade_mode == "Stars":
+                star['vel'] = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+            elif self.syn_fade_mode == "Flame":
+                if np.all(star['vel'] == 0.0) or star['vel'][1] <= 0.0:
+                    star['vel'] = np.array([np.random.uniform(-0.15, 0.15), np.random.uniform(1.2, 1.8), 0.0], dtype=np.float32)
+            elif self.syn_fade_mode == "Wave":
+                if np.all(star['vel'] == 0.0) or (star['vel'][0] == 0.0 and star['vel'][1] == 0.0):
+                    theta = np.random.uniform(0.0, 2.0 * np.pi)
+                    star['vel'] = np.array([np.cos(theta) * 1.5, np.sin(theta) * 1.5, 0.0], dtype=np.float32)
+            
+            star['pos'] += star['vel'] * dt
+            star['life'] -= dt
+            if star['life'] > 0.0:
+                active_stars.append(star)
+        self.syn_stars = active_stars
+
+        # Spawn stars based on real-time frequency reactions
+        if self.react_bass > 0.15:
+            count = int(self.react_bass * 4)
+            for _ in range(count):
+                self.spawn_syn_star("bass", self.react_bass)
+
+        if self.react_mid > 0.15:
+            count = int(self.react_mid * 3)
+            for _ in range(count):
+                self.spawn_syn_star("mid", self.react_mid)
+
+        if self.react_treble > 0.15:
+            count = int(self.react_treble * 3)
+            for _ in range(count):
+                self.spawn_syn_star("treble", self.react_treble)
+
+        if self.active_rarity is not None:
+            self.update_active_rarity(dt)
+
+    def spawn_syn_star(self, band, reaction_val):
+        pan_x = self.current_stereo_panning * 8.0
+
+        if band == "bass":
+            y = np.random.uniform(0.5, 2.5)
+            f_intensity = np.random.uniform(180.0, 255.0) * min(2.0, reaction_val)
+            b_intensity = np.random.uniform(120.0, 255.0) * min(2.0, reaction_val)
+            size_coef = np.random.uniform(1.2, 1.8)
+        elif band == "mid":
+            y = np.random.uniform(2.5, 5.5)
+            f_intensity = np.random.uniform(150.0, 240.0) * min(2.0, reaction_val)
+            b_intensity = np.random.uniform(100.0, 220.0) * min(2.0, reaction_val)
+            size_coef = np.random.uniform(0.9, 1.3)
+        else:  # treble
+            y = np.random.uniform(5.5, 7.5)
+            f_intensity = np.random.uniform(120.0, 220.0) * min(2.0, reaction_val)
+            b_intensity = np.random.uniform(80.0, 180.0) * min(2.0, reaction_val)
+            size_coef = np.random.uniform(0.6, 1.0)
+
+        z = 0.0
+        x = pan_x + np.random.uniform(-1.5, 1.5)
+
+        if self.syn_fade_mode == "Flame":
+            vx = np.random.uniform(-0.15, 0.15)
+            vy = np.random.uniform(1.2, 1.8)
+        elif self.syn_fade_mode == "Wave":
+            theta = np.random.uniform(0.0, 2.0 * np.pi)
+            vx = np.cos(theta) * 1.5
+            vy = np.sin(theta) * 1.5
+        else:  # "Stars"
+            vx = 0.0
+            vy = 0.0
+        vz = 0.0
+
+        self.syn_stars.append({
+            'pos': np.array([x, y, z], dtype=np.float32),
+            'vel': np.array([vx, vy, vz], dtype=np.float32),
+            'f_intensity': f_intensity,
+            'b_intensity': b_intensity,
+            'life': np.random.uniform(2.2, 3.5),
+            'size_coef': size_coef
+        })
+
+    def trigger_syn_star_burst(self):
+        print("TRIGGERING SYNAESTHESIA STAR BURST!")
+        for _ in range(45):
+            angle = np.random.uniform(0.0, 2.0 * np.pi)
+            r_dist = np.random.uniform(0.0, 3.5)
+            x = r_dist * np.cos(angle)
+            y = 4.0 + r_dist * np.sin(angle)
+            z = 0.0
+
+            speed = np.random.uniform(1.5, 3.2)
+            vx = np.cos(angle) * speed
+            vy = np.sin(angle) * speed
+            vz = 0.0
+
+            self.syn_stars.append({
+                'pos': np.array([x, y, z], dtype=np.float32),
+                'vel': np.array([vx, vy, vz], dtype=np.float32),
+                'f_intensity': np.random.uniform(220.0, 255.0),
+                'b_intensity': np.random.uniform(180.0, 255.0),
+                'life': np.random.uniform(2.5, 4.0),
+                'size_coef': np.random.uniform(1.3, 2.2)
+            })
+
+    def render_synaesthesia(self):
+        pts = []
+        cols = []
+        sizes = []
+
+        fade_fudge = 0.78
+        if self.syn_fade_mode == "Wave":
+            fade_fudge = 0.4
+        elif self.syn_fade_mode == "Flame":
+            fade_fudge = 0.6
+
+        size = self.syn_star_size
+        factor = min(255.0, np.exp(np.log(fade_fudge) / (size * 8.0)) * 255.0) if size > 0.0 else 0.0
+
+        fgRed = self.syn_fg_red_slider
+        fgGreen = self.syn_fg_green_slider
+        fgBlue = 1.0 - max(fgRed, fgGreen)
+        fg_scale = (fgRed + fgGreen + fgBlue) / 2.0
+        if fg_scale > 0.0:
+            fgRed /= fg_scale
+            fgGreen /= fg_scale
+            fgBlue /= fg_scale
+
+        bgRed = self.syn_bg_red_slider
+        bgGreen = self.syn_bg_green_slider
+        bgBlue = 1.0 - max(bgRed, bgGreen)
+        bg_scale = (bgRed + bgGreen + bgBlue) / 2.0
+        if bg_scale > 0.0:
+            bgRed /= bg_scale
+            bgGreen /= bg_scale
+            bgBlue /= bg_scale
+
+        def map_color(f, b):
+            red = b * bgRed + f * fgRed
+            green = b * bgGreen + f * fgGreen
+            blue = b * bgBlue + f * fgBlue
+
+            excess = 0.0
+            for _ in range(5):
+                red += excess / 3.0
+                green += excess / 3.0
+                blue += excess / 3.0
+                excess = 0.0
+                if red > 255.0:
+                    excess += (red - 255.0)
+                    red = 255.0
+                if green > 255.0:
+                    excess += (green - 255.0)
+                    green = 255.0
+                if blue > 255.0:
+                    excess += (blue - 255.0)
+                    blue = 255.0
+
+            scale_col = (0.5 + (red + green + blue) / 768.0) / 1.5
+            red *= scale_col
+            green *= scale_col
+            blue *= scale_col
+
+            return [
+                min(1.0, max(0.0, red / 255.0)),
+                min(1.0, max(0.0, green / 255.0)),
+                min(1.0, max(0.0, blue / 255.0)),
+                1.0
+            ]
+
+        for star in self.syn_stars:
+            cx, cy, cz = star['pos']
+            f = star['f_intensity']
+            b = star['b_intensity']
+
+            pts.append([cx, cy, cz])
+            cols.append(map_color(f, b))
+            sizes.append(5.0 * self.syn_brightness * star.get('size_coef', 1.0))
+
+            curr_f = f
+            curr_b = b
+            step_size = 0.09 * self.syn_star_size * star.get('size_coef', 1.0)
+
+            for j in range(1, 9):
+                curr_f = curr_f * factor / 256.0
+                curr_b = curr_b * factor / 256.0
+                if curr_f < 3.0 and curr_b < 3.0:
+                    break
+
+                color = map_color(curr_f, curr_b)
+                life_frac = star['life'] / 3.5
+                color[3] = min(1.0, max(0.0, life_frac))
+
+                if self.syn_points_are_diamonds:
+                    for k in range(j):
+                        pts.append([cx + (-j + k) * step_size, cy - k * step_size, cz])
+                        pts.append([cx + k * step_size, cy - (j - k) * step_size, cz])
+                        pts.append([cx + (j - k) * step_size, cy + k * step_size, cz])
+                        pts.append([cx - k * step_size, cy + (j - k) * step_size, cz])
+                        for _ in range(4):
+                            cols.append(color)
+                            sizes.append(4.0 * self.syn_brightness * star.get('size_coef', 1.0))
+                else:
+                    pts.append([cx + j * step_size, cy, cz])
+                    pts.append([cx, cy + j * step_size, cz])
+                    pts.append([cx - j * step_size, cy, cz])
+                    pts.append([cx, cy - j * step_size, cz])
+                    for _ in range(4):
+                        cols.append(color)
+                        sizes.append(4.0 * self.syn_brightness * star.get('size_coef', 1.0))
+
+        if not hasattr(self, 'syn_bg_particles'):
+            self.syn_bg_particles = []
+            for _ in range(300):
+                self.syn_bg_particles.append({
+                    'pos': np.array([np.random.uniform(-25.0, 25.0), np.random.uniform(-10.0, 18.0), -5.0], dtype=np.float32),
+                    'col': [np.random.uniform(0.0, 0.25), np.random.uniform(0.1, 0.35), np.random.uniform(0.2, 0.6), np.random.uniform(0.25, 0.55)],
+                    'size': np.random.uniform(1.5, 3.5),
+                    'phase': np.random.uniform(0.0, 2.0 * np.pi),
+                    'speed': np.random.uniform(1.0, 3.5)
+                })
+
+        for p in self.syn_bg_particles:
+            # Twinkle individually over time
+            p['phase'] += 0.016 * p['speed']
+            if p['phase'] > 2.0 * np.pi:
+                p['phase'] -= 2.0 * np.pi
+
+            pts.append(p['pos'])
+            col = p['col'].copy()
+            twinkle = 0.5 + 0.5 * np.sin(p['phase'])
+            col[3] *= (0.3 + 0.7 * twinkle) * (0.4 + self.react_mid * 0.6)
+            cols.append(col)
+            sizes.append(p['size'])
+
+        h_pos = np.zeros((0, 3), dtype=np.float32)
+        h_col = np.zeros((0, 4), dtype=np.float32)
+        return pts, cols, sizes, h_pos, h_col
 
 
 if __name__ == "__main__":
