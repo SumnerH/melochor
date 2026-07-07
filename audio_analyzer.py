@@ -79,22 +79,32 @@ def get_spectrum_color(t_sec, t, mag, bass_bins, mid_bins, high_bins, palette_ov
 def find_ffmpeg_binary():
     import sys
     import shutil
-    # 0. Try PyInstaller bundled location first
+    # 0. Try PyInstaller bundled location first (checking both MEIPASS root and MEIPASS/_internal)
     if hasattr(sys, "frozen") and hasattr(sys, "_MEIPASS"):
+        for base in [sys._MEIPASS, os.path.join(sys._MEIPASS, "_internal")]:
+            for name in ["ffmpeg", "ffmpeg.exe"]:
+                p = os.path.join(base, name)
+                if os.path.exists(p):
+                    return p
+
+    # 1. Try script or executable directory
+    try:
+        if hasattr(sys, "frozen"):
+            exe_dir = os.path.dirname(sys.executable)
+        else:
+            exe_dir = os.path.dirname(os.path.abspath(__file__))
         for name in ["ffmpeg", "ffmpeg.exe"]:
-            p = os.path.join(sys._MEIPASS, name)
+            p = os.path.join(exe_dir, name)
             if os.path.exists(p):
                 return p
+    except Exception:
+        pass
 
-    # Try custom path first
-    custom_path = "/home/sumner/bin/ffmpeg"
-    if os.path.exists(custom_path):
-        return custom_path
-    # Fall back to PATH
+    # 2. Fall back to PATH
     system_path = shutil.which("ffmpeg")
     if system_path:
         return system_path
-    # Try common locations
+    # 3. Try common locations
     for loc in [
         "C:\\ffmpeg\\bin\\ffmpeg.exe",
         "/usr/bin/ffmpeg",
@@ -121,7 +131,8 @@ def decode_audio(mp3_path, target_fs=22050):
         print(f"Decoding {mp3_path} using FFmpeg: '{ffmpeg_bin}'")
         try:
             cmd = [ffmpeg_bin, '-y', '-i', mp3_path, '-f', 'f32le', '-ac', '2', '-ar', str(target_fs), '-']
-            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            creationflags = 0x08000000 if sys.platform == 'win32' else 0
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=creationflags)
             stdout, stderr = p.communicate()
             if p.returncode == 0:
                 y_stereo = np.frombuffer(stdout, dtype=np.float32).reshape(-1, 2)
@@ -141,10 +152,13 @@ def decode_audio(mp3_path, target_fs=22050):
         data, fs = sf.read(mp3_path, dtype='float32')
         if data.ndim == 1:
             data = np.stack([data, data], axis=-1)
-        # Resample to target_fs if needed
+        # Resample to target_fs if needed using fast O(N) polyphase resampler
         if fs != target_fs:
-            num_samples = int(len(data) * target_fs / fs)
-            data = scipy.signal.resample(data, num_samples)
+            import math
+            gcd = math.gcd(int(target_fs), int(fs))
+            up = int(target_fs) // gcd
+            down = int(fs) // gcd
+            data = scipy.signal.resample_poly(data, up, down, axis=0)
         return data, target_fs
     except Exception as e:
         errors['soundfile'] = str(e)
@@ -167,10 +181,13 @@ def decode_audio(mp3_path, target_fs=22050):
                 data = data.reshape(-1, channels)
                 if channels > 2:
                     data = data[:, :2]
-            # Resample to target_fs if needed
+            # Resample to target_fs if needed using fast O(N) polyphase resampler
             if fs != target_fs:
-                num_samples = int(len(data) * target_fs / fs)
-                data = scipy.signal.resample(data, num_samples)
+                import math
+                gcd = math.gcd(int(target_fs), int(fs))
+                up = int(target_fs) // gcd
+                down = int(fs) // gcd
+                data = scipy.signal.resample_poly(data, up, down, axis=0)
             return data, target_fs
     except Exception as e:
         errors['audioread'] = str(e)

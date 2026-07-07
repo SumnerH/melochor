@@ -539,6 +539,11 @@ void main() {
 """
 
 def compile_shader(shader_type, source):
+    # Dynamic preprocessor to map GLES 3.00 shaders to Desktop GLSL 3.30 on Windows and macOS
+    if sys.platform in ('win32', 'darwin'):
+        if source.startswith("#version 300 es") or "#version 300 es" in source:
+            source = source.replace("#version 300 es", "#version 330 core")
+            
     shader = gl.glCreateShader(shader_type)
     gl.glShaderSource(shader, source)
     gl.glCompileShader(shader)
@@ -2473,7 +2478,8 @@ class UnifiedAudioPlayer:
         if has_mpv:
             try:
                 cmd = ["mpv" if shutil.which("mpv") else "/usr/bin/mpv", "--no-video", "--volume=100", filepath]
-                self.mpv_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                creationflags = 0x08000000 if sys.platform == 'win32' else 0
+                self.mpv_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creationflags)
                 self.player_type = 'mpv'
                 self.start_time = time.time()
                 print(f"Started playback of {filepath} using MPV subprocess.")
@@ -6619,7 +6625,8 @@ class FireworksApp:
         ]
         
         try:
-            self.ffmpeg_process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            creationflags = 0x08000000 if sys.platform == 'win32' else 0
+            self.ffmpeg_process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=creationflags)
             print("Successfully opened FFmpeg libx265 encoding process pipe.")
             self.auto_launch = False
             self.auto_rotate = False
@@ -6801,8 +6808,11 @@ class FireworksApp:
         if os.path.exists(music_file):
             print(f"Multiplexing audio track '{music_file}' into output file '{self.record_path}' using copy/copy stream mapping...")
             
+            import audio_analyzer
+            ffmpeg_bin = audio_analyzer.find_ffmpeg_binary() or "ffmpeg"
+            
             cmd = [
-                '/home/sumner/bin/ffmpeg', '-y',
+                ffmpeg_bin, '-y',
                 '-i', self.temp_video_path,
                 '-i', music_file,
                 '-c:v', 'copy',
@@ -6814,7 +6824,8 @@ class FireworksApp:
             ]
             
             try:
-                p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                creationflags = 0x08000000 if sys.platform == 'win32' else 0
+                p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=creationflags)
                 stdout, stderr = p.communicate()
                 if p.returncode == 0:
                     print(f"\nSuccessfully generated finalized HEVC MP4 movie with audio at: {self.record_path}")

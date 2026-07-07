@@ -9,13 +9,13 @@ block_cipher = None
 binaries = []
 datas = []
 
-# Add ffmpeg binary
-if sys.platform == 'win32':
-    if os.path.exists('ffmpeg.exe'):
-        binaries.append(('ffmpeg.exe', '.'))
-elif sys.platform == 'darwin':
-    if os.path.exists('ffmpeg'):
-        binaries.append(('ffmpeg', '.'))
+# Add ffmpeg binary with absolute path resolution
+ffmpeg_win = 'ffmpeg.exe'
+ffmpeg_mac = 'ffmpeg'
+if sys.platform == 'win32' and os.path.exists(ffmpeg_win):
+    binaries.append((os.path.abspath(ffmpeg_win), '.'))
+elif sys.platform == 'darwin' and os.path.exists(ffmpeg_mac):
+    binaries.append((os.path.abspath(ffmpeg_mac), '.'))
 
 if sys.platform == 'win32':
     # On Windows (MSYS2), we can find mingw64 prefix
@@ -69,10 +69,13 @@ if sys.platform == 'win32':
                         path_part = parts[1].strip()
                         if path_part:
                             p = path_part.split()[0]
-                            # Clean up and check if it's in the mingw64 directory
-                            if os.path.exists(p) and p.lower().startswith(mingw_prefix.lower()):
-                                if p not in visited and p not in to_visit:
-                                    to_visit.append(p)
+                            # Clean up and check if it's in the mingw64 directory using normalized absolute paths
+                            if os.path.exists(p):
+                                p_norm = os.path.abspath(p).replace('\\', '/').lower()
+                                prefix_norm = os.path.abspath(mingw_prefix).replace('\\', '/').lower()
+                                if p_norm.startswith(prefix_norm):
+                                    if p not in visited and p not in to_visit:
+                                        to_visit.append(p)
         except Exception as e:
             print(f"Error tracing {curr}: {e}")
             
