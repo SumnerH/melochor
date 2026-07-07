@@ -52,6 +52,16 @@ if getattr(sys, 'frozen', False):
                 os.add_dll_directory(internal_dir)
             except Exception:
                 pass
+
+    # 4. Set GDK_PIXBUF_MODULE_FILE so GdkPixbuf can find bundled image loaders (PNG, SVG, etc.)
+    possible_loaders_paths = [
+        os.path.join(base_dir, 'lib', 'gdk-pixbuf-2.0', '2.10.0', 'loaders.cache'),
+        os.path.join(base_dir, '_internal', 'lib', 'gdk-pixbuf-2.0', '2.10.0', 'loaders.cache'),
+    ]
+    for path in possible_loaders_paths:
+        if os.path.exists(path):
+            os.environ['GDK_PIXBUF_MODULE_FILE'] = path
+            break
 # ----------------------------------------------------------------------------
 
 import gi

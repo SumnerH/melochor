@@ -95,6 +95,18 @@ if sys.platform == 'win32':
         datas.append((typelibs_src, 'gi_typelibs'))
         print(f"Bundling GI typelibs from {typelibs_src}")
 
+    # 4. Explicitly bundle GDK Pixbuf loaders and dynamic components
+    gdk_pixbuf_src = os.path.join(mingw_prefix, 'lib/gdk-pixbuf-2.0')
+    if os.path.exists(gdk_pixbuf_src):
+        datas.append((gdk_pixbuf_src, 'lib/gdk-pixbuf-2.0'))
+        print(f"Bundling GDK Pixbuf modules from {gdk_pixbuf_src}")
+
+    # 5. Explicitly bundle GIO modules
+    gio_modules_src = os.path.join(mingw_prefix, 'lib/gio/modules')
+    if os.path.exists(gio_modules_src):
+        datas.append((gio_modules_src, 'lib/gio/modules'))
+        print(f"Bundling GIO modules from {gio_modules_src}")
+
 elif sys.platform == 'darwin':
     # On macOS, we can find brew prefix
     brew_prefixes = ['/opt/homebrew', '/usr/local']
@@ -167,6 +179,18 @@ elif sys.platform == 'darwin':
         if os.path.exists(typelibs_src):
             datas.append((typelibs_src, 'gi_typelibs'))
             print(f"Bundling GI typelibs from {typelibs_src}")
+
+        # Explicitly bundle GDK Pixbuf loaders and dynamic components on macOS
+        gdk_pixbuf_src = os.path.join(brew_prefix, 'lib/gdk-pixbuf-2.0')
+        if os.path.exists(gdk_pixbuf_src):
+            datas.append((gdk_pixbuf_src, 'lib/gdk-pixbuf-2.0'))
+            print(f"Bundling GDK Pixbuf modules from {gdk_pixbuf_src}")
+
+        # Explicitly bundle GIO modules on macOS
+        gio_modules_src = os.path.join(brew_prefix, 'lib/gio/modules')
+        if os.path.exists(gio_modules_src):
+            datas.append((gio_modules_src, 'lib/gio/modules'))
+            print(f"Bundling GIO modules from {gio_modules_src}")
 
 a = Analysis(
     ['main.py'],

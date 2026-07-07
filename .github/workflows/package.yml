@@ -42,7 +42,8 @@ jobs:
         shell: msys2 {0}
         run: |
           python -m pip install --upgrade pip setuptools
-          pip install pyinstaller soundfile sounddevice audioread PyOpenGL
+          pip install pyinstaller
+          pip install -r requirements.txt
 
       - name: Download Static FFmpeg (Windows)
         if: matrix.os == 'windows-latest'
@@ -57,6 +58,16 @@ jobs:
         shell: msys2 {0}
         run: |
           pyinstaller Melochor.spec
+
+      - name: Validate Standalone Bundle (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
+        run: |
+          # 1. Run our python-based validation suite
+          python validate_bundle.py dist/Melochor
+          
+          # 2. Run the actual compiled Melochor executable with --help to verify standalone launch sanity
+          dist/Melochor/Melochor.exe --help
 
       - name: Compress Executable Folder (Windows)
         if: matrix.os == 'windows-latest'
@@ -91,7 +102,8 @@ jobs:
         run: |
           curl -L -o ffmpeg.tar.xz https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-macosarm64-gpl.tar.xz
           tar -xf ffmpeg.tar.xz
-          mv ffmpeg-master-*/bin/ffmpeg .
+          # Robust Finder: Locate the ffmpeg binary inside any extracted folders and move it to the root
+          find . -type f -name "ffmpeg" -exec mv {} . \;
           chmod +x ffmpeg
           rm -rf ffmpeg-master-* ffmpeg.tar.xz
 
@@ -120,6 +132,11 @@ jobs:
                   # Re-map the dependency path inside the binary
                   install_name_tool -change "$dep" "$new_dep" "$binary"
                 done
+                
+                # Add explicit search-relative rpaths to ensure robust resolution inside nested folders
+                install_name_tool -add_rpath "@loader_path/" "$binary" 2>/dev/null || true
+                install_name_tool -add_rpath "@loader_path/../" "$binary" 2>/dev/null || true
+                install_name_tool -add_rpath "@loader_path/../../" "$binary" 2>/dev/null || true
               done
 
               # 2. Re-sign the modified bundle to prevent "Killed: 9" security crashes
@@ -127,6 +144,15 @@ jobs:
               codesign --force --deep --sign - "$target"
             fi
           done
+
+      - name: Validate Standalone Bundle (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          # 1. Run our python-based validation suite
+          python validate_bundle.py dist/Melochor.app/Contents/MacOS
+          
+          # 2. Run the actual compiled Melochor executable inside the App Bundle with --help to verify launch sanity
+          dist/Melochor.app/Contents/MacOS/Melochor --help
 
       - name: Compress App Bundle (macOS)
         if: matrix.os == 'macos-latest'
