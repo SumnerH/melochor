@@ -101,6 +101,34 @@ jobs:
         run: |
           pyinstaller Melochor.spec
 
+      - name: Fix Library Paths & Re-sign (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          # 1. Define target paths (both flat folder and the actual App Bundle)
+          TARGETS="dist/Melochor dist/Melochor.app"
+          
+          for target in $TARGETS; do
+            if [ -d "$target" ]; then
+              echo "Fixing library paths in $target..."
+
+              # Find dylibs, shared objects (C extensions), and the main executable
+              find "$target" -type f \( -name "*.dylib" -o -name "*.so" -o -name "Melochor" \) | while read -r binary; do
+
+                # Extract any dependencies referencing Homebrew (both Apple Silicon and Intel paths)
+                otool -L "$binary" | grep -E '(/opt/homebrew|/usr/local)' | awk '{print $1}' | while read -r dep; do
+                  new_dep="@loader_path/$(basename "$dep")"
+
+                  # Re-map the dependency path inside the binary
+                  install_name_tool -change "$dep" "$new_dep" "$binary"
+                done
+              done
+
+              # 2. Re-sign the modified bundle to prevent "Killed: 9" security crashes
+              echo "Re-signing modified bundle: $target..."
+              codesign --force --deep --sign - "$target"
+            fi
+          done
+
       # ==========================================
       # ARTIFACT UPLOAD
       # ==========================================
