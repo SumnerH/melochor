@@ -2,11 +2,27 @@ import sys
 import time
 import random
 import ctypes
+import ctypes.util
 import numpy as np
 import os
 import json
 import subprocess
 import math
+
+# --- GSK Renderer Compatibility Override ---
+if sys.platform in ('win32', 'darwin'):
+    os.environ['GSK_RENDERER'] = 'gl'
+
+# --- macOS PyOpenGL DYLD Shared Cache Monkeypatch ---
+if sys.platform == 'darwin':
+    orig_find_library = ctypes.util.find_library
+    def new_find_library(name):
+        if name in ('OpenGL', 'GL'):
+            return '/System/Library/Frameworks/OpenGL.framework/OpenGL'
+        if name in ('GLUT', 'glut'):
+            return '/System/Library/Frameworks/GLUT.framework/GLUT'
+        return orig_find_library(name)
+    ctypes.util.find_library = new_find_library
 
 # --- MELOCHOR RUNTIME BOOTSTRAPPER FOR PYINSTALLER STANDALONE PORTABILITY ---
 if sys.platform == 'win32':
@@ -2471,12 +2487,19 @@ def make_solid_butterfly(center, direction, phase):
 
 class UnifiedAudioPlayer:
     def __init__(self):
+        import threading
         self.mpv_process = None
         self.player_type = None # 'mpv' or 'sounddevice'
         self.start_time = 0.0
         self.audio_path = None
         self.sd_playing = False
         self.sd_duration = 0.0
+        
+        self.sd_stream = None
+        self.sd_data = None
+        self.sd_fs = 0
+        self.sd_current_frame = 0
+        self.sd_lock = threading.Lock()
         
     def play(self, filepath):
         self.stop()
@@ -2504,12 +2527,53 @@ class UnifiedAudioPlayer:
             data, fs = audio_analyzer.decode_audio(filepath)
             
             import sounddevice as sd
-            sd.play(data, fs)
-            self.player_type = 'sounddevice'
-            self.start_time = time.time()
-            self.sd_duration = len(data) / fs
-            self.sd_playing = True
-            print(f"Started playback of {filepath} using sounddevice backend.")
+            
+            with self.sd_lock:
+                self.sd_data = data
+                self.sd_fs = fs
+                self.sd_current_frame = 0
+                self.sd_duration = len(data) / fs
+                
+                # Ensure the data shape is 2D (num_frames, channels)
+                if self.sd_data.ndim == 1:
+                    self.sd_data = self.sd_data[:, np.newaxis]
+                channels = self.sd_data.shape[1]
+                
+                def callback(outdata, frames, time_info, status):
+                    if status:
+                        pass
+                    
+                    # Compute remaining frames
+                    rem = len(self.sd_data) - self.sd_current_frame
+                    if rem <= 0:
+                        outdata.fill(0)
+                        raise sd.CallbackStop()
+                        
+                    chunk_size = min(frames, rem)
+                    # Fill the output buffer
+                    outdata[:chunk_size] = self.sd_data[self.sd_current_frame:self.sd_current_frame + chunk_size]
+                    if chunk_size < frames:
+                        outdata[chunk_size:].fill(0)
+                        
+                    self.sd_current_frame += chunk_size
+                    
+                    if self.sd_current_frame >= len(self.sd_data):
+                        raise sd.CallbackStop()
+                
+                # Create and start the stream
+                self.sd_stream = sd.OutputStream(
+                    samplerate=fs,
+                    channels=channels,
+                    dtype='float32',
+                    callback=callback
+                )
+                self.sd_stream.start()
+                
+                self.player_type = 'sounddevice'
+                self.start_time = time.time()
+                self.sd_playing = True
+                
+            print(f"Started playback of {filepath} using sounddevice backend with frame-counting callback.")
             return True
         except Exception as e:
             print(f"Failed to play audio with sounddevice: {e}")
@@ -2528,12 +2592,18 @@ class UnifiedAudioPlayer:
                         pass
                 self.mpv_process = None
         elif self.player_type == 'sounddevice':
-            try:
-                import sounddevice as sd
-                sd.stop()
-            except Exception:
-                pass
-            self.sd_playing = False
+            with self.sd_lock:
+                if self.sd_stream:
+                    try:
+                        self.sd_stream.stop()
+                        self.sd_stream.close()
+                    except Exception:
+                        pass
+                    self.sd_stream = None
+                self.sd_playing = False
+                self.sd_data = None
+                self.sd_current_frame = 0
+                self.sd_fs = 0
         self.player_type = None
         self.start_time = 0.0
         
@@ -2541,17 +2611,20 @@ class UnifiedAudioPlayer:
         if self.player_type == 'mpv':
             return self.mpv_process is not None and self.mpv_process.poll() is None
         elif self.player_type == 'sounddevice':
-            if self.sd_playing:
-                elapsed = time.time() - self.start_time
-                if elapsed >= self.sd_duration:
-                    self.sd_playing = False
-                return self.sd_playing
-            return False
+            with self.sd_lock:
+                if self.sd_stream and self.sd_stream.active:
+                    return True
+                self.sd_playing = False
+                return False
         return False
 
     def get_elapsed_time(self):
-        if self.player_type in ('mpv', 'sounddevice') and self.start_time > 0.0:
+        if self.player_type == 'mpv' and self.start_time > 0.0:
             return time.time() - self.start_time
+        elif self.player_type == 'sounddevice':
+            if self.sd_fs > 0:
+                return self.sd_current_frame / self.sd_fs
+            return 0.0
         return 0.0
 
 

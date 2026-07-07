@@ -36,6 +36,8 @@ jobs:
             mingw-w64-x86_64-gtk4
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-portaudio
+            mingw-w64-x86_64-libsndfile
 
       - name: Install Python Dependencies (Windows)
         if: matrix.os == 'windows-latest'
@@ -112,11 +114,10 @@ jobs:
         run: |
           pyinstaller Melochor.spec
 
-      - name: Fix Library Paths & Re-sign (macOS)
+      - name: Fix Library Paths (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          # 1. Define target paths (both flat folder and the actual App Bundle)
-          TARGETS="dist/Melochor dist/Melochor.app"
+          TARGETS="dist/Melochor.app"
           
           for target in $TARGETS; do
             if [ -d "$target" ]; then
@@ -138,20 +139,25 @@ jobs:
                 install_name_tool -add_rpath "@loader_path/../" "$binary" 2>/dev/null || true
                 install_name_tool -add_rpath "@loader_path/../../" "$binary" 2>/dev/null || true
               done
-
-              # 2. Re-sign the modified bundle to prevent "Killed: 9" security crashes
-              echo "Re-signing modified bundle: $target..."
-              codesign --force --deep --sign - "$target"
             fi
           done
 
       - name: Validate Standalone Bundle (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          # 1. Run our python-based validation suite
+          # Run our python-based validation suite
           python validate_bundle.py dist/Melochor.app/Contents/MacOS
-          
-          # 2. Run the actual compiled Melochor executable inside the App Bundle with --help to verify launch sanity
+
+      - name: Re-sign Bundle (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          echo "Re-signing modified bundle: dist/Melochor.app..."
+          codesign --force --deep --sign - dist/Melochor.app
+
+      - name: Sanity Check (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          # Run the actual compiled Melochor executable inside the App Bundle with --help to verify launch sanity
           dist/Melochor.app/Contents/MacOS/Melochor --help
 
       - name: Compress App Bundle (macOS)
