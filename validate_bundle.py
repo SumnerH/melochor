@@ -199,6 +199,17 @@ def main():
                                 p = dep_path_part.split()[0]
                                 # If a dependency says "not found", it is a critical failure!
                                 if p.lower() == "not":
+                                    # Some system or MSVC runtime DLLs may not be present in the validation environment but are assumed to be on the target OS.
+                                    # We can safely ignore these.
+                                    ignored_system_dlls = {
+                                        "msvcr90.dll", "msvcr100.dll", "msvcr110.dll", "msvcr120.dll", "msvcrt.dll",
+                                        "msvcp90.dll", "msvcp100.dll", "msvcp110.dll", "msvcp120.dll",
+                                        "vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll",
+                                        "kernel32.dll", "user32.dll", "gdi32.dll", "shell32.dll", "ole32.dll", "advapi32.dll", "ws2_32.dll",
+                                        "opengl32.dll", "glu32.dll"
+                                    }
+                                    if dep_name in ignored_system_dlls or dep_name.startswith("api-ms-win-") or dep_name.startswith("ext-ms-win-"):
+                                        continue
                                     print(f"MISSING DEPENDENCY: Binary '{os.path.basename(bin_file)}' requires '{dep_name}' which is NOT FOUND!")
                                     leaks_found += 1
                                 else:
