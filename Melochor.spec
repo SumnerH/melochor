@@ -39,6 +39,8 @@ if sys.platform == 'win32':
         'libgobject',
         'libgio',
         'libgmodule',
+        'libportaudio',
+        'libsndfile',
     ]
     
     core_dlls = []
@@ -207,6 +209,7 @@ a = Analysis(
         'gi.repository.Gsk',
         'gi.repository.GdkPixbuf',
         'OpenGL.platform.win32',
+        'OpenGL.platform.darwin',
         'OpenGL.platform.glx',
         'OpenGL.platform.egl',
         'OpenGL.platform.osmesa',

@@ -9,10 +9,6 @@ import json
 import subprocess
 import math
 
-# --- GSK Renderer Compatibility Override ---
-if sys.platform in ('win32', 'darwin'):
-    os.environ['GSK_RENDERER'] = 'gl'
-
 # --- macOS PyOpenGL DYLD Shared Cache Monkeypatch ---
 if sys.platform == 'darwin':
     orig_find_library = ctypes.util.find_library
@@ -77,6 +73,16 @@ if getattr(sys, 'frozen', False):
     for path in possible_loaders_paths:
         if os.path.exists(path):
             os.environ['GDK_PIXBUF_MODULE_FILE'] = path
+            break
+
+    # 5. Set GIO_EXTRA_MODULES so GIO can find bundled modules (like TLS / network)
+    possible_gio_paths = [
+        os.path.join(base_dir, 'lib', 'gio', 'modules'),
+        os.path.join(base_dir, '_internal', 'lib', 'gio', 'modules'),
+    ]
+    for path in possible_gio_paths:
+        if os.path.exists(path):
+            os.environ['GIO_EXTRA_MODULES'] = path
             break
 # ----------------------------------------------------------------------------
 

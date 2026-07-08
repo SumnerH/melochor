@@ -51,8 +51,11 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          curl.exe -L -o ffmpeg.zip https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-win-64.zip
-          Expand-Archive ffmpeg.zip -DestinationPath .
+          curl.exe -L -o ffmpeg.zip https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip
+          Expand-Archive ffmpeg.zip -DestinationPath temp_ffmpeg
+          # Find ffmpeg.exe recursively and move it to root
+          Get-ChildItem -Path temp_ffmpeg -Filter ffmpeg.exe -Recurse | Move-Item -Destination .
+          Remove-Item -Recurse temp_ffmpeg
           Remove-Item ffmpeg.zip
 
       - name: Build Standalone Executable (Windows)
@@ -83,7 +86,7 @@ jobs:
       - name: Install System Dependencies (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          brew install pygobject3 gtk4 gobject-introspection pkg-config
+          brew install pygobject3 gtk4 gobject-introspection pkg-config portaudio libsndfile
 
       - name: Install Python Dependencies (macOS)
         if: matrix.os == 'macos-latest'
@@ -137,6 +140,9 @@ jobs:
                 install_name_tool -add_rpath "@loader_path/" "$binary" 2>/dev/null || true
                 install_name_tool -add_rpath "@loader_path/../" "$binary" 2>/dev/null || true
                 install_name_tool -add_rpath "@loader_path/../../" "$binary" 2>/dev/null || true
+                install_name_tool -add_rpath "@loader_path/../../../" "$binary" 2>/dev/null || true
+                install_name_tool -add_rpath "@loader_path/../../../../" "$binary" 2>/dev/null || true
+                install_name_tool -add_rpath "@loader_path/../../../../../" "$binary" 2>/dev/null || true
               done
             fi
           done
