@@ -102,16 +102,16 @@ jobs:
         run: |
           ARCH=$(uname -m)
           if [ "$ARCH" = "arm64" ]; then
-            FFMPEG_URL="https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-macosarm64-gpl.tar.xz"
+            FFMPEG_URL="https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip"
           else
-            FFMPEG_URL="https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-macosintel-gpl.tar.xz"
+            FFMPEG_URL="https://evermeet.cx/ffmpeg/getrelease"
           fi
-          curl -L -o ffmpeg.tar.xz "$FFMPEG_URL"
-          tar -xf ffmpeg.tar.xz
+          curl -L -o ffmpeg.zip "$FFMPEG_URL"
+          unzip -o ffmpeg.zip
           # Robust Finder: Locate the ffmpeg binary inside any extracted folders and move it to the root
           find . -type f -name "ffmpeg" -exec mv {} . \;
           chmod +x ffmpeg
-          rm -rf ffmpeg-master-* ffmpeg.tar.xz
+          rm -f ffmpeg.zip
 
       - name: Build Standalone Executable (macOS)
         if: matrix.os == 'macos-latest'
