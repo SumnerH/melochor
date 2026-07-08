@@ -4045,6 +4045,7 @@ class FireworksApp:
             
         # Initialize plankton and seabed phosphorescence twinkling states
         self.algae_twinkle_phase = np.random.uniform(0.0, 2 * np.pi, N_algae).astype(np.float32)
+        self.algae_random_rates = np.random.uniform(0.8, 1.5, N_algae).astype(np.float32)
         self.seabed_twinkle_phase = np.random.uniform(0.0, 2 * np.pi, self.num_seabed_pts).astype(np.float32)
         self.seabed_is_glowing = (np.random.rand(self.num_seabed_pts) < 0.28) # 28% of seabed points glow
 
@@ -4218,9 +4219,30 @@ class FireworksApp:
         self.algae_pos[y_out_neg, 1] = 9.0
         
         # Individual plankton (algae) twinkling, modulated by the music
-        self.algae_twinkle_phase += (1.5 + self.react_mid * 6.0) * dt * np.random.uniform(0.8, 1.5, len(self.algae_pos))
+        # 1. Map depth-gradient (vertical spectral blending weights)
+        y_norm = np.clip((self.algae_pos[:, 1] + 2.5) / 11.5, 0.0, 1.0)
+        w_bass = (1.0 - y_norm) ** 2
+        w_treble = y_norm ** 2
+        w_mid = 1.0 - w_bass - w_treble
+
+        # 2. Localized spectral energy per particle
+        e_local = (w_bass * self.react_bass + 
+                   w_mid * self.react_mid + 
+                   w_treble * self.react_treble)
+
+        # 3. Map horizontal stereo soundstage scale
+        x_norm = np.clip(self.algae_pos[:, 0] / 15.0, -1.0, 1.0)
+        s_coeff = 1.0 + 0.8 * (x_norm * self.current_stereo_panning)
+
+        # 4. Compute final spatial-audio reaction factor
+        r_local = e_local * s_coeff
+
+        # 5. Tick individual phases forward (using self.algae_random_rates for flicker-free variation)
+        self.algae_twinkle_phase += (1.5 + r_local * 6.0) * dt * self.algae_random_rates
+
+        # 6. Apply to brightness (alpha)
         algae_twinkle = np.sin(self.algae_twinkle_phase) * 0.5 + 0.5
-        self.algae_col[:, 3] = (0.15 + self.react_mid * 0.85) * (0.2 + 0.8 * algae_twinkle)
+        self.algae_col[:, 3] = (0.15 + r_local * 0.85) * (0.2 + 0.8 * algae_twinkle)
 
         # Seabed bioluminescent phosphorescence twinkling
         self.seabed_twinkle_phase += (1.2 + self.react_bass * 5.0) * dt * np.random.uniform(0.7, 1.4, self.num_seabed_pts)
