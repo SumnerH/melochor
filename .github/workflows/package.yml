@@ -83,19 +83,28 @@ jobs:
       # ==========================================
       # MACOS-SPECIFIC SETUP
       # ==========================================
+      - name: Set up Python (macOS)
+        if: matrix.os == 'macos-latest'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Install System Dependencies (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          brew install python@3.12 gtk4 gobject-introspection pkg-config portaudio libsndfile
+          brew install gtk4 gobject-introspection pkg-config portaudio libsndfile
 
       - name: Install Python Dependencies (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          BREW_PYTHON=$(brew --prefix python@3.12)/bin/python3.12
-          $BREW_PYTHON -m pip install --break-system-packages --upgrade pip setuptools
-          $BREW_PYTHON -m pip install --break-system-packages pyinstaller
-          # Install dependencies cleanly, including pygobject (which compiles against Homebrew's gobject-introspection)
-          $BREW_PYTHON -m pip install --break-system-packages numpy scipy sounddevice soundfile audioread PyOpenGL pygobject
+          if [[ $(uname -m) == 'arm64' ]]; then
+            export PKG_CONFIG_PATH="/opt/homebrew/opt/libffi/lib/pkgconfig"
+          else
+            export PKG_CONFIG_PATH="/usr/local/opt/libffi/lib/pkgconfig"
+          fi
+          python3 -m pip install --upgrade pip setuptools
+          python3 -m pip install pyinstaller pycairo pygobject
+          python3 -m pip install numpy scipy sounddevice soundfile audioread PyOpenGL
 
       - name: Download Static FFmpeg (macOS)
         if: matrix.os == 'macos-latest'
@@ -116,8 +125,7 @@ jobs:
       - name: Build Standalone Executable (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          BREW_PYTHON=$(brew --prefix python@3.12)/bin/python3.12
-          $BREW_PYTHON -m pyinstaller Melochor.spec
+          python3 -m pyinstaller Melochor.spec
 
       - name: Fix Library Paths (macOS)
         if: matrix.os == 'macos-latest'
@@ -159,8 +167,7 @@ jobs:
       - name: Validate Standalone Bundle (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          BREW_PYTHON=$(brew --prefix python@3.12)/bin/python3.12
-          $BREW_PYTHON validate_bundle.py dist/Melochor.app/Contents/MacOS
+          python3 validate_bundle.py dist/Melochor.app/Contents/MacOS
 
       - name: Re-sign Bundle (macOS)
         if: matrix.os == 'macos-latest'
