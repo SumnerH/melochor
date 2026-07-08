@@ -258,6 +258,8 @@ uniform float uWormholePhaseY;
 uniform float uReactBass;
 uniform float uReactTreble;
 uniform float uReactMid;
+uniform float uStereoPanning;
+uniform float uWormholeSpeedFactor;
 uniform float uAspect;
 uniform mat4 uInvVP;
 
@@ -301,8 +303,8 @@ vec2 get_bend(float z) {
 
 float sdTunnel(vec3 p) {
     // High-amplitude organic peristalsis wave traveling along the z-axis, enhanced with a base offset and bass hits
-    float wave = sin(p.z * 0.18 - uTime * 2.5) * 0.95;
-    float peristalsis = (0.15 + uReactBass * 0.70) * (sin(p.z * 0.22 - uTime * 6.5) * 0.5 + 0.5);
+    float wave = sin(p.z * 0.18 - uTime * (2.5 * uWormholeSpeedFactor)) * 0.95;
+    float peristalsis = (0.15 + uReactBass * 0.70) * (sin(p.z * 0.22 - uTime * (6.5 * uWormholeSpeedFactor)) * 0.5 + 0.5);
     float radius = (8.0 + wave) * (1.0 - peristalsis);
 
     // Structural warp/lightning bend: during climax/lightning flash, crackle the tunnel coordinates!
@@ -328,19 +330,57 @@ void main() {
         base_color += vec3(0.75, 0.90, 1.0) * uClimaxFlash * strobes * 0.55;
     }
     
-    // Twinkling procedural deep space starfield
+    // Twinkling procedural deep space starfield (Modulated stereoscopically and spectrally)
     vec2 star_uv = vec2(vPos.x * uAspect, vPos.y) * 15.0;
     vec2 star_id = floor(star_uv);
     vec2 star_f = fract(star_uv) - 0.5;
     float star_h = hash(star_id);
     if (star_h > 0.982) {
-        // Twinkle frequency and phase are randomized, and modulated by the music (uReactTreble)
-        float freq = 2.0 + star_h * 5.0;
-        float music_shift = uReactTreble * (2.0 + star_h * 10.0);
-        float twinkle = sin(uTime * freq + star_h * 6.28 + music_shift) * 0.5 + 0.5;
+        // 1. Map depth-gradient (vertical spectral blending weights)
+        float w_bass = (1.0 - t_gradient) * (1.0 - t_gradient);
+        float w_treble = t_gradient * t_gradient;
+        float w_mid = 1.0 - w_bass - w_treble;
+
+        // 2. Localized spectral energy based on vertical coordinate
+        float e_local = w_bass * uReactBass + w_mid * uReactMid + w_treble * uReactTreble;
+
+        // 3. Map horizontal stereo soundstage scale
+        float s_coeff = 1.0 + 0.8 * (vPos.x * uStereoPanning);
+
+        // 4. Compute final spatial-audio reaction factor
+        float r_local = e_local * s_coeff;
+
+        // 5. Unique, randomized baseline twinkling properties (very slow, delicate, and unsynchronized)
+        float base_freq = 0.35 + star_h * 1.45;
+        float base_phase = star_h * 12.56;
+        float base_brightness = 0.04 + star_h * 0.12;
+        float base_amplitude = 0.02 + star_h * 0.08;
+        float base_twinkle = sin(uTime * base_freq + base_phase) * 0.5 + 0.5;
+        float base_value = base_brightness + base_amplitude * base_twinkle;
+
+        // 6. Music-reactive frequency and phase modulation (additive & stronger)
+        float music_freq_shift = r_local * (5.0 + star_h * 12.0);
+        float music_phase_shift = r_local * 25.0;
+        float music_twinkle = sin(uTime * (base_freq + music_freq_shift) + base_phase + music_phase_shift) * 0.5 + 0.5;
+        float music_value = r_local * (0.65 + star_h * 1.85) * music_twinkle;
+
+        // 7. Add combined intensities
+        float final_intensity = base_value + music_value;
+
+        // 8. Dynamic temperature-dependent star coloring (G/K yellow/gold, A/B blue-white, M red/amber, pure white)
+        float t_color = (star_h - 0.982) / 0.018; // Normalized range [0.0, 1.0]
+        vec3 star_color = vec3(1.0);
+        if (t_color < 0.35) {
+            star_color = mix(vec3(1.0, 0.85, 0.62), vec3(1.0, 1.0, 1.0), t_color / 0.35);
+        } else if (t_color < 0.75) {
+            star_color = mix(vec3(1.0, 1.0, 1.0), vec3(0.78, 0.90, 1.0), (t_color - 0.35) / 0.40);
+        } else {
+            star_color = mix(vec3(0.78, 0.90, 1.0), vec3(1.0, 0.65, 0.52), (t_color - 0.75) / 0.25);
+        }
+
         float dist = length(star_f);
         float star_p = smoothstep(0.08, 0.0, dist) * 0.4 + smoothstep(0.02, 0.0, dist) * 0.6;
-        base_color += vec3(0.85, 0.92, 1.0) * star_p * (0.15 + 0.85 * twinkle * (1.0 + uReactTreble * 0.5));
+        base_color += star_color * star_p * final_intensity;
     }
     
     if (uRipple > 0.5 && uRipple < 1.5) {
@@ -395,7 +435,7 @@ void main() {
             float angle = atan(p.y - (bend.y + 4.0), p.x - bend.x);
             
             // 100% continuous circular mapping (erases the left-hand seam completely!)
-            vec2 uv = vec2(cos(angle) * 1.8 + p.z * 0.02, sin(angle) * 1.8 - uTime * 0.9 + p.z * 0.045);
+            vec2 uv = vec2(cos(angle) * 1.8 + p.z * 0.02, sin(angle) * 1.8 - uTime * (0.9 * uWormholeSpeedFactor) + p.z * 0.045);
             
             vec2 q, r;
             float f = pattern(uv, q, r);
@@ -2802,6 +2842,9 @@ class FireworksApp:
         self.loaded_script_name = "None"
         self.script_duration = 0.0
         self.script_bpm = 120.0
+        self.current_key = "N/A"
+        self.current_section_name = "None"
+        self.current_section_category = "None"
         self.script_total_events = 0
         self.color_hints = []
         self.saved_auto_launch = True
@@ -3223,6 +3266,26 @@ class FireworksApp:
         self.fps_lbl.add_css_class("hud-stats-fps")
         self.fps_lbl.set_halign(Gtk.Align.START)
         stats_box.append(self.fps_lbl)
+
+        self.hud_bpm_lbl = Gtk.Label(label="BPM: 120.0")
+        self.hud_bpm_lbl.add_css_class("hud-stats")
+        self.hud_bpm_lbl.set_halign(Gtk.Align.START)
+        stats_box.append(self.hud_bpm_lbl)
+
+        self.hud_key_lbl = Gtk.Label(label="Key: N/A")
+        self.hud_key_lbl.add_css_class("hud-stats")
+        self.hud_key_lbl.set_halign(Gtk.Align.START)
+        stats_box.append(self.hud_key_lbl)
+
+        self.hud_sec_name_lbl = Gtk.Label(label="Section: None")
+        self.hud_sec_name_lbl.add_css_class("hud-stats")
+        self.hud_sec_name_lbl.set_halign(Gtk.Align.START)
+        stats_box.append(self.hud_sec_name_lbl)
+
+        self.hud_sec_cat_lbl = Gtk.Label(label="Category: None")
+        self.hud_sec_cat_lbl.add_css_class("hud-stats")
+        self.hud_sec_cat_lbl.set_halign(Gtk.Align.START)
+        stats_box.append(self.hud_sec_cat_lbl)
         
         self.shell_lbl = Gtk.Label(label="Active Shells: 0")
         self.shell_lbl.add_css_class("hud-stats")
@@ -3456,6 +3519,20 @@ class FireworksApp:
             self.win.fullscreen()
             self.is_fullscreen = True
  
+    def update_hud_labels(self):
+        if hasattr(self, 'hud_bpm_lbl') and self.hud_bpm_lbl:
+            bpm_val = getattr(self, 'script_bpm', 120.0)
+            self.hud_bpm_lbl.set_text(f"BPM: {bpm_val:.1f}")
+        if hasattr(self, 'hud_key_lbl') and self.hud_key_lbl:
+            key_val = getattr(self, 'current_key', "N/A")
+            self.hud_key_lbl.set_text(f"Key: {key_val}")
+        if hasattr(self, 'hud_sec_name_lbl') and self.hud_sec_name_lbl:
+            sec_val = getattr(self, 'current_section_name', "None")
+            self.hud_sec_name_lbl.set_text(f"Section: {sec_val}")
+        if hasattr(self, 'hud_sec_cat_lbl') and self.hud_sec_cat_lbl:
+            cat_val = getattr(self, 'current_section_category', "None")
+            self.hud_sec_cat_lbl.set_text(f"Category: {cat_val}")
+
     def update_legend_labels(self):
         if hasattr(self, 'lbl_opt_color') and self.lbl_opt_color:
             self.lbl_opt_color.set_text(f"[O]      - Color Mode: {self.opt_color_mode}")
@@ -3587,8 +3664,18 @@ class FireworksApp:
         self.next_spark_idx = 0
 
     def update_tunnel(self, dt):
-        # Constant, elegant forward travel camera speed (completely eliminates motion jerking)
-        speed = 8.5 * dt
+        # Calculate dynamic tempo speed factor with floor at 40.0 and cap at 240.0 BPM
+        bpm = self.script_bpm if (hasattr(self, 'script_bpm') and self.script_bpm > 0.0) else 40.0
+        bpm = np.clip(bpm, 40.0, 240.0)
+        
+        # Pronounced non-linear scaling: floor of 0.15 at 40 BPM, nominal 1.0 at 120 BPM, and cap of 4.0 at 240 BPM
+        if bpm <= 120.0:
+            speed_factor = 0.15 + 0.85 * ((bpm - 40.0) / 80.0) ** 1.8
+        else:
+            speed_factor = 1.0 + 3.0 * ((bpm - 120.0) / 120.0) ** 1.5
+        
+        # Constant, elegant forward travel camera speed, scaled dynamically and non-linearly by tempo BPM
+        speed = 8.5 * speed_factor * dt
         self.gem_z += speed
         
         gem_passed = self.gem_z > 10.0
@@ -3616,8 +3703,8 @@ class FireworksApp:
         self.wormhole_bend_x += (self.target_bend_x - self.wormhole_bend_x) * dt * 1.5
         self.wormhole_bend_y += (self.target_bend_y - self.wormhole_bend_y) * dt * 1.5
         
-        # Treble triggers gem spark burst emissions
-        if self.react_treble > 0.4 or random.random() < 0.15:
+        # Audio frequency hits trigger gem spark burst emissions on all bands
+        if self.react_bass > 1.0 or self.react_mid > 0.75 or self.react_treble > 0.4 or random.random() < 0.15:
             near_gems = np.where((self.gem_z < -5.0) & (self.gem_z > -45.0))[0]
             if len(near_gems) > 0:
                 g_idx = random.choice(near_gems)
@@ -3662,7 +3749,34 @@ class FireworksApp:
             vz = z_speed
             
             self.spark_vel[idx] = [vx, vy, vz]
-            self.spark_col[idx] = [g_color[0], g_color[1], g_color[2], 1.0]
+            
+            # Determine normalized center-of-mass frequency index of current audio frame (f_avg between 0.0 and 1.0)
+            total_e = self.react_bass + self.react_mid + self.react_treble + 1e-5
+            f_avg = (self.react_bass * 0.10 + self.react_mid * 0.50 + self.react_treble * 0.90) / total_e
+            
+            # Spread sparks slightly across spectrum around f_avg
+            f_spark = np.clip(f_avg + np.random.uniform(-0.18, 0.18), 0.0, 1.0)
+            
+            # Continuous color mapping:
+            # 0.0: low bass (dark purple [0.45, 0.0, 0.70]) -> 0.33: mid-low (dark blue [0.0, 0.15, 0.65])
+            # -> 0.66: midranges (medium green [0.10, 0.68, 0.22]) -> 1.0: trebles (medium yellow [0.72, 0.72, 0.08])
+            if f_spark < 0.33:
+                frac = f_spark / 0.33
+                col_r = 0.45 * (1.0 - frac) + 0.0 * frac
+                col_g = 0.0 * (1.0 - frac) + 0.15 * frac
+                col_b = 0.70 * (1.0 - frac) + 0.65 * frac
+            elif f_spark < 0.66:
+                frac = (f_spark - 0.33) / 0.33
+                col_r = 0.0 * (1.0 - frac) + 0.10 * frac
+                col_g = 0.15 * (1.0 - frac) + 0.68 * frac
+                col_b = 0.65 * (1.0 - frac) + 0.22 * frac
+            else:
+                frac = (f_spark - 0.66) / 0.34
+                col_r = 0.10 * (1.0 - frac) + 0.72 * frac
+                col_g = 0.68 * (1.0 - frac) + 0.72 * frac
+                col_b = 0.22 * (1.0 - frac) + 0.08 * frac
+                
+            self.spark_col[idx] = [col_r, col_g, col_b, 1.0]
             self.spark_size[idx] = np.random.uniform(5.0, 9.0)
             self.spark_age[idx] = 0.0
             self.spark_max_age[idx] = np.random.uniform(0.4, 0.9)
@@ -5600,6 +5714,8 @@ class FireworksApp:
         self.sky_react_bass_loc = gl.glGetUniformLocation(self.sky_program, "uReactBass")
         self.sky_react_treble_loc = gl.glGetUniformLocation(self.sky_program, "uReactTreble")
         self.sky_react_mid_loc = gl.glGetUniformLocation(self.sky_program, "uReactMid")
+        self.sky_stereo_panning_loc = gl.glGetUniformLocation(self.sky_program, "uStereoPanning")
+        self.sky_wormhole_speed_factor_loc = gl.glGetUniformLocation(self.sky_program, "uWormholeSpeedFactor")
         self.sky_aspect_loc = gl.glGetUniformLocation(self.sky_program, "uAspect")
         self.sky_inv_vp_loc = gl.glGetUniformLocation(self.sky_program, "uInvVP")
 
@@ -5663,6 +5779,18 @@ class FireworksApp:
                 
         # Send full coordinates and audio parameters for continuous GPU raymarching in Wormhole Mode
         if self.major_mode == "TUNNEL Wormhole":
+            bpm = self.script_bpm if (hasattr(self, 'script_bpm') and self.script_bpm > 0.0) else 40.0
+            bpm = np.clip(bpm, 40.0, 240.0)
+            
+            # Pronounced non-linear scaling: floor of 0.15 at 40 BPM, nominal 1.0 at 120 BPM, and cap of 4.0 at 240 BPM
+            if bpm <= 120.0:
+                speed_factor = 0.15 + 0.85 * ((bpm - 40.0) / 80.0) ** 1.8
+            else:
+                speed_factor = 1.0 + 3.0 * ((bpm - 120.0) / 120.0) ** 1.5
+                
+            if hasattr(self, 'sky_wormhole_speed_factor_loc') and self.sky_wormhole_speed_factor_loc != -1:
+                gl.glUniform1f(self.sky_wormhole_speed_factor_loc, speed_factor)
+                
             if hasattr(self, 'sky_bend_x_loc') and self.sky_bend_x_loc != -1:
                 gl.glUniform1f(self.sky_bend_x_loc, self.wormhole_bend_x)
             if hasattr(self, 'sky_bend_y_loc') and self.sky_bend_y_loc != -1:
@@ -5677,6 +5805,8 @@ class FireworksApp:
                 gl.glUniform1f(self.sky_react_treble_loc, self.react_treble)
             if hasattr(self, 'sky_react_mid_loc') and self.sky_react_mid_loc != -1:
                 gl.glUniform1f(self.sky_react_mid_loc, self.react_mid)
+            if hasattr(self, 'sky_stereo_panning_loc') and self.sky_stereo_panning_loc != -1:
+                gl.glUniform1f(self.sky_stereo_panning_loc, self.current_stereo_panning)
             if hasattr(self, 'sky_aspect_loc') and self.sky_aspect_loc != -1:
                 gl.glUniform1f(self.sky_aspect_loc, aspect)
             if hasattr(self, 'sky_inv_vp_loc') and self.sky_inv_vp_loc != -1:
@@ -6068,6 +6198,7 @@ class FireworksApp:
         self.update_rarity_system(dt)
         
         self.fps_lbl.set_text(f"FPS: {self.fps:.1f}")
+        self.update_hud_labels()
         if self.active_routine_name:
             self.routine_lbl.set_text(f"Routine: {self.active_routine_name}")
         else:
@@ -6554,6 +6685,10 @@ class FireworksApp:
             self.loaded_script_name = os.path.basename(filepath)
             self.script_duration = metadata.get("duration", 0.0)
             self.script_bpm = metadata.get("bpm", 120.0)
+            self.current_key = "N/A"
+            self.current_section_name = "None"
+            self.current_section_category = "None"
+            self.update_hud_labels()
             self.script_total_events = metadata.get("total_events", len(self.script_events))
             self.color_hints = metadata.get("color_hints", [])
             print(f"Loaded sync script {filepath} successfully. Events: {len(self.script_events)}")
@@ -6603,6 +6738,10 @@ class FireworksApp:
             
             self.auto_launch = self.saved_auto_launch
             self.update_legend_labels()
+            self.current_key = "N/A"
+            self.current_section_name = "None"
+            self.current_section_category = "None"
+            self.update_hud_labels()
             if hasattr(self, 'music_section_lbl') and self.music_section_lbl:
                 self.music_section_lbl.set_text("Section: None")
             print("Synchronized playback stopped.")
@@ -6683,6 +6822,7 @@ class FireworksApp:
                 
         elif event_type == "key_change":
             key_name = event.get("key", "Unknown")
+            self.current_key = key_name
             self.react_mid = min(1.5, self.react_mid + 0.6)
             self.react_treble = min(1.5, self.react_treble + 0.5)
             if hasattr(self, 'music_section_lbl') and self.music_section_lbl:
@@ -6697,6 +6837,9 @@ class FireworksApp:
                 
         elif event_type == "section":
             name = event.get("name", "Unknown")
+            category = event.get("category", "Unknown")
+            self.current_section_name = name
+            self.current_section_category = category
             if hasattr(self, 'music_section_lbl') and self.music_section_lbl:
                 self.music_section_lbl.set_text(f"Section: {name}")
             if getattr(self, 'preset_random_mode', False) and getattr(self, 'preset_random_timer', 0.0) >= 45.0:
@@ -6839,6 +6982,7 @@ class FireworksApp:
             self.update_synaesthesia(dt)
         
         self.fps_lbl.set_text(f"FPS: RECORDING ({self.record_fps} FPS)")
+        self.update_hud_labels()
         if self.active_routine_name:
             self.routine_lbl.set_text(f"Routine: {self.active_routine_name}")
         else:
