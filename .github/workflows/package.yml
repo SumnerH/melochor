@@ -91,7 +91,7 @@ jobs:
       - name: Install Python Dependencies (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          BREW_PYTHON=$(brew --prefix python@3.12)/bin/python3
+          BREW_PYTHON=$(brew --prefix python@3.12)/bin/python3.12
           $BREW_PYTHON -m pip install --break-system-packages --upgrade pip setuptools
           $BREW_PYTHON -m pip install --break-system-packages pyinstaller
           # Install dependencies cleanly, including pygobject (which compiles against Homebrew's gobject-introspection)
@@ -116,7 +116,7 @@ jobs:
       - name: Build Standalone Executable (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          BREW_PYTHON=$(brew --prefix python@3.12)/bin/python3
+          BREW_PYTHON=$(brew --prefix python@3.12)/bin/python3.12
           $BREW_PYTHON -m pyinstaller Melochor.spec
 
       - name: Fix Library Paths (macOS)
@@ -159,7 +159,7 @@ jobs:
       - name: Validate Standalone Bundle (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          BREW_PYTHON=$(brew --prefix python@3.12)/bin/python3
+          BREW_PYTHON=$(brew --prefix python@3.12)/bin/python3.12
           $BREW_PYTHON validate_bundle.py dist/Melochor.app/Contents/MacOS
 
       - name: Re-sign Bundle (macOS)
