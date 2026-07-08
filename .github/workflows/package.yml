@@ -127,7 +127,7 @@ jobs:
       - name: Build Standalone Executable (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          $pythonLocation/bin/python -m pyinstaller Melochor.spec
+          $pythonLocation/bin/python -m PyInstaller Melochor.spec
 
       - name: Fix Library Paths (macOS)
         if: matrix.os == 'macos-latest'
