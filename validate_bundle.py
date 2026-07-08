@@ -22,6 +22,16 @@ def sanitize_loaders_cache(cache_file):
     updated_lines = []
     rewrote_count = 0
     for line in lines:
+        # Skip comment lines containing forbidden path prefixes as they are ignored by GdkPixbuf
+        if line.strip().startswith('#'):
+            has_forbidden = False
+            for prefix in ["/opt/homebrew", "/usr/local", "/mingw64", "/msys64"]:
+                if prefix in line.lower():
+                    has_forbidden = True
+                    break
+            if has_forbidden:
+                continue
+
         if 'libpixbufloader' in line:
             parts = line.split('"')
             if len(parts) >= 3:
