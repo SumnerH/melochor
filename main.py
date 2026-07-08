@@ -654,15 +654,43 @@ void main() {
         if (vPos.y < ground_height) {
             float dist_to_center = abs(vPos.x);
             
-            if (dist_to_center < 0.32) {
+            if (dist_to_center < 0.32 && vPos.y > -0.915) {
                 // Inside the campfire ring: dark soot, fine grey ash, and glowing embers veins
                 float ash_noise = fbm(vPos * 25.0);
                 vec3 ash_color = vec3(0.12, 0.12, 0.14) * (0.65 + 0.35 * ash_noise);
                 
-                // Hot flickering ember veins running beneath the ashes
-                float ember_noise = noise(vPos * 45.0 + vec2(0.0, uTime * 0.4));
-                float ember_mask = smoothstep(0.42, 0.58, ember_noise);
-                vec3 glowing_embers = vec3(1.0, 0.22, 0.02) * ember_mask * (0.75 + 0.45 * bass);
+                // Heat-driven cycle factors: high frequency tempo-reactive speed cycling
+                float song_heat = clamp(bass * 0.55 + mid * 0.30 + treble * 0.15, 0.0, 1.0);
+                float heat_phase = uTime * 1.4 + (bass * 2.8 + treble * 1.2);
+                
+                // Hot flickering ember veins divided into much smaller, highly detailed multi-colored blocks
+                // We increase spatial frequency to 160.0 and add heat_phase to cycle coordinates!
+                float ember_noise = noise(vPos * 160.0 + vec2(heat_phase * 0.35, -heat_phase * 0.35));
+                float ember_mask = smoothstep(0.44, 0.56, ember_noise);
+                
+                // Multi-colored variations (mix of deep red, hot orange, and bright gold)
+                vec3 col_red = vec3(0.85, 0.04, 0.0);
+                vec3 col_orange = vec3(1.0, 0.42, 0.0);
+                vec3 col_gold = vec3(1.0, 0.85, 0.2);
+                
+                // Color variation based on spatial coordinates, cycling dynamically over time with the song heat!
+                float col_mix_noise = noise(vPos * 100.0 + vec2(-heat_phase * 0.2, heat_phase * 0.2));
+                
+                // Heat cycling color mix: Higher song_heat shifts the color mixing thresholds
+                // so that when the song is hot, more gold and orange embers appear!
+                float mix1 = smoothstep(0.18 - song_heat * 0.12, 0.58 - song_heat * 0.12, col_mix_noise);
+                float mix2 = smoothstep(0.38 - song_heat * 0.16, 0.78 - song_heat * 0.16, col_mix_noise);
+                vec3 base_ember_color = mix(col_red, mix(col_orange, col_gold, mix2), mix1);
+                
+                // Shade gets more dark red with bass, and more orange/yellow with treble
+                vec3 music_shaded_color = base_ember_color;
+                music_shaded_color.g *= (1.0 - bass * 0.6) + treble * 0.3; // Less green with bass (deeper red), more green with treble (more orange/gold)
+                music_shaded_color.r += treble * 0.1;
+                music_shaded_color = clamp(music_shaded_color, 0.0, 1.0);
+                
+                // Glow pulses directly with the music beats
+                float ember_glow_pulse = 0.65 + 0.45 * bass + 0.2 * treble;
+                vec3 glowing_embers = music_shaded_color * ember_mask * ember_glow_pulse;
                 
                 vec3 ground_pixel = ash_color + glowing_embers * 1.5;
                 
@@ -742,131 +770,171 @@ void main() {
         vec3 coals_color = vec3(0.98, 0.18, 0.01) * coals_glow;
         base_color += coals_color * 1.5;
         
-        if (vPos.y >= ground_height && y_scaled < 1.35) {
-            float height_fade = smoothstep(1.35, 0.75, y_scaled);
+        float total_temp = 0.0;
+        float total_opacity = 0.0;
+        float total_bg_glow = 0.0;
+        float total_blue_mask = 0.0;
+        
+        float fx[3];
+        fx[0] = -0.11; fx[1] = 0.0; fx[2] = 0.11;
+        
+        float x_factor = 2.5;
+        float p_val[3];
+        p_val[0] = (bass * x_factor + mid + treble) / (x_factor + 2.0);
+        p_val[1] = (bass + mid * x_factor + treble) / (x_factor + 2.0);
+        p_val[2] = (bass + mid + treble * x_factor) / (x_factor + 2.0);
+        
+        float f_height[3];
+        f_height[0] = 0.20 + 0.30 * p_val[0];
+        f_height[1] = 0.23 + 0.33 * p_val[1];
+        f_height[2] = 0.20 + 0.30 * p_val[2];
+        
+        float f_width[3];
+        f_width[0] = 0.09 + 0.04 * p_val[0];
+        f_width[1] = 0.10 + 0.04 * p_val[1];
+        f_width[2] = 0.09 + 0.04 * p_val[2];
+        
+        float f_sway[3];
+        f_sway[0] = sin(uTime * 1.6 + 0.0) * 0.08 + uStereoPanning * 0.35 + uWindGust * 0.50;
+        f_sway[1] = sin(uTime * 1.9 + 2.1) * 0.11 + uStereoPanning * 0.42 + uWindGust * 0.65;
+        f_sway[2] = sin(uTime * 2.2 + 4.3) * 0.08 + uStereoPanning * 0.35 + uWindGust * 0.50;
+        
+        for (int p = 0; p < 3; p++) {
+            float p_height = max(0.08, f_height[p]);
+            float y_scaled = (vPos.y - ground_height) / p_height;
             
-            float taper = 1.05 - y_scaled * 0.85;
-            float profile_width = flame_width * max(0.1, taper);
-            float shape_mask = exp(- (vPos.x * vPos.x) / (2.0 * profile_width * profile_width)) * container_mask;
-            
-            // Flames bend and whip sideways with wind gusts!
-            float wind_sway = sin(uTime * 1.8) * 0.12 + uStereoPanning * 0.42 + uWindGust * 0.65;
-            vec2 warped_coords = vPos;
-            warped_coords.x -= wind_sway * y_scaled * 0.45;
-            
-            vec2 noise_uv = vec2(warped_coords.x * 2.2, y_scaled);
-            
-            vec2 disp1 = vec2(uTime * 0.35 - treble * 0.15, -uTime * 2.5 - bass * 1.2);
-            vec2 disp2 = vec2(-uTime * 0.20 + mid * 0.10, -uTime * 3.8 - treble * 0.5);
-            
-            vec2 warp1 = vec2(
-                fbm(noise_uv * 1.8 + disp1),
-                fbm(noise_uv * 2.2 + disp2)
-            );
-            
-            vec2 warp2 = vec2(
-                fbm(noise_uv * 3.8 + warp1 * 1.4 - disp1 * 0.4),
-                fbm(noise_uv * 4.6 - warp1 * 1.1 + disp2 * 0.4)
-            );
-            
-            vec2 final_uv = noise_uv + warp2 * 0.45;
-            float licks = fbm(final_uv * 4.8 - vec2(0.0, uTime * 2.8));
-            
-            float flame_field = (exp(-y_scaled * 2.4) * 0.38 + licks * 0.82) * shape_mask - y_scaled * 0.54;
-            
-            float solid_base = smoothstep(0.12, 0.0, y_scaled);
-            flame_field = mix(flame_field, 0.80, solid_base * shape_mask);
-            
-            float temp = smoothstep(0.08, 0.38, flame_field);
-            temp *= height_fade;
-            temp = clamp(temp, 0.0, 1.0);
-            
-            vec3 flame_color = vec3(0.0);
-            float opacity = 0.0;
-            
-            if (temp > 0.005) {
-                vec3 col_blue = vec3(0.01, 0.05, 0.65) * (0.8 + bass * 0.4);
-                vec3 col_red, col_orange, col_yellow, col_white;
+            if (vPos.y >= ground_height && y_scaled < 1.35) {
+                float height_fade = smoothstep(1.35, 0.75, y_scaled);
+                float taper = 1.05 - y_scaled * 0.85;
+                float profile_width = f_width[p] * max(0.1, taper);
                 
-                if (uColorMode == 1) { // NEON
-                    col_red = vec3(1.0, 0.0, 0.5) * (0.8 + bass * 0.35);   // Neon Pink
-                    col_orange = vec3(0.5, 0.0, 1.0) * (0.8 + treble * 0.35); // Neon Purple
-                    col_yellow = vec3(0.0, 1.0, 1.0) * (0.8 + treble * 0.35); // Neon Cyan
-                    col_white = vec3(0.0, 1.0, 0.0) * (0.8 + mid * 0.35);  // Neon Green
-                } else if (uColorMode == 2) { // TRANQUIL
-                    col_red = vec3(0.0, 0.3, 0.8) * (0.8 + bass * 0.3);    // Deep Blue
-                    col_orange = vec3(0.0, 0.6, 0.5) * (0.8 + treble * 0.3);  // Calming Teal
-                    col_yellow = vec3(0.5, 0.2, 0.7) * (0.8 + treble * 0.3);  // Lavender
-                    col_white = vec3(0.1, 0.7, 0.4) * (0.8 + mid * 0.3);   // Soft Emerald
-                } else if (uColorMode == 3) { // METAL
-                    col_red = vec3(0.8, 0.5, 0.2) * (0.8 + bass * 0.35);     // Warm Bronze
-                    col_orange = vec3(1.0, 0.8, 0.2) * (0.8 + treble * 0.35);  // Radiant Gold
-                    col_yellow = vec3(0.9, 0.9, 0.95) * (0.8 + treble * 0.35); // Bright Silver
-                    col_white = vec3(1.0, 1.0, 1.0) * (0.8 + mid * 0.35);   // White
-                } else { // REALISTIC
-                    col_red = vec3(0.85 + 0.15 * bass, 0.015 * (1.0 - bass), 0.005) * (1.25 + bass * 0.45);
-                    col_orange = vec3(0.98, 0.28 + 0.22 * treble, 0.01);
-                    col_yellow = vec3(1.0, 0.88 + 0.12 * treble, 0.10 + 0.25 * treble);
-                    col_white = vec3(1.0, 1.0, 0.72 + 0.28 * mid);
+                float px = vPos.x - fx[p];
+                px -= f_sway[p] * y_scaled * 0.45;
+                
+                float shape_mask = exp(- (px * px) / (2.0 * profile_width * profile_width)) * container_mask;
+                
+                vec2 noise_uv = vec2(px * 2.5, y_scaled);
+                vec2 disp1 = vec2(uTime * 0.30 + float(p) * 1.5, -uTime * 2.2 - bass * 1.0);
+                vec2 disp2 = vec2(-uTime * 0.20 - float(p) * 1.5, -uTime * 3.4 - treble * 0.4);
+                
+                vec2 warp1 = vec2(
+                    fbm(noise_uv * 1.8 + disp1),
+                    fbm(noise_uv * 2.2 + disp2)
+                );
+                vec2 warp2 = vec2(
+                    fbm(noise_uv * 3.8 + warp1 * 1.4 - disp1 * 0.4),
+                    fbm(noise_uv * 4.6 - warp1 * 1.1 + disp2 * 0.4)
+                );
+                vec2 final_uv = noise_uv + warp2 * 0.45;
+                float licks = fbm(final_uv * 4.8 - vec2(0.0, uTime * (2.4 + float(p) * 0.4)));
+                
+                float flame_field = (exp(-y_scaled * 2.4) * 0.38 + licks * 0.82) * shape_mask - y_scaled * 0.54;
+                
+                float solid_base = smoothstep(0.12, 0.0, y_scaled);
+                flame_field = mix(flame_field, 0.80, solid_base * shape_mask);
+                
+                float p_temp = smoothstep(0.08, 0.38, flame_field) * height_fade;
+                p_temp = clamp(p_temp, 0.0, 1.0);
+                
+                if (p_temp > total_temp) {
+                    total_temp = p_temp;
                 }
                 
-                float red_thresh = 0.04 + 0.06 * (1.0 - bass);
-                float orange_thresh = 0.18 - 0.06 * bass;
-                float yellow_thresh = 0.52 - 0.18 * treble;
-                float white_thresh = 0.80 - 0.15 * treble;
-                
-                orange_thresh = max(red_thresh + 0.02, orange_thresh);
-                yellow_thresh = max(orange_thresh + 0.02, yellow_thresh);
-                white_thresh = max(yellow_thresh + 0.02, white_thresh);
-                
-                if (temp < red_thresh) {
-                    float t = temp / red_thresh;
-                    flame_color = mix(vec3(0.0), col_red, t);
-                } else if (temp < orange_thresh) {
-                    float t = (temp - red_thresh) / (orange_thresh - red_thresh);
-                    flame_color = mix(col_red, col_orange, t);
-                } else if (temp < yellow_thresh) {
-                    float t = (temp - orange_thresh) / (yellow_thresh - orange_thresh);
-                    flame_color = mix(col_orange, col_yellow, t);
-                } else if (temp < white_thresh) {
-                    float t = (temp - yellow_thresh) / (white_thresh - yellow_thresh);
-                    flame_color = mix(col_yellow, col_white, t);
-                } else {
-                    float t = clamp((temp - white_thresh) / (1.0 - white_thresh), 0.0, 1.0);
-                    flame_color = mix(col_white, vec3(1.0, 1.0, 1.0), t);
+                // Accumulate local blue mask for gas base
+                float p_blue = smoothstep(0.06, 0.0, y_scaled) * smoothstep(f_width[p] * 0.35, 0.0, abs(px));
+                if (p_blue > total_blue_mask) {
+                    total_blue_mask = p_blue;
                 }
                 
-                float blue_mask = smoothstep(0.06, 0.0, y_scaled) * smoothstep(flame_width * 0.35, 0.0, abs(vPos.x));
-                // Only mix in standard blue gas base if we are in realistic mode!
-                if (uColorMode == 0) {
-                    flame_color = mix(flame_color, col_blue, blue_mask * 0.75);
-                }
-                
-                float target_density = temp * (3.8 + bass * 2.2);
-                opacity = 1.0 - exp(-target_density);
-                opacity = clamp(opacity, 0.0, 0.94);
+                // Add background glow for each plume
+                float glow_width = f_width[p] * 1.4;
+                float glow_shape = exp(- (px * px) / (2.0 * glow_width * glow_width)) * container_mask;
+                float glow_decay = exp(-y_scaled * 2.0);
+                total_bg_glow += glow_shape * glow_decay * (0.04 + 0.12 * bass);
             }
-            
-            float glow_width = flame_width * 1.4;
-            float glow_shape = exp(- (vPos.x * vPos.x) / (2.0 * glow_width * glow_width)) * container_mask;
-            float glow_decay = exp(-y_scaled * 2.0);
-            float bg_glow = glow_shape * glow_decay * (0.05 + 0.15 * bass);
-            
-            vec3 glow_tint;
-            if (uColorMode == 1) {
-                glow_tint = vec3(0.85, 0.0, 0.5);
-            } else if (uColorMode == 2) {
-                glow_tint = vec3(0.0, 0.3, 0.8);
-            } else if (uColorMode == 3) {
-                glow_tint = vec3(0.8, 0.5, 0.2);
-            } else {
-                glow_tint = vec3(0.85, 0.14, 0.01);
-            }
-            vec3 glow_color = glow_tint * bg_glow;
-            
-            base_color += glow_color;
-            base_color = mix(base_color, flame_color * (1.1 + bass * 0.35), opacity);
         }
+        
+        vec3 flame_color = vec3(0.0);
+        float opacity = 0.0;
+        
+        if (total_temp > 0.005) {
+            vec3 col_blue = vec3(0.01, 0.05, 0.65) * (0.8 + bass * 0.4);
+            vec3 col_red, col_orange, col_yellow, col_white;
+            
+            if (uColorMode == 1) { // NEON
+                col_red = vec3(1.0, 0.0, 0.5) * (0.8 + bass * 0.35);   // Neon Pink
+                col_orange = vec3(0.5, 0.0, 1.0) * (0.8 + treble * 0.35); // Neon Purple
+                col_yellow = vec3(0.0, 1.0, 1.0) * (0.8 + treble * 0.35); // Neon Cyan
+                col_white = vec3(0.0, 1.0, 0.0) * (0.8 + mid * 0.35);  // Neon Green
+            } else if (uColorMode == 2) { // TRANQUIL
+                col_red = vec3(0.0, 0.3, 0.8) * (0.8 + bass * 0.3);    // Deep Blue
+                col_orange = vec3(0.0, 0.6, 0.5) * (0.8 + treble * 0.3);  // Calming Teal
+                col_yellow = vec3(0.5, 0.2, 0.7) * (0.8 + treble * 0.3);  // Lavender
+                col_white = vec3(0.1, 0.7, 0.4) * (0.8 + mid * 0.3);   // Soft Emerald
+            } else if (uColorMode == 3) { // METAL
+                col_red = vec3(0.8, 0.5, 0.2) * (0.8 + bass * 0.35);     // Warm Bronze
+                col_orange = vec3(1.0, 0.8, 0.2) * (0.8 + treble * 0.35);  // Radiant Gold
+                col_yellow = vec3(0.9, 0.9, 0.95) * (0.8 + treble * 0.35); // Bright Silver
+                col_white = vec3(1.0, 1.0, 1.0) * (0.8 + mid * 0.35);   // White
+            } else { // REALISTIC
+                col_red = vec3(0.85 + 0.15 * bass, 0.015 * (1.0 - bass), 0.005) * (1.25 + bass * 0.45);
+                col_orange = vec3(0.98, 0.28 + 0.22 * treble, 0.01);
+                col_yellow = vec3(1.0, 0.88 + 0.12 * treble, 0.10 + 0.25 * treble);
+                col_white = vec3(1.0, 1.0, 0.72 + 0.28 * mid);
+            }
+            
+            float red_thresh = 0.04 + 0.06 * (1.0 - bass);
+            float orange_thresh = 0.18 - 0.06 * bass;
+            float yellow_thresh = 0.52 - 0.18 * treble;
+            float white_thresh = 0.80 - 0.15 * treble;
+            
+            orange_thresh = max(red_thresh + 0.02, orange_thresh);
+            yellow_thresh = max(orange_thresh + 0.02, yellow_thresh);
+            white_thresh = max(yellow_thresh + 0.02, white_thresh);
+            
+            if (total_temp < red_thresh) {
+                float t = total_temp / red_thresh;
+                flame_color = mix(vec3(0.0), col_red, t);
+            } else if (total_temp < orange_thresh) {
+                float t = (total_temp - red_thresh) / (orange_thresh - red_thresh);
+                flame_color = mix(col_red, col_orange, t);
+            } else if (total_temp < yellow_thresh) {
+                float t = (total_temp - orange_thresh) / (yellow_thresh - orange_thresh);
+                flame_color = mix(col_orange, col_yellow, t);
+            } else if (total_temp < white_thresh) {
+                float t = (total_temp - yellow_thresh) / (white_thresh - yellow_thresh);
+                flame_color = mix(col_yellow, col_white, t);
+            } else {
+                float t = clamp((total_temp - white_thresh) / (1.0 - white_thresh), 0.0, 1.0);
+                flame_color = mix(col_white, vec3(1.0, 1.0, 1.0), t);
+            }
+            
+            // Only mix in standard blue gas base if we are in realistic mode!
+            if (uColorMode == 0) {
+                flame_color = mix(flame_color, col_blue, total_blue_mask * 0.75);
+            }
+            
+            float target_density = total_temp * (3.8 + bass * 2.2);
+            opacity = 1.0 - exp(-target_density);
+            opacity = clamp(opacity, 0.0, 0.94);
+        }
+        
+        float bg_glow = clamp(total_bg_glow, 0.0, 0.5);
+        
+        vec3 glow_tint;
+        if (uColorMode == 1) {
+            glow_tint = vec3(0.85, 0.0, 0.5);
+        } else if (uColorMode == 2) {
+            glow_tint = vec3(0.0, 0.3, 0.8);
+        } else if (uColorMode == 3) {
+            glow_tint = vec3(0.8, 0.5, 0.2);
+        } else {
+            glow_tint = vec3(0.85, 0.14, 0.01);
+        }
+        vec3 glow_color = glow_tint * bg_glow;
+        
+        base_color += glow_color;
+        base_color = mix(base_color, flame_color * (1.1 + bass * 0.35), opacity);
         
         // C. 3D NORMAL-MAPPED CAMPFIRE ROCKS RING (Calculated last so they sit in front of the fire!)
         // 7 rugged rocks arranged in a beautiful circular campfire ring around the fireplace ashes
@@ -3236,6 +3304,16 @@ class FireworksApp:
         
         self.active_presets = [
             {
+                "name": "Fire Plasma",
+                "major_mode": "FIRE Plasma",
+                "show_rockets": True,
+                "opt_color_mode": "REALISTIC",
+                "opt_trailers": 6,
+                "opt_gravity": 1.0,
+                "opt_height_restrict": True,
+                "opt_star_shape": 0
+            },
+            {
                 "name": "Fireworks",
                 "major_mode": "FIREWORKS",
                 "show_rockets": True,
@@ -3310,16 +3388,6 @@ class FireworksApp:
                 "syn_fade_mode": "Wave"
             },
             {
-                "name": "Fire Plasma",
-                "major_mode": "FIRE Plasma",
-                "show_rockets": True,
-                "opt_color_mode": "REALISTIC",
-                "opt_trailers": 0,
-                "opt_gravity": 1.0,
-                "opt_height_restrict": True,
-                "opt_star_shape": 0
-            },
-            {
                 "name": "Random",
                 "major_mode": None,
                 "random_preset": True
@@ -3335,7 +3403,7 @@ class FireworksApp:
         self.record_path = record_path
         self.is_recording = record_path is not None
         self.record_time = 0.0
-        self.record_fps = 60
+        self.record_fps = 30
         self.record_dt = 1.0 / self.record_fps
         self.ffmpeg_process = None
         self.temp_video_path = "temp_recording.mp4"
@@ -4238,14 +4306,14 @@ class FireworksApp:
         if hasattr(self, 'lbl_r6'):
             if self.major_mode == "MANDALA Sacred":
                 self.lbl_r6.set_text("[6]  - Peace Symbol")
-            elif self.major_mode == "SYNAESTHESIA Classic":
+            elif self.major_mode in ("SYNAESTHESIA Classic", "FIRE Plasma"):
                 self.lbl_r6.set_text("")
             else:
                 self.lbl_r6.set_text("[6]  - Supernova")
         if hasattr(self, 'lbl_r7'):
             if self.major_mode == "MANDALA Sacred":
                 self.lbl_r7.set_text("[7]  - Halo & Outward Sparks")
-            elif self.major_mode == "SYNAESTHESIA Classic":
+            elif self.major_mode in ("SYNAESTHESIA Classic", "FIRE Plasma"):
                 self.lbl_r7.set_text("")
             else:
                 self.lbl_r7.set_text("[7]  - Shooting Star")
@@ -5803,16 +5871,28 @@ class FireworksApp:
         elif self.major_mode == "SYNAESTHESIA Classic":
             self.trigger_syn_star_burst()
         elif self.major_mode == "FIRE Plasma":
-            if routine_name in ("Flame Flare", "Lotus Bloom", "Coral Pulse", "Plasma Burst"):
+            if routine_name == "Flame Flare":
+                for _ in range(160):
+                    self.spawn_differentiated_spark('FLARE')
+            elif routine_name == "Flame Wave":
+                for _ in range(180):
+                    self.spawn_differentiated_spark('WAVE')
+            elif routine_name == "Treble Spark Shower":
+                for _ in range(250):
+                    self.spawn_differentiated_spark('SHOWER')
+            elif routine_name == "Fire Eruption":
+                for _ in range(300):
+                    self.spawn_differentiated_spark('ERUPTION')
+            elif routine_name in ("Lotus Bloom", "Coral Pulse", "Plasma Burst"):
                 for _ in range(120):
                     self.spawn_fire_spark("bass", 1.8)
-            elif routine_name in ("Flame Wave", "Cosmic Spin", "Geyser Eruption", "Gravity Surge"):
+            elif routine_name in ("Cosmic Spin", "Geyser Eruption", "Gravity Surge"):
                 for _ in range(120):
                     self.spawn_fire_spark("mid", 1.8)
-            elif routine_name in ("Treble Spark Shower", "Infinite Pulse", "Plankton Surge", "Stardust Stream"):
+            elif routine_name in ("Infinite Pulse", "Plankton Surge", "Stardust Stream"):
                 for _ in range(120):
                     self.spawn_fire_spark("treble", 1.8)
-            elif routine_name in ("Fire Eruption", "Geometric Collapse", "Deep Vent Blast", "Event Horizon"):
+            elif routine_name in ("Geometric Collapse", "Deep Vent Blast", "Event Horizon"):
                 for _ in range(200):
                     band = random.choice(["bass", "mid", "treble"])
                     self.spawn_fire_spark(band, 2.0)
@@ -6051,6 +6131,77 @@ class FireworksApp:
                 'life': 15.0,
                 'max_life': 15.0
             }
+        elif r_type == "SHOOTING_STAR":
+            fly_right = np.random.choice([True, False])
+            if fly_right:
+                # Spawn on left, fly right
+                start_x = np.random.uniform(-0.8, -0.2)
+                vel_x = np.random.uniform(0.15, 0.35)
+            else:
+                # Spawn on right, fly left
+                start_x = np.random.uniform(0.2, 0.8)
+                vel_x = np.random.uniform(-0.35, -0.15)
+                
+            start_pt = np.array([start_x, 1.0], dtype=np.float32)
+            # Randomized angle/vertical speed
+            vel_y = np.random.uniform(-0.3, -0.15)
+            vel = np.array([vel_x, vel_y], dtype=np.float32)
+            
+            self.active_rarity = {
+                'type': 'SHOOTING_STAR',
+                'pos': start_pt,
+                'vel': vel,
+                'trail': [start_pt.copy()],
+                'life': 18.0,
+                'max_life': 18.0
+            }
+        elif r_type == "BATS":
+            bats = []
+            num_bats = np.random.randint(6, 11)
+            for _ in range(num_bats):
+                ox = np.random.uniform(-0.18, 0.18)
+                oy = np.random.uniform(-0.15, 0.15)
+                b_pos = np.array([-1.2 + ox, 0.18 + oy], dtype=np.float32)
+                # Velocity is 1/5 of previous speed
+                b_vel = np.array([np.random.uniform(0.076, 0.096), np.random.uniform(0.016, 0.032)], dtype=np.float32)
+                bats.append({
+                    'pos': b_pos,
+                    'vel': b_vel,
+                    'phase': np.random.uniform(0.0, 2.0 * np.pi)
+                })
+            self.active_rarity = {
+                'type': 'BATS',
+                'bats': bats,
+                'life': 35.0, # Increased lifetime since they move 1/5 speed
+                'max_life': 35.0
+            }
+        elif r_type == "TUMBLEWEED":
+            spawn_left = np.random.choice([True, False])
+            x_start = -1.2 if spawn_left else 1.2
+            # Speed is halved again!
+            speed_val = np.random.uniform(0.04, 0.07)
+            vx = speed_val if spawn_left else -speed_val
+            
+            # Depth displacement (forward-back from current location)
+            depth_offset = np.random.uniform(-0.06, 0.06)
+            base_y = -0.58 + depth_offset
+            radius = 0.022 + depth_offset * 0.22 # Scale size with physical depth
+            
+            self.active_rarity = {
+                'type': 'TUMBLEWEED',
+                'x': x_start,
+                'base_y': base_y,
+                'y': base_y,
+                'vel_x': vx,
+                'radius': radius,
+                'rotation': 0.0,
+                'rot_vel': vx / radius,
+                'bounce_phase': 0.0,
+                'hop_y': 0.0,
+                'hop_vy': 0.0,
+                'life': 55.0,
+                'max_life': 55.0
+            }
 
     def update_active_rarity(self, dt):
         r = self.active_rarity
@@ -6187,6 +6338,49 @@ class FireworksApp:
             # Fully flies off screen boundaries before deactivating
             if np.linalg.norm(r['pos'] - np.array([0.0, 4.0, 0.0])) > 24.0:
                 self.active_rarity = None
+        elif t_type == "SHOOTING_STAR":
+            r['pos'] += r['vel'] * dt
+            r['trail'].append(r['pos'].copy())
+            if len(r['trail']) > 8:
+                r['trail'].pop(0)
+            if r['pos'][1] < -0.38:
+                self.active_rarity = None
+        elif t_type == "BATS":
+            all_off_screen = True
+            for b in r['bats']:
+                b['pos'] += b['vel'] * dt
+                if b['pos'][0] < 1.2:
+                    all_off_screen = False
+            if all_off_screen:
+                self.active_rarity = None
+        elif t_type == "TUMBLEWEED":
+            r['x'] += r['vel_x'] * dt
+            r['rotation'] += r['rot_vel'] * dt
+            
+            # Constant rolling rhythm bobbing
+            r['bounce_phase'] += dt * 6.0
+            base_bob = abs(np.sin(r['bounce_phase'])) * 0.003
+            
+            # Big beat detection (using self.react_bass > 0.54)
+            if self.react_bass > 0.54:
+                # Upward jump velocity scaled by bass power
+                r['hop_vy'] = max(r.get('hop_vy', 0.0), self.react_bass * 0.18)
+                
+            # Physics loop for the big hops
+            r['hop_y'] += r['hop_vy'] * dt
+            r['hop_vy'] -= 0.65 * dt # Gravity pulling downwards
+            
+            # Ground collision check
+            if r['hop_y'] <= 0.0:
+                r['hop_y'] = 0.0
+                if abs(r['hop_vy']) > 0.04:
+                    r['hop_vy'] = -r['hop_vy'] * 0.42 # Elastic bounce!
+                else:
+                    r['hop_vy'] = 0.0
+                    
+            r['y'] = r['base_y'] + base_bob + r['hop_y']
+            if (r['vel_x'] > 0 and r['x'] > 1.2) or (r['vel_x'] < 0 and r['x'] < -1.2):
+                self.active_rarity = None
 
     def update_rarity_system(self, dt):
         if self.active_rarity is None and self.rarity_queued_type is None:
@@ -6201,7 +6395,7 @@ class FireworksApp:
                 elif self.major_mode == "MANDALA Sacred":
                     self.rarity_queued_type = random.choice(["BIRD", "SMOKE", "SUN_BURST", "BUTTERFLY"])
                 elif self.major_mode == "FIRE Plasma":
-                    self.rarity_queued_type = random.choice(["SMOKE", "SUN_BURST", "ASTEROIDS"])
+                    self.rarity_queued_type = random.choice(["SHOOTING_STAR", "BATS", "TUMBLEWEED"])
                 if self.rarity_queued_type is not None:
                     print(f"Rarity queued: {self.rarity_queued_type}. Waiting for significant beat...")
                     self.rarity_cooldown = 0.0
@@ -6581,10 +6775,10 @@ class FireworksApp:
         gl.glDrawArrays(gl.GL_TRIANGLE_FAN, 0, 4)
         gl.glBindVertexArray(0)
         
-        # Enable Depth Testing and Additive Blending for World Render
+        # Enable Depth Testing and Blending for World Render (Standard alpha blending for high-fidelity silhouettes and lines)
         gl.glEnable(gl.GL_DEPTH_TEST)
         gl.glEnable(gl.GL_BLEND)
-        gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE)
+        gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
         
         # 2. Gather, Buffer and Render All Line Geometries (Ground Grid & Rocket Trails)
         line_pos = []
@@ -6619,6 +6813,82 @@ class FireworksApp:
                         col = [0.92, 0.96, 1.0, alpha * 0.95]
                     else:
                         col = [0.35, 0.65, 1.0, alpha * 0.55 * (1.0 / (depth + 1))]
+                    line_col.append(col)
+                    line_col.append(col)
+                    
+        # Draw Scenic FIRE Plasma Mode Rarities (Shooting Star, Bats, Tumbleweed)
+        if self.major_mode == "FIRE Plasma" and self.active_rarity is not None:
+            r = self.active_rarity
+            if r['type'] == 'SHOOTING_STAR' and 'trail' in r:
+                for idx in range(len(r['trail']) - 1):
+                    pt0 = r['trail'][idx]
+                    pt1 = r['trail'][idx + 1]
+                    alpha = (idx + 1) / len(r['trail'])
+                    line_pos.append([pt0[0], pt0[1], 0.0])
+                    line_pos.append([pt1[0], pt1[1], 0.0])
+                    # Beautiful blazing white-gold trail
+                    line_col.append([1.0, 0.90, 0.65, alpha * 0.95])
+                    line_col.append([1.0, 0.90, 0.65, alpha * 0.95])
+            elif r['type'] == 'BATS' and 'bats' in r:
+                span = 0.024 # Wider wing span for striking silhouette visibility
+                t_val = self.get_sim_time()
+                for b in r['bats']:
+                    bp = b['pos']
+                    flap = np.sin(t_val * 24.0 + b['phase']) * 0.015
+                    col = [0.0, 0.0, 0.0, 0.98] # Solid black silhouette
+                    
+                    # Wing Left
+                    line_pos.append([bp[0], bp[1], 0.0])
+                    line_pos.append([bp[0] - span, bp[1] + flap, 0.0])
+                    # Wing Right
+                    line_pos.append([bp[0], bp[1], 0.0])
+                    line_pos.append([bp[0] + span, bp[1] + flap, 0.0])
+                    # Body/Head
+                    line_pos.append([bp[0], bp[1] + 0.006, 0.0])
+                    line_pos.append([bp[0], bp[1] - 0.008, 0.0])
+                    for _ in range(6):
+                        line_col.append(col)
+            elif r['type'] == 'TUMBLEWEED':
+                tx = r['x']
+                ty = r['y']
+                rad = r['radius']
+                rot = r['rotation']
+                col = [0.08, 0.05, 0.03, 0.90] # Twiggy dark brown branches
+                
+                # Render a highly detailed tangled branch ball
+                num_loops = 10
+                for i_loop in range(num_loops):
+                    # Rotate each loop plane
+                    loop_ang = i_loop * (np.pi / num_loops) + rot
+                    c_l, s_l = np.cos(loop_ang), np.sin(loop_ang)
+                    
+                    segments = 6
+                    # Vary radius slightly to create fuzzy/tangled twig density
+                    loop_rad = rad * (0.85 + 0.25 * np.sin(i_loop * 4.3))
+                    
+                    p_prev = None
+                    for j_seg in range(segments + 1):
+                        a0 = j_seg * (2.0 * np.pi / segments)
+                        # Add jagged offset to make the branches look twiggy and rough
+                        jag_r = loop_rad * (1.0 + 0.12 * np.sin(j_seg * 5.7 + i_loop))
+                        
+                        p_local = np.array([jag_r * np.cos(a0), jag_r * 0.5 * np.sin(a0)])
+                        p_rot = [p_local[0] * c_l - p_local[1] * s_l, p_local[0] * s_l + p_local[1] * c_l]
+                        
+                        if p_prev is not None:
+                            line_pos.append([tx + p_prev[0], ty + p_prev[1], 0.0])
+                            line_pos.append([tx + p_rot[0], ty + p_rot[1], 0.0])
+                            line_col.append(col)
+                            line_col.append(col)
+                        p_prev = p_rot
+                        
+                # Draw 8 cross-cutting core branches for a beautifully tangled inner ball center
+                for k in range(8):
+                    ang_c = k * 1.7 + rot
+                    pt0 = [tx + rad * 0.8 * np.cos(ang_c), ty + rad * 0.4 * np.sin(ang_c)]
+                    pt1 = [tx - rad * 0.8 * np.cos(ang_c), ty - rad * 0.4 * np.sin(ang_c)]
+                    line_pos.append([pt0[0], pt0[1], 0.0])
+                    line_pos.append([pt1[0], pt1[1], 0.0])
                     line_col.append(col)
                     line_col.append(col)
                         
@@ -6693,6 +6963,9 @@ class FireworksApp:
             gl.glDrawArrays(gl.GL_LINES, 0, len(line_pos_arr))
             gl.glBindVertexArray(0)
             
+        # Restore additive blending for brilliant glowing particle stars and sparks!
+        gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE)
+        
         # 3. Gather, Buffer and Render All Points (Launcher Heads, Sparks and Particle Trails)
         part_pos = []
         part_col = []
@@ -6843,6 +7116,9 @@ class FireworksApp:
                 
         if hasattr(self, 'is_recording') and self.is_recording and self.ffmpeg_process:
             self.capture_recording_frame(w_phys, h_phys)
+            # Pump the default GLib MainContext to process keyboard, mouse, and resize events during fast recording loop
+            while GLib.MainContext.default().iteration(False):
+                pass
             # Schedule next frame draw with a tiny timeout to let GTK do layout/allocation
             GLib.timeout_add(1, self.gl_area.queue_draw)
                  
@@ -7144,6 +7420,8 @@ class FireworksApp:
                 self.trigger_routine("Supernova", self.launch_supernova)
             elif self.major_mode == "MANDALA Sacred":
                 self.trigger_climax_event(intensity=1.6, routine_name="Peace Symbol")
+            elif self.major_mode == "FIRE Plasma":
+                pass
             else:
                 self.trigger_climax_event(intensity=2.0, routine_name="Supernova")
             return True
@@ -7152,6 +7430,8 @@ class FireworksApp:
                 self.trigger_routine("Shooting Star", self.launch_shooting_star)
             elif self.major_mode == "MANDALA Sacred":
                 self.trigger_climax_event(intensity=1.8, routine_name="Halo Effect")
+            elif self.major_mode == "FIRE Plasma":
+                pass
             else:
                 self.trigger_climax_event(intensity=1.6, routine_name="Shooting Star")
             return True
@@ -7235,44 +7515,29 @@ class FireworksApp:
                 self.is_fullscreen = True
             return True
         elif keyval in (Gdk.KEY_k, Gdk.KEY_K):
-            if not hasattr(self, 'rarity_cycle_list'):
-                self.rarity_cycle_list = [
-                    "SQUID", "MANTA", "SEAHORSE", "LANTERN_FISH",
-                    "PLANET", "GALAXY", "ASTEROIDS",
-                    "CATHERINE_WHEEL",
-                    "BIRD", "SMOKE", "SUN_BURST", "BUTTERFLY"
-                ]
-                self.rarity_cycle_idx = -1
-            self.rarity_cycle_idx = (self.rarity_cycle_idx + 1) % len(self.rarity_cycle_list)
-            r_type = self.rarity_cycle_list[self.rarity_cycle_idx]
-            self.current_rarity_cycle_name = r_type
-            
-            # Auto-initialize and switch major mode
-            if r_type in ["SQUID", "MANTA", "SEAHORSE", "LANTERN_FISH"]:
-                target_mode = "UNDERWATER Lava"
-            elif r_type in ["PLANET", "GALAXY", "ASTEROIDS"]:
-                target_mode = "TUNNEL Wormhole"
-            elif r_type in ["CATHERINE_WHEEL"]:
-                target_mode = "FIREWORKS"
-            elif r_type in ["BIRD", "SMOKE", "SUN_BURST", "BUTTERFLY"]:
-                target_mode = "MANDALA Sacred"
+            mode_rarities = {
+                "UNDERWATER Lava": ["SQUID", "MANTA", "SEAHORSE", "LANTERN_FISH"],
+                "TUNNEL Wormhole": ["PLANET", "GALAXY", "ASTEROIDS"],
+                "FIREWORKS": ["CATHERINE_WHEEL"],
+                "MANDALA Sacred": ["BIRD", "SMOKE", "SUN_BURST", "BUTTERFLY"],
+                "FIRE Plasma": ["SHOOTING_STAR", "BATS", "TUMBLEWEED"]
+            }
+            if self.major_mode in mode_rarities:
+                r_list = mode_rarities[self.major_mode]
+                if not hasattr(self, 'mode_rarity_indices'):
+                    self.mode_rarity_indices = {}
                 
-            self.major_mode = target_mode
-            self.major_mode_idx = self.modes.index(target_mode)
-            
-            # Make sure mode structures are initialized
-            if self.major_mode == "TUNNEL Wormhole":
-                if not hasattr(self, 'gem_z'):
-                    self.init_tunnel_mode()
-            elif self.major_mode == "UNDERWATER Lava":
-                if not hasattr(self, 'bubble_pos'):
-                    self.init_underwater_mode()
-            elif self.major_mode == "MANDALA Sacred":
-                if not hasattr(self, 'mandala_base_pos'):
-                    self.init_mandala_mode()
-                    
-            self.spawn_rarity(r_type)
-            self.update_legend_labels()
+                # Retrieve last-spawned index for this major mode, defaulting to -1
+                curr_idx = self.mode_rarity_indices.get(self.major_mode, -1)
+                next_idx = (curr_idx + 1) % len(r_list)
+                self.mode_rarity_indices[self.major_mode] = next_idx
+                
+                next_type = r_list[next_idx]
+                print(f"Cycling current mode rarity to: {next_type} (index {next_idx})")
+                self.active_rarity = None
+                self.rarity_queued_type = None
+                self.spawn_rarity(next_type)
+                self.update_legend_labels()
             return True
         return False
 
@@ -7690,7 +7955,8 @@ class FireworksApp:
             '-f', 'rawvideo', '-vcodec', 'rawvideo',
             '-s', f'{w}x{h}', '-pix_fmt', 'rgba', '-r', str(self.record_fps),
             '-i', '-',
-            '-c:v', 'libx265', '-pix_fmt', 'yuv420p', '-crf', '18', '-preset', 'medium',
+            '-vf', 'vflip',
+            '-c:v', 'libx265', '-pix_fmt', 'yuv420p', '-crf', '18', '-preset', 'ultrafast',
             self.temp_video_path
         ]
         
@@ -7854,10 +8120,7 @@ class FireworksApp:
             gl.glPixelStorei(gl.GL_PACK_ALIGNMENT, 1)
             pixels = gl.glReadPixels(0, 0, w, h, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE)
             
-            arr = np.frombuffer(pixels, dtype=np.uint8).reshape(h, w, 4)
-            arr = np.flipud(arr)
-            
-            self.ffmpeg_process.stdin.write(arr.tobytes())
+            self.ffmpeg_process.stdin.write(pixels)
             
             if int(self.record_time * self.record_fps) % (self.record_fps * 5) == 0:
                 print(f"Recorded frame: {self.record_time:.2f}s / {self.script_duration:.2f}s...")
@@ -8336,9 +8599,114 @@ class FireworksApp:
         self.fire_spark_max_life = np.zeros(N_sparks, dtype=np.float32)
         self.fire_spark_active = np.zeros(N_sparks, dtype=np.bool_)
         self.fire_spark_hue = np.zeros(N_sparks, dtype=np.float32) # For beautiful individual color variations
+        self.fire_spark_plume = np.zeros(N_sparks, dtype=np.int32) # Tracks which of the 3 independent flames a particle belongs to
         self.next_fire_spark_idx = 0
         
+        # 3 independent wind gust variables (for Left, Center, Right flames)
+        self.fire_wind_gusts = [0.0, 0.0, 0.0]
+        self.fire_wind_timers = [0.0, 0.0, 0.0]
+        self.fire_wind_targets = [0.0, 0.0, 0.0]
+        
         # Wind gust simulation parameters
+    def spawn_differentiated_spark(self, s_type):
+        idx = self.next_fire_spark_idx
+        self.next_fire_spark_idx = (self.next_fire_spark_idx + 1) % len(self.fire_spark_pos)
+        
+        if s_type == 'FLARE':
+            # Flame Flare: Massive white-hot sparks rising straight up
+            x = np.random.uniform(-0.12, 0.12)
+            y = np.random.uniform(-0.84, -0.78)
+            z = np.random.uniform(-0.15, 0.15)
+            self.fire_spark_pos[idx] = [x, y, z]
+            
+            vx = np.random.uniform(-0.06, 0.06)
+            vy = np.random.uniform(0.75, 1.3)
+            vz = np.random.uniform(-0.06, 0.06)
+            self.fire_spark_vel[idx] = [vx, vy, vz]
+            
+            is_smoke = np.random.uniform(0.0, 1.0) < 0.25
+            if is_smoke:
+                self.fire_spark_size[idx] = -np.random.uniform(12.0, 26.0)
+                # Orange-tinted glowing smoke
+                self.fire_spark_col[idx] = [0.42, 0.22, 0.08, np.random.uniform(0.12, 0.28)]
+                self.fire_spark_hue[idx] = -1.0
+                max_life = np.random.uniform(2.8, 4.5)
+            else:
+                self.fire_spark_size[idx] = np.random.uniform(7.5, 15.0)
+                self.fire_spark_col[idx] = [1.0, 0.98, 0.82, np.random.uniform(0.85, 1.0)]
+                self.fire_spark_hue[idx] = np.random.uniform(0.1, 0.2)
+                max_life = np.random.uniform(2.2, 3.8)
+                
+        elif s_type == 'WAVE':
+            # Flame Wave: Rolling sweeping sideways embers
+            sweep_dir = np.random.choice([-1.0, 1.0])
+            # Spawn on the opposite side to sweep across
+            x = -0.38 if sweep_dir > 0 else 0.38
+            y = np.random.uniform(-0.84, -0.74)
+            z = np.random.uniform(-0.25, 0.25)
+            self.fire_spark_pos[idx] = [x, y, z]
+            
+            vx = sweep_dir * np.random.uniform(0.65, 1.15)
+            vy = np.random.uniform(0.16, 0.36)
+            vz = np.random.uniform(-0.1, 0.1)
+            self.fire_spark_vel[idx] = [vx, vy, vz]
+            
+            self.fire_spark_size[idx] = np.random.uniform(4.0, 7.5)
+            # Vibrant neon orange/red embers
+            self.fire_spark_col[idx] = [1.0, np.random.uniform(0.15, 0.42), 0.0, np.random.uniform(0.8, 1.0)]
+            self.fire_spark_hue[idx] = np.random.uniform(0.02, 0.1)
+            max_life = np.random.uniform(1.8, 3.4)
+            
+        elif s_type == 'SHOWER':
+            # Treble Spark Shower: Tiny gold embers drifting down from upper sky
+            x = np.random.uniform(-0.95, 0.95)
+            y = np.random.uniform(0.35, 0.92)
+            z = np.random.uniform(-0.15, 0.15)
+            self.fire_spark_pos[idx] = [x, y, z]
+            
+            vx = np.random.uniform(-0.12, 0.12)
+            vy = -np.random.uniform(0.08, 0.22)
+            vz = np.random.uniform(-0.06, 0.06)
+            self.fire_spark_vel[idx] = [vx, vy, vz]
+            
+            self.fire_spark_size[idx] = np.random.uniform(1.0, 2.2)
+            # Twinkling golden yellow colors
+            self.fire_spark_col[idx] = [1.0, np.random.uniform(0.78, 0.98), 0.15, np.random.uniform(0.75, 1.0)]
+            self.fire_spark_hue[idx] = np.random.uniform(0.12, 0.22)
+            max_life = np.random.uniform(3.2, 5.8)
+            
+        elif s_type == 'ERUPTION':
+            # Fire Eruption: Outward radial volcanic explosion
+            self.fire_spark_pos[idx] = [0.0, -0.84, np.random.uniform(-0.1, 0.1)]
+            
+            theta = np.random.uniform(0.0, 2.0 * np.pi)
+            phi = np.random.uniform(np.radians(12.0), np.radians(82.0))
+            speed = np.random.uniform(0.68, 1.68)
+            
+            vx = speed * np.sin(phi) * np.sin(theta)
+            vy = speed * np.cos(phi)
+            vz = speed * np.sin(phi) * np.cos(theta)
+            self.fire_spark_vel[idx] = [vx, vy, vz]
+            
+            self.fire_spark_size[idx] = np.random.uniform(2.8, 8.8)
+            # Multicolored fiery sparks (white, gold, magenta-red)
+            c_type = np.random.choice([0, 1, 2])
+            if c_type == 0:
+                self.fire_spark_col[idx] = [1.0, 0.95, 0.72, 1.0] # White-hot
+                self.fire_spark_hue[idx] = 0.16
+            elif c_type == 1:
+                self.fire_spark_col[idx] = [1.0, 0.55, 0.05, 1.0] # Golden-orange
+                self.fire_spark_hue[idx] = 0.08
+            else:
+                self.fire_spark_col[idx] = [1.0, 0.05, 0.22, 1.0] # Fiery red-pink
+                self.fire_spark_hue[idx] = 0.95
+                
+            max_life = np.random.uniform(1.3, 2.8)
+            
+        self.fire_spark_life[idx] = max_life
+        self.fire_spark_max_life[idx] = max_life
+        self.fire_spark_active[idx] = True
+
     def spawn_fire_spark(self, band, reaction_val):
         idx = self.next_fire_spark_idx
         self.next_fire_spark_idx = (self.next_fire_spark_idx + 1) % len(self.fire_spark_pos)
@@ -8346,9 +8714,20 @@ class FireworksApp:
         # Position: Distributed throughout the screen-space base of the campfire
         y = np.random.uniform(-0.84, -0.74) # Spawn strictly at the base of the fire
         
-        # Spawn across the entire horizontal and depth span of the fireplace hearth [-0.31, 0.31]
-        x = np.random.uniform(-0.31, 0.31)
-        z = np.random.uniform(-0.31, 0.31)
+        # Divide the campfire into 3 independent flames for dynamic realism!
+        # Compacted centers (radius < 0.12) to keep them strictly inside the stone ring (radius < 0.18)
+        flame_centers = [
+            (-0.11, -0.04),  # Left flame plume (index 0)
+            (0.0, 0.04),     # Center flame plume (index 1)
+            (0.11, -0.04)    # Right flame plume (index 2)
+        ]
+        plume_idx = random.choice([0, 1, 2])
+        fx, fz = flame_centers[plume_idx]
+        self.fire_spark_plume[idx] = plume_idx
+        
+        # Spawn with a tight horizontal spread around the chosen plume center (radius <= 0.15 max)
+        x = fx + np.random.uniform(-0.035, 0.035)
+        z = fz + np.random.uniform(-0.035, 0.035)
         self.fire_spark_pos[idx] = [x, y, z]
         
         # Velocity: Wide-angle pop trajectory, scaled down for screen-space coordinate system
@@ -8370,12 +8749,25 @@ class FireworksApp:
         is_smoke = np.random.uniform(0.0, 1.0) < 0.35
         
         if is_smoke:
-            # Gaseous Smoke Puff (Negative size represents gaseous style in particle shader!)
-            self.fire_spark_size[idx] = -np.random.uniform(8.0, 24.0) * (1.0 + reaction_val * 0.3)
-            # Translucent wispy charcoal smoke color
-            self.fire_spark_col[idx] = [0.26, 0.27, 0.30, np.random.uniform(0.10, 0.25)]
-            max_life = np.random.uniform(2.5, 4.8) # Smoke lives slightly longer and rises higher
-            self.fire_spark_hue[idx] = -1.0 # Hue <= -0.5 is reserved for Smoke in update loop
+            is_column = np.random.uniform(0.0, 1.0) < 0.40 # 40% chance of a brief columnar plume
+            if is_column:
+                # Gaseous Smoke Column/Plume (Narrow, fast-rising, longer life)
+                self.fire_spark_size[idx] = -np.random.uniform(7.0, 15.0) * (1.0 + reaction_val * 0.2)
+                self.fire_spark_col[idx] = [0.23, 0.24, 0.26, np.random.uniform(0.12, 0.30)]
+                max_life = np.random.uniform(3.5, 5.5) # Rises higher
+                self.fire_spark_hue[idx] = -2.0 # Hue -2.0 is columnar smoke
+                
+                # Straight upward velocity profile
+                self.fire_spark_vel[idx, 0] = np.random.uniform(-0.02, 0.02)
+                self.fire_spark_vel[idx, 1] = np.random.uniform(0.65, 0.95) * (1.0 + reaction_val * 0.3)
+                self.fire_spark_vel[idx, 2] = np.random.uniform(-0.02, 0.02)
+            else:
+                # Gaseous Smoke Puff (Negative size represents gaseous style in particle shader!)
+                self.fire_spark_size[idx] = -np.random.uniform(8.0, 24.0) * (1.0 + reaction_val * 0.3)
+                # Translucent wispy charcoal smoke color
+                self.fire_spark_col[idx] = [0.26, 0.27, 0.30, np.random.uniform(0.10, 0.25)]
+                max_life = np.random.uniform(2.5, 4.8) # Smoke lives slightly longer and rises higher
+                self.fire_spark_hue[idx] = -1.0 # Hue <= -0.5 is reserved for Smoke in update loop
         else:
             # Bright Spark/Ember (Positive size)
             self.fire_spark_size[idx] = np.random.uniform(1.8, 4.5) * (1.0 + reaction_val * 0.25)
@@ -8404,27 +8796,54 @@ class FireworksApp:
                 active_bolts.append(bolt)
         self.fire_lightning_bolts = active_bolts
 
-        # Update wind gust routine state
-        self.fire_wind_timer += dt
-        if self.fire_wind_timer > np.random.uniform(5.0, 8.0): # Wind gusts trigger every 5-8 seconds
-            self.fire_wind_timer = 0.0
-            # Strong wind gust sideways (randomly left or right)
-            self.fire_wind_target = np.random.choice([-1.0, 1.0]) * np.random.uniform(0.7, 1.3)
+        # Update 3 independent wind gust variables for Left, Center, and Right plumes!
+        if not hasattr(self, 'fire_wind_gusts'):
+            self.fire_wind_gusts = [0.0, 0.0, 0.0]
+            self.fire_wind_timers = [0.0, 0.0, 0.0]
+            self.fire_wind_targets = [0.0, 0.0, 0.0]
             
-        # Smoothly interpolate current wind gust towards target
-        if abs(self.fire_wind_target) > 0.01:
-            # Build up quickly
-            self.fire_wind_gust += (self.fire_wind_target - self.fire_wind_gust) * 2.8 * dt
-            if abs(self.fire_wind_gust - self.fire_wind_target) < 0.1:
-                self.fire_wind_target = 0.0 # Trigger decay phase
-        else:
-            # Decay slowly back to calm
-            self.fire_wind_gust += (0.0 - self.fire_wind_gust) * 0.85 * dt
+        for p in range(3):
+            self.fire_wind_timers[p] += dt
+            # Randomly trigger separate winds for each plume every 4-8 seconds
+            if self.fire_wind_timers[p] > np.random.uniform(4.0, 8.0):
+                self.fire_wind_timers[p] = 0.0
+                self.fire_wind_targets[p] = np.random.choice([-1.0, 1.0]) * np.random.uniform(0.6, 1.2)
+                
+            # Interpolate wind gusts individually towards targets
+            if abs(self.fire_wind_targets[p]) > 0.01:
+                self.fire_wind_gusts[p] += (self.fire_wind_targets[p] - self.fire_wind_gusts[p]) * 2.8 * dt
+                if abs(self.fire_wind_gusts[p] - self.fire_wind_targets[p]) < 0.1:
+                    self.fire_wind_targets[p] = 0.0
+            else:
+                self.fire_wind_gusts[p] += (0.0 - self.fire_wind_gusts[p]) * 0.85 * dt
 
         active_mask = self.fire_spark_active
         if np.any(active_mask):
             # Apply velocity translation
             self.fire_spark_pos[active_mask] += self.fire_spark_vel[active_mask] * dt
+            
+            # PHYSICAL BOUNDARY CONTAINMENT: Keep ash and embers strictly contained within the inner edge of the stones (radius < 0.18) while near the ground
+            y_pos_all = self.fire_spark_pos[active_mask, 1]
+            x_pos_all = self.fire_spark_pos[active_mask, 0]
+            z_pos_all = self.fire_spark_pos[active_mask, 2]
+            
+            near_ground = y_pos_all < -0.55
+            if np.any(near_ground):
+                active_indices = np.where(active_mask)[0]
+                ground_sub_indices = np.where(near_ground)[0]
+                for g_idx in ground_sub_indices:
+                    real_idx = active_indices[g_idx]
+                    gx = self.fire_spark_pos[real_idx, 0]
+                    gz = self.fire_spark_pos[real_idx, 2]
+                    gr2 = gx*gx + gz*gz
+                    if gr2 > 0.0324: # 0.18 squared (strictly inside the stones!)
+                        # Scale back inside the stones
+                        scale = np.sqrt(0.0324 / gr2)
+                        self.fire_spark_pos[real_idx, 0] *= scale
+                        self.fire_spark_pos[real_idx, 2] *= scale
+                        # Bounce velocity inwards slightly
+                        self.fire_spark_vel[real_idx, 0] *= -0.2
+                        self.fire_spark_vel[real_idx, 2] *= -0.2
             
             # --- PHYSICAL AIR RESISTANCE & DRAFT FLUID DRAG ---
             self.fire_spark_vel[active_mask, 0] *= np.exp(-1.4 * dt)
@@ -8437,11 +8856,14 @@ class FireworksApp:
             x_pos = self.fire_spark_pos[active_mask, 0]
             z_pos = self.fire_spark_pos[active_mask, 2]
             
-            # Distance from the fire core
-            r2 = x_pos*x_pos + z_pos*z_pos
+            # Distance from the 3 independent flame centers for separate rising convective plumes
+            r2_left = (x_pos + 0.18)**2 + (z_pos + 0.05)**2
+            r2_center = (x_pos)**2 + (z_pos - 0.05)**2
+            r2_right = (x_pos - 0.18)**2 + (z_pos + 0.05)**2
             
-            # 1. Thermal Heat Loft: Upward buoyancy strongest in the central plume (scaled for screen-space)
-            heat_loft = np.exp(-r2 / 0.08) * (0.24 + 0.12 * self.react_bass)
+            # 1. Thermal Heat Loft: Compute combined thermal loft columns
+            plume_factor = np.exp(-r2_left / 0.015) + np.exp(-r2_center / 0.015) + np.exp(-r2_right / 0.015)
+            heat_loft = plume_factor * (0.24 + 0.12 * self.react_bass)
             self.fire_spark_pos[active_mask, 1] += heat_loft * dt
             
             # 2. Sideways Draft & Wind Sway: Gentle swaying crosswinds (scaled for screen-space)
@@ -8459,13 +8881,17 @@ class FireworksApp:
             # Blows sparks and smoke sideways depending on altitude (zero push at fire base)
             height_factor = np.clip(y_pos - (-0.84), 0.0, 2.0)
             
+            # Map each active particle's plume index to its corresponding plume wind gust!
+            p_indices = self.fire_spark_plume[active_mask]
+            p_gusts = np.array([self.fire_wind_gusts[p] for p in p_indices], dtype=np.float32)
+            
             # Basic wind force push for all particles
-            wind_push = self.fire_wind_gust * 0.42 * height_factor * dt
+            wind_push = p_gusts * 0.42 * height_factor * dt
             self.fire_spark_pos[active_mask, 0] += wind_push
             
             # Smoke particles have more surface area and are lighter, so they get pushed extra sideways!
             is_smoke_mask = self.fire_spark_size[active_mask] < 0.0
-            smoke_extra_push = is_smoke_mask.astype(np.float32) * self.fire_wind_gust * 0.18 * height_factor * dt
+            smoke_extra_push = is_smoke_mask.astype(np.float32) * p_gusts * 0.18 * height_factor * dt
             self.fire_spark_pos[active_mask, 0] += smoke_extra_push
             
             # Decrease life
@@ -8571,9 +8997,39 @@ class FireworksApp:
                                     g = 0.03 * t
                                     b = 0.01 * t
                                     
-                        # Realistic rapid micro-shimmering / flickering in intensity and alpha
-                        shimmer = 0.60 + 0.40 * np.sin(time_val * np.random.uniform(25.0, 45.0) + idx)
-                        alpha = np.clip(frac * shimmer, 0.0, 1.0)
+                        # Dynamic music-reactive coloring:
+                        # 1. Dark red with bass (reduce green and blue, enhance red slightly)
+                        # 2. Orange with treble (add green/yellow to red)
+                        bass_factor = self.react_bass
+                        treble_factor = self.react_mid * 0.4 + self.react_treble * 0.6
+                        
+                        r_shaded = r * (1.0 + treble_factor * 0.2) + bass_factor * 0.1
+                        g_shaded = g * (1.0 - bass_factor * 0.6) + treble_factor * 0.3
+                        b_shaded = b * (1.0 - bass_factor * 0.8)
+                        
+                        r = np.clip(r_shaded, 0.0, 1.0)
+                        g = np.clip(g_shaded, 0.0, 1.0)
+                        b = np.clip(b_shaded, 0.0, 1.0)
+                        
+                        # Dynamic multi-color variation: Mix a tiny bit of individual hue color shift
+                        # to ensure embers are multi-colored and never a solid flat color!
+                        col_hue = (hue + time_val * 0.2) % 1.0
+                        if col_hue < 0.33:
+                            # Shift towards deeper crimson
+                            r = np.clip(r * 1.0, 0.0, 1.0)
+                            g = np.clip(g * 0.8, 0.0, 1.0)
+                            b = np.clip(b * 0.7, 0.0, 1.0)
+                        elif col_hue > 0.66:
+                            # Shift towards warmer amber/orange
+                            r = np.clip(r * 1.0, 0.0, 1.0)
+                            g = np.clip(g * 1.1, 0.0, 1.0)
+                            b = np.clip(b * 0.6, 0.0, 1.0)
+                            
+                        # Realistic rapid micro-shimmering pulsing with the music!
+                        shimmer = 0.50 + 0.50 * np.sin(time_val * np.random.uniform(25.0, 45.0) + idx)
+                        # The alpha glow pulses dynamically with the music beats
+                        music_pulse = 0.7 + self.react_bass * 0.4 + self.react_treble * 0.2
+                        alpha = np.clip(frac * shimmer * music_pulse, 0.0, 1.0)
                     
                     self.fire_spark_col[idx] = [r, g, b, alpha]
                     
