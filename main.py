@@ -181,6 +181,9 @@ SUPPORTED_ROUTINES = {
     ],
     "SYNAESTHESIA Classic": [
         "Star Burst"
+    ],
+    "FIRE Plasma": [
+        "Flame Flare", "Flame Wave", "Treble Spark Shower", "Fire Eruption", "Thermal Flare", "Supernova", "Shooting Star"
     ]
 }
 
@@ -263,6 +266,9 @@ uniform float uWormholeSpeedFactor;
 uniform float uAspect;
 uniform mat4 uInvVP;
 
+uniform sampler2D uMoonTex;
+uniform float uHasMoonTex;
+
 // Noise helper functions for high-fidelity procedurals
 float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -293,6 +299,62 @@ float pattern(vec2 p, out vec2 q, out vec2 r) {
     q = vec2(fbm(p + vec2(0.0, 0.0)), fbm(p + vec2(5.2, 1.3)));
     r = vec2(fbm(p + 4.0 * q + vec2(1.7, 9.2)), fbm(p + 4.0 * q + vec2(8.3, 2.8)));
     return fbm(p + 4.0 * r);
+}
+
+vec3 get_starfield(vec2 pos, float aspect, float t_grad) {
+    vec3 stars_color = vec3(0.0);
+    vec2 star_uv = vec2(pos.x * aspect, pos.y) * 15.0;
+    vec2 star_id = floor(star_uv);
+    vec2 star_f = fract(star_uv) - 0.5;
+    float star_h = hash(star_id);
+    if (star_h > 0.982) {
+        // 1. Map depth-gradient (vertical spectral blending weights)
+        float w_bass = (1.0 - t_grad) * (1.0 - t_grad);
+        float w_treble = t_grad * t_grad;
+        float w_mid = 1.0 - w_bass - w_treble;
+
+        // 2. Localized spectral energy based on vertical coordinate
+        float e_local = w_bass * uReactBass + w_mid * uReactMid + w_treble * uReactTreble;
+
+        // 3. Map horizontal stereo soundstage scale
+        float s_coeff = 1.0 + 0.8 * (pos.x * uStereoPanning);
+
+        // 4. Compute final spatial-audio reaction factor
+        float r_local = e_local * s_coeff;
+
+        // 5. Unique, randomized baseline twinkling properties (very slow, delicate, and unsynchronized)
+        float base_freq = 0.35 + star_h * 1.45;
+        float base_phase = star_h * 12.56;
+        float base_brightness = 0.04 + star_h * 0.12;
+        float base_amplitude = 0.02 + star_h * 0.08;
+        float base_twinkle = sin(uTime * base_freq + base_phase) * 0.5 + 0.5;
+        float base_value = base_brightness + base_amplitude * base_twinkle;
+
+        // 6. Music-reactive frequency and phase modulation (additive & stronger)
+        float music_freq_shift = r_local * (5.0 + star_h * 12.0);
+        float music_phase_shift = r_local * 25.0;
+        float music_twinkle = sin(uTime * (base_freq + music_freq_shift) + base_phase + music_phase_shift) * 0.5 + 0.5;
+        float music_value = r_local * (0.65 + star_h * 1.85) * music_twinkle;
+
+        // 7. Add combined intensities
+        float final_intensity = base_value + music_value;
+
+        // 8. Dynamic temperature-dependent star coloring (G/K yellow/gold, A/B blue-white, M red/amber, pure white)
+        float t_color = (star_h - 0.982) / 0.018; // Normalized range [0.0, 1.0]
+        vec3 star_color = vec3(1.0);
+        if (t_color < 0.35) {
+            star_color = mix(vec3(1.0, 0.85, 0.62), vec3(1.0, 1.0, 1.0), t_color / 0.35);
+        } else if (t_color < 0.75) {
+            star_color = mix(vec3(1.0, 1.0, 1.0), vec3(0.78, 0.90, 1.0), (t_color - 0.35) / 0.40);
+        } else {
+            star_color = mix(vec3(0.78, 0.90, 1.0), vec3(1.0, 0.65, 0.52), (t_color - 0.75) / 0.25);
+        }
+
+        float dist = length(star_f);
+        float star_p = smoothstep(0.08, 0.0, dist) * 0.4 + smoothstep(0.02, 0.0, dist) * 0.6;
+        stars_color = star_color * star_p * final_intensity;
+    }
+    return stars_color;
 }
 
 vec2 get_bend(float z) {
@@ -331,56 +393,12 @@ void main() {
     }
     
     // Twinkling procedural deep space starfield (Modulated stereoscopically and spectrally)
-    vec2 star_uv = vec2(vPos.x * uAspect, vPos.y) * 15.0;
-    vec2 star_id = floor(star_uv);
-    vec2 star_f = fract(star_uv) - 0.5;
-    float star_h = hash(star_id);
-    if (star_h > 0.982) {
-        // 1. Map depth-gradient (vertical spectral blending weights)
-        float w_bass = (1.0 - t_gradient) * (1.0 - t_gradient);
-        float w_treble = t_gradient * t_gradient;
-        float w_mid = 1.0 - w_bass - w_treble;
-
-        // 2. Localized spectral energy based on vertical coordinate
-        float e_local = w_bass * uReactBass + w_mid * uReactMid + w_treble * uReactTreble;
-
-        // 3. Map horizontal stereo soundstage scale
-        float s_coeff = 1.0 + 0.8 * (vPos.x * uStereoPanning);
-
-        // 4. Compute final spatial-audio reaction factor
-        float r_local = e_local * s_coeff;
-
-        // 5. Unique, randomized baseline twinkling properties (very slow, delicate, and unsynchronized)
-        float base_freq = 0.35 + star_h * 1.45;
-        float base_phase = star_h * 12.56;
-        float base_brightness = 0.04 + star_h * 0.12;
-        float base_amplitude = 0.02 + star_h * 0.08;
-        float base_twinkle = sin(uTime * base_freq + base_phase) * 0.5 + 0.5;
-        float base_value = base_brightness + base_amplitude * base_twinkle;
-
-        // 6. Music-reactive frequency and phase modulation (additive & stronger)
-        float music_freq_shift = r_local * (5.0 + star_h * 12.0);
-        float music_phase_shift = r_local * 25.0;
-        float music_twinkle = sin(uTime * (base_freq + music_freq_shift) + base_phase + music_phase_shift) * 0.5 + 0.5;
-        float music_value = r_local * (0.65 + star_h * 1.85) * music_twinkle;
-
-        // 7. Add combined intensities
-        float final_intensity = base_value + music_value;
-
-        // 8. Dynamic temperature-dependent star coloring (G/K yellow/gold, A/B blue-white, M red/amber, pure white)
-        float t_color = (star_h - 0.982) / 0.018; // Normalized range [0.0, 1.0]
-        vec3 star_color = vec3(1.0);
-        if (t_color < 0.35) {
-            star_color = mix(vec3(1.0, 0.85, 0.62), vec3(1.0, 1.0, 1.0), t_color / 0.35);
-        } else if (t_color < 0.75) {
-            star_color = mix(vec3(1.0, 1.0, 1.0), vec3(0.78, 0.90, 1.0), (t_color - 0.35) / 0.40);
-        } else {
-            star_color = mix(vec3(0.78, 0.90, 1.0), vec3(1.0, 0.65, 0.52), (t_color - 0.75) / 0.25);
-        }
-
-        float dist = length(star_f);
-        float star_p = smoothstep(0.08, 0.0, dist) * 0.4 + smoothstep(0.02, 0.0, dist) * 0.6;
-        base_color += star_color * star_p * final_intensity;
+    vec3 stars = get_starfield(vPos, uAspect, t_gradient);
+    if (uRipple > 2.5) {
+        // Boost the stars in fire mode as requested
+        base_color += stars * 2.2;
+    } else {
+        base_color += stars;
     }
     
     if (uRipple > 0.5 && uRipple < 1.5) {
@@ -405,7 +423,7 @@ void main() {
         
         base_color += ray_color + caustic_color + bloom_color;
     } 
-    else if (uRipple > 1.5) {
+    else if (uRipple > 1.5 && uRipple < 2.5) {
         // 100% continuous, smoky, raymarched plasma tunnel
         vec4 target = uInvVP * vec4(vPos, 1.0, 1.0);
         vec4 origin = uInvVP * vec4(vPos, -1.0, 1.0);
@@ -488,6 +506,179 @@ void main() {
                 base_color += vec3(0.85, 0.95, 1.0) * uClimaxFlash * strobes * 0.45;
             }
         }
+    }
+    else if (uRipple > 2.5) {
+        // --- 1. Draw a highly realistic crescent moon (moon.png shaded to waning crescent) ---
+        vec2 moon_uv = vPos * vec2(uAspect, 1.0);
+        vec2 moon_pos = vec2(0.68, 0.52); // upper right quadrant
+        float dist_moon = length(moon_uv - moon_pos);
+        float moon_radius = 0.16;
+        
+        if (dist_moon <= moon_radius) {
+            if (uHasMoonTex > 0.5) {
+                // Map screen coordinates to local 2D moon coordinates [0, 1]
+                vec2 local_moon_uv = (moon_uv - moon_pos) / (2.0 * moon_radius) + vec2(0.5);
+                float dist_center = length(local_moon_uv - vec2(0.5));
+                if (dist_center <= 0.5) {
+                    // Reconstruct 3D surface normals on moon hemisphere
+                    float z = sqrt(0.25 - dist_center * dist_center);
+                    vec3 normal = normalize(vec3(local_moon_uv - vec2(0.5), z));
+                    
+                    // Light shining from the left and slightly behind to create a gorgeous waning crescent sliver on the left
+                    vec3 light_dir = normalize(vec3(-0.92, 0.08, -0.42));
+                    float light = clamp(dot(normal, light_dir), 0.0, 1.0);
+                    
+                    // terminator line (scattering falloff on lunar regolith)
+                    float terminator = smoothstep(0.0, 0.08, light);
+                    
+                    // Sample full moon texture
+                    vec4 tex_color = texture(uMoonTex, local_moon_uv);
+                    
+                    // Waning crescent shading: illuminated sliver has rich textures; 
+                    // unilluminated part features subtle earthshine (secondary light reflected from Earth)
+                    float earthshine = 0.05;
+                    vec3 shaded_moon = tex_color.rgb * (terminator + earthshine);
+                    float moon_alpha = smoothstep(0.5, 0.492, dist_center) * tex_color.a;
+                    
+                    base_color = mix(base_color, shaded_moon, moon_alpha * 0.95);
+                }
+            } else {
+                // Procedural waning crescent fallback (sliver on the left)
+                float moon_mask = smoothstep(moon_radius, moon_radius - 0.005, dist_moon);
+                vec2 shadow_pos = moon_pos + vec2(-0.038, 0.025);
+                float shadow_mask = smoothstep(moon_radius - 0.01, moon_radius, length(moon_uv - shadow_pos));
+                float crescent = clamp(moon_mask * shadow_mask, 0.0, 1.0);
+                
+                float crater_noise = fbm(moon_uv * 18.0) * 0.15 + fbm(moon_uv * 35.0) * 0.06;
+                vec3 moon_base_color = vec3(0.92, 0.90, 0.84) * (0.85 - crater_noise);
+                base_color = mix(base_color, moon_base_color, crescent * 0.95);
+            }
+        }
+
+        // --- 2. Upgraded Double-Layered Navier-Stokes Advection Flame Simulation ---
+        vec2 uv = vPos;
+        float y_norm = (vPos.y + 1.0) * 0.5; // range [0, 1]
+        
+        // PHYSICAL HEIGHT LIMITATION: Force the flames to peak no more than 1/3 of the screen (y_norm ~ 0.33)
+        // Under strong bass/music, we let them stretch slightly higher (up to 0.45 max), but normally stay tight and low!
+        float max_height = 0.25 + 0.18 * uReactBass;
+        float height_fade = smoothstep(max_height, max_height - 0.08, y_norm);
+        
+        float buoyancy = 1.65 + uReactBass * 1.45;
+        float wind = sin(uTime * 1.8) * 0.15 + uStereoPanning * 0.4;
+        
+        // Fluid Self-Advection Field (True recursive backward trace advection simulating Navier-Stokes momentum)
+        vec2 flow1 = vec2(
+            fbm(uv * 1.8 + vec2(wind * uTime, -uTime * 1.5)), 
+            fbm(uv * 1.5 + vec2(0.0, -uTime * buoyancy))
+        ) * 2.0 - vec2(1.0, 0.7);
+        
+        vec2 advected_uv = uv - flow1 * (0.35 + uReactBass * 0.15);
+        
+        vec2 flow2 = vec2(
+            noise(advected_uv * 4.0 + vec2(0.0, -uTime * 3.0)),
+            noise(advected_uv * 3.5 - vec2(wind * 2.0, uTime * 4.0))
+        ) * 2.0 - 1.0;
+        advected_uv -= flow2 * 0.12;
+        
+        // Turbulent soot noise to dissolve flame columns
+        float soot = fbm(advected_uv * 5.0 + vec2(0.0, -uTime * 2.5));
+        
+        // Shared audio reaction variables
+        float bass_flare = 0.45 + uReactBass * 1.1;
+        float mid_flicker = sin(uTime * (18.0 + uReactTreble * 12.0)) * 0.14 + cos(uTime * (9.0 + uReactMid * 8.0)) * 0.08;
+        float height_factor = max(0.1, (1.0 + mid_flicker) * bass_flare);
+        
+        // ==========================================
+        // LAYER 1: BACK FLAME (Broader, Redder, Shimmering)
+        // ==========================================
+        float back_tongues = 0.0;
+        // 4 fuel channels placed in a narrower range: [-0.75, 0.75]
+        for (int i = 0; i < 4; i++) {
+            float idx = float(i);
+            float x_src = -0.75 + idx * 0.5 + sin(uTime * 1.1 + idx * 1.7) * 0.08;
+            float dist_x = advected_uv.x - x_src;
+            float channel_width = 0.13 + sin(uTime * 1.2 + idx) * 0.02;
+            float nozzle = exp(-(dist_x * dist_x) / (2.0 * channel_width * channel_width));
+            float channel_flicker = 0.65 + 0.35 * sin(uTime * (11.0 + idx * 3.0) + uReactTreble * 8.0);
+            back_tongues += nozzle * channel_flicker;
+        }
+        back_tongues = clamp(back_tongues, 0.0, 1.8);
+        
+        float back_cooling = 3.6 / height_factor;
+        float back_thermal = exp(-y_norm * back_cooling);
+        float back_density = back_tongues * back_thermal;
+        back_density = mix(back_density, back_density * soot, y_norm * 0.8);
+        back_density *= height_fade; // Apply strict physical height cutoff!
+        back_density = clamp(back_density, 0.0, 1.0);
+        back_density = pow(back_density, 1.15);
+        
+        float back_opacity = 1.0 - exp(-back_density * 5.2);
+        back_opacity *= smoothstep(0.0, 0.08, y_norm);
+        back_opacity *= smoothstep(1.0, 0.42, y_norm);
+        
+        vec3 back_color = vec3(0.0);
+        if (back_density > 0.01) {
+            vec3 col_blue = vec3(0.01, 0.04, 0.4) * (0.8 + uReactBass * 0.4);
+            vec3 col_crimson = vec3(0.75, 0.03, 0.01);
+            vec3 col_orange = vec3(1.0, 0.32 + 0.3 * uReactTreble, 0.01);
+            
+            // Continuous color transition to avoid turning black near outer boundaries
+            if (back_density < 0.3) {
+                back_color = mix(col_blue, col_crimson, back_density / 0.3);
+            } else {
+                back_color = mix(col_crimson, col_orange, (back_density - 0.3) / 0.7);
+            }
+        }
+        
+        // Blend Layer 1 onto starry background
+        base_color = mix(base_color, back_color * 1.5, back_opacity * 0.85);
+        
+        // ==========================================
+        // LAYER 2: FRONT OVERLAID FLAME (Narrower, Yellower, Hotter)
+        // ==========================================
+        float front_tongues = 0.0;
+        // 3 fuel channels placed in a very concentrated range: [-0.4, 0.4]
+        for (int i = 0; i < 3; i++) {
+            float idx = float(i);
+            float x_src = -0.4 + idx * 0.4 + sin(uTime * 1.6 + idx * 2.1) * 0.06;
+            float dist_x = advected_uv.x - x_src;
+            float channel_width = 0.08 + sin(uTime * 1.8 + idx) * 0.015;
+            float nozzle = exp(-(dist_x * dist_x) / (2.0 * channel_width * channel_width));
+            float channel_flicker = 0.7 + 0.3 * sin(uTime * (16.0 + idx * 5.0) + uReactTreble * 12.0);
+            front_tongues += nozzle * channel_flicker;
+        }
+        front_tongues = clamp(front_tongues, 0.0, 1.8);
+        
+        float front_cooling = 5.2 / height_factor;
+        float front_thermal = exp(-y_norm * front_cooling);
+        float front_density = front_tongues * front_thermal;
+        front_density = mix(front_density, front_density * soot, y_norm * 0.9);
+        front_density *= height_fade; // Apply strict physical height cutoff!
+        front_density = clamp(front_density, 0.0, 1.0);
+        front_density = pow(front_density, 1.3);
+        
+        float front_opacity = 1.0 - exp(-front_density * 6.5);
+        front_opacity *= smoothstep(0.0, 0.07, y_norm);
+        front_opacity *= smoothstep(1.0, 0.35, y_norm);
+        
+        vec3 front_color = vec3(0.0);
+        if (front_density > 0.01) {
+            vec3 col_orange = vec3(1.0, 0.38 + 0.1 * uReactTreble, 0.01);
+            vec3 col_yellow = vec3(1.0, 0.88, 0.18 + 0.3 * uReactMid);
+            vec3 col_white = vec3(1.0, 0.98, 0.72 + 0.28 * uReactMid);
+            
+            // Continuous color transition to avoid turning black near outer boundaries
+            if (front_density < 0.4) {
+                front_color = mix(col_orange, col_yellow, front_density / 0.4);
+            } else {
+                front_color = mix(col_yellow, col_white, (front_density - 0.4) / 0.6);
+            }
+        }
+        
+        // Blend Layer 2 (yellower overlaid on back one)
+        float emissive_boost = 1.3 + uReactBass * 0.7;
+        base_color = mix(base_color, front_color * emissive_boost, front_opacity * 0.92);
     }
     
     FragColor = vec4(base_color, 1.0);
@@ -2763,6 +2954,16 @@ class FireworksApp:
                 "syn_fade_mode": "Wave"
             },
             {
+                "name": "Fire Plasma",
+                "major_mode": "FIRE Plasma",
+                "show_rockets": True,
+                "opt_color_mode": "REALISTIC",
+                "opt_trailers": 0,
+                "opt_gravity": 1.0,
+                "opt_height_restrict": True,
+                "opt_star_shape": 0
+            },
+            {
                 "name": "Random",
                 "major_mode": None,
                 "random_preset": True
@@ -2827,6 +3028,7 @@ class FireworksApp:
         
         # VAO / VBO / Shader Program references
         self.sky_program = None
+        self.moon_texture_id = None
         self.line_program = None
         self.particle_program = None
         self.hood_vao = None
@@ -2850,7 +3052,7 @@ class FireworksApp:
         self.saved_auto_launch = True
 
         # Dynamic Psychedelic Modes
-        self.modes = ["FIREWORKS", "TUNNEL Wormhole", "MANDALA Sacred", "UNDERWATER Lava", "SYNAESTHESIA Classic"]
+        self.modes = ["FIREWORKS", "TUNNEL Wormhole", "MANDALA Sacred", "UNDERWATER Lava", "SYNAESTHESIA Classic", "FIRE Plasma"]
         self.major_mode_idx = 0
         self.major_mode = self.modes[self.major_mode_idx]
         self.react_bass = 0.0
@@ -3607,6 +3809,12 @@ class FireworksApp:
                 self.lbl_r3.set_text(f"[3]  - Brightness: {getattr(self, 'syn_brightness', 0.35)}")
                 self.lbl_r4.set_text(f"[4]  - Fade Mode: {getattr(self, 'syn_fade_mode', 'Stars')}")
                 self.lbl_r5.set_text("[5]  - Trigger Star Burst")
+            elif self.major_mode == "FIRE Plasma":
+                self.lbl_r1.set_text("[1]  - Flame Flare (Bass)")
+                self.lbl_r2.set_text("[2]  - Flame Wave (Mid)")
+                self.lbl_r3.set_text("[3]  - Treble Spark Shower")
+                self.lbl_r4.set_text("[4]  - Fire Eruption")
+                self.lbl_r5.set_text("[5]  - Thermal Flare")
                 
         if hasattr(self, 'lbl_r6'):
             if self.major_mode == "MANDALA Sacred":
@@ -5175,6 +5383,49 @@ class FireworksApp:
                     self.mandala_base_size[idx] = np.random.uniform(8.0, 14.0)
         elif self.major_mode == "SYNAESTHESIA Classic":
             self.trigger_syn_star_burst()
+        elif self.major_mode == "FIRE Plasma":
+            if routine_name in ("Flame Flare", "Lotus Bloom", "Coral Pulse", "Plasma Burst"):
+                for _ in range(120):
+                    self.spawn_fire_spark("bass", 1.8)
+            elif routine_name in ("Flame Wave", "Cosmic Spin", "Geyser Eruption", "Gravity Surge"):
+                for _ in range(120):
+                    self.spawn_fire_spark("mid", 1.8)
+            elif routine_name in ("Treble Spark Shower", "Infinite Pulse", "Plankton Surge", "Stardust Stream"):
+                for _ in range(120):
+                    self.spawn_fire_spark("treble", 1.8)
+            elif routine_name in ("Fire Eruption", "Geometric Collapse", "Deep Vent Blast", "Event Horizon"):
+                for _ in range(200):
+                    band = random.choice(["bass", "mid", "treble"])
+                    self.spawn_fire_spark(band, 2.0)
+            elif routine_name in ("Thermal Flare", "Astral Projection", "Bioluminescent Rainbow", "Lightning Flash"):
+                for _ in range(250):
+                    self.spawn_fire_spark("treble", 2.2)
+            elif routine_name == "Supernova":
+                for _ in range(250):
+                    idx = self.next_fire_spark_idx
+                    self.next_fire_spark_idx = (self.next_fire_spark_idx + 1) % len(self.fire_spark_pos)
+                    self.fire_spark_pos[idx] = [np.random.uniform(-2.0, 2.0), np.random.uniform(-1.0, 1.0), np.random.uniform(-1.0, 1.0)]
+                    angle = np.random.uniform(0.0, 2.0 * np.pi)
+                    speed = np.random.uniform(4.0, 10.0)
+                    self.fire_spark_vel[idx] = [speed * np.cos(angle), np.random.uniform(3.0, 10.0), speed * np.sin(angle)]
+                    self.fire_spark_col[idx] = [1.0, np.random.uniform(0.3, 0.9), np.random.uniform(0.0, 0.5), 1.0]
+                    self.fire_spark_size[idx] = np.random.uniform(6.0, 15.0)
+                    max_life = np.random.uniform(2.0, 4.0)
+                    self.fire_spark_life[idx] = max_life
+                    self.fire_spark_max_life[idx] = max_life
+                    self.fire_spark_active[idx] = True
+            elif routine_name == "Shooting Star":
+                for _ in range(15):
+                    idx = self.next_fire_spark_idx
+                    self.next_fire_spark_idx = (self.next_fire_spark_idx + 1) % len(self.fire_spark_pos)
+                    self.fire_spark_pos[idx] = [np.random.uniform(-6.0, 6.0), -1.0, np.random.uniform(-2.0, 2.0)]
+                    self.fire_spark_vel[idx] = [np.random.uniform(-1.0, 1.0), np.random.uniform(12.0, 18.0), np.random.uniform(-1.0, 1.0)]
+                    self.fire_spark_col[idx] = [1.0, np.random.uniform(0.8, 1.0), np.random.uniform(0.5, 0.8), 1.0]
+                    self.fire_spark_size[idx] = np.random.uniform(12.0, 20.0)
+                    max_life = np.random.uniform(3.0, 4.5)
+                    self.fire_spark_life[idx] = max_life
+                    self.fire_spark_max_life[idx] = max_life
+                    self.fire_spark_active[idx] = True
 
     def spawn_rarity(self, r_type):
         print(f"SPAWNING RARITY: {r_type}!")
@@ -5483,6 +5734,8 @@ class FireworksApp:
                     self.rarity_queued_type = "CATHERINE_WHEEL" 
                 elif self.major_mode == "MANDALA Sacred":
                     self.rarity_queued_type = random.choice(["BIRD", "SMOKE", "SUN_BURST", "BUTTERFLY"])
+                elif self.major_mode == "FIRE Plasma":
+                    self.rarity_queued_type = random.choice(["SMOKE", "SUN_BURST", "ASTEROIDS"])
                 if self.rarity_queued_type is not None:
                     print(f"Rarity queued: {self.rarity_queued_type}. Waiting for significant beat...")
                     self.rarity_cooldown = 0.0
@@ -5718,6 +5971,8 @@ class FireworksApp:
         self.sky_wormhole_speed_factor_loc = gl.glGetUniformLocation(self.sky_program, "uWormholeSpeedFactor")
         self.sky_aspect_loc = gl.glGetUniformLocation(self.sky_program, "uAspect")
         self.sky_inv_vp_loc = gl.glGetUniformLocation(self.sky_program, "uInvVP")
+        self.sky_moon_tex_loc = gl.glGetUniformLocation(self.sky_program, "uMoonTex")
+        self.sky_has_moon_tex_loc = gl.glGetUniformLocation(self.sky_program, "uHasMoonTex")
 
     def on_render(self, area, context):
         get_bend_offsets = self.get_bend_offsets
@@ -5748,6 +6003,9 @@ class FireworksApp:
         elif self.major_mode == "MANDALA Sacred":
             if not hasattr(self, 'mandala_base_pos'):
                 self.init_mandala_mode()
+        elif self.major_mode == "FIRE Plasma":
+            if not hasattr(self, 'fire_spark_pos'):
+                self.init_fire_mode()
         
         # Open recording process if first frame
         if hasattr(self, 'is_recording') and self.is_recording and self.ffmpeg_process is None:
@@ -5774,11 +6032,13 @@ class FireworksApp:
                 gl.glUniform1f(self.sky_ripple_loc, 1.0)
             elif self.major_mode == "TUNNEL Wormhole":
                 gl.glUniform1f(self.sky_ripple_loc, 2.0)
+            elif self.major_mode == "FIRE Plasma":
+                gl.glUniform1f(self.sky_ripple_loc, 3.0)
             else:
                 gl.glUniform1f(self.sky_ripple_loc, 0.0)
                 
-        # Send full coordinates and audio parameters for continuous GPU raymarching in Wormhole Mode
-        if self.major_mode == "TUNNEL Wormhole":
+        # Send full coordinates and audio parameters for continuous GPU raymarching/effects
+        if self.major_mode in ("TUNNEL Wormhole", "FIRE Plasma"):
             bpm = self.script_bpm if (hasattr(self, 'script_bpm') and self.script_bpm > 0.0) else 40.0
             bpm = np.clip(bpm, 40.0, 240.0)
             
@@ -5792,13 +6052,13 @@ class FireworksApp:
                 gl.glUniform1f(self.sky_wormhole_speed_factor_loc, speed_factor)
                 
             if hasattr(self, 'sky_bend_x_loc') and self.sky_bend_x_loc != -1:
-                gl.glUniform1f(self.sky_bend_x_loc, self.wormhole_bend_x)
+                gl.glUniform1f(self.sky_bend_x_loc, self.wormhole_bend_x if hasattr(self, 'wormhole_bend_x') else 0.0)
             if hasattr(self, 'sky_bend_y_loc') and self.sky_bend_y_loc != -1:
-                gl.glUniform1f(self.sky_bend_y_loc, self.wormhole_bend_y)
+                gl.glUniform1f(self.sky_bend_y_loc, self.wormhole_bend_y if hasattr(self, 'wormhole_bend_y') else 0.0)
             if hasattr(self, 'sky_phase_x_loc') and self.sky_phase_x_loc != -1:
-                gl.glUniform1f(self.sky_phase_x_loc, self.wormhole_phase_x)
+                gl.glUniform1f(self.sky_phase_x_loc, self.wormhole_phase_x if hasattr(self, 'wormhole_phase_x') else 0.0)
             if hasattr(self, 'sky_phase_y_loc') and self.sky_phase_y_loc != -1:
-                gl.glUniform1f(self.sky_phase_y_loc, self.wormhole_phase_y)
+                gl.glUniform1f(self.sky_phase_y_loc, self.wormhole_phase_y if hasattr(self, 'wormhole_phase_y') else 0.0)
             if hasattr(self, 'sky_react_bass_loc') and self.sky_react_bass_loc != -1:
                 gl.glUniform1f(self.sky_react_bass_loc, self.react_bass_smooth)
             if hasattr(self, 'sky_react_treble_loc') and self.sky_react_treble_loc != -1:
@@ -5813,6 +6073,24 @@ class FireworksApp:
                 vp = proj_matrix @ view_matrix
                 inv_vp = np.linalg.inv(vp)
                 gl.glUniformMatrix4fv(self.sky_inv_vp_loc, 1, gl.GL_TRUE, inv_vp)
+
+            # Ensure moon texture is loaded and bind it for Fire mode
+            if self.major_mode == "FIRE Plasma":
+                if not hasattr(self, 'moon_texture_id') or self.moon_texture_id is None:
+                    self.init_moon_texture()
+                if hasattr(self, 'moon_texture_id') and self.moon_texture_id is not None and self.moon_texture_id > 0:
+                    gl.glActiveTexture(gl.GL_TEXTURE0)
+                    gl.glBindTexture(gl.GL_TEXTURE_2D, self.moon_texture_id)
+                    if hasattr(self, 'sky_moon_tex_loc') and self.sky_moon_tex_loc != -1:
+                        gl.glUniform1i(self.sky_moon_tex_loc, 0)
+                    if hasattr(self, 'sky_has_moon_tex_loc') and self.sky_has_moon_tex_loc != -1:
+                        gl.glUniform1f(self.sky_has_moon_tex_loc, 1.0)
+                else:
+                    if hasattr(self, 'sky_has_moon_tex_loc') and self.sky_has_moon_tex_loc != -1:
+                        gl.glUniform1f(self.sky_has_moon_tex_loc, 0.0)
+            else:
+                if hasattr(self, 'sky_has_moon_tex_loc') and self.sky_has_moon_tex_loc != -1:
+                    gl.glUniform1f(self.sky_has_moon_tex_loc, 0.0)
                 
         gl.glBindVertexArray(self.sky_vao)
         gl.glDrawArrays(gl.GL_TRIANGLE_FAN, 0, 4)
@@ -5978,6 +6256,13 @@ class FireworksApp:
             part_pos.append(s_pos)
             part_col.append(s_col)
             part_size.append(s_size)
+        elif self.major_mode == "FIRE Plasma":
+            if not hasattr(self, 'fire_spark_pos'):
+                self.init_fire_mode()
+            f_pos, f_col, f_size, h_pos, h_col = self.render_fire()
+            part_pos.append(f_pos)
+            part_col.append(f_col)
+            part_size.append(f_size)
         else:
             h_pos = np.zeros((0, 3), dtype=np.float32)
             h_col = np.zeros((0, 4), dtype=np.float32)
@@ -6194,6 +6479,10 @@ class FireworksApp:
             if not hasattr(self, 'syn_stars'):
                 self.init_synaesthesia_mode()
             self.update_synaesthesia(dt)
+        elif self.major_mode == "FIRE Plasma":
+            if not hasattr(self, 'fire_spark_pos'):
+                self.init_fire_mode()
+            self.update_fire(dt)
             
         self.update_rarity_system(dt)
         
@@ -6240,6 +6529,8 @@ class FireworksApp:
             active_stars = len(self.mandala_base_pos) * self.mandala_slices if hasattr(self, 'mandala_base_pos') else 0
         elif self.major_mode == "SYNAESTHESIA Classic":
             active_stars = len(self.syn_stars) * 20 + 300 if hasattr(self, 'syn_stars') else 0
+        elif self.major_mode == "FIRE Plasma":
+            active_stars = np.sum(self.fire_spark_active) if hasattr(self, 'fire_spark_active') else 0
             
         self.shell_lbl.set_text(f"Active Shells: {active_rockets}")
         self.part_lbl.set_text(f"Simulated Particles: {active_stars:,}")
@@ -6980,7 +7271,11 @@ class FireworksApp:
             if not hasattr(self, 'syn_stars'):
                 self.init_synaesthesia_mode()
             self.update_synaesthesia(dt)
-        
+        elif self.major_mode == "FIRE Plasma":
+            if not hasattr(self, 'fire_spark_pos'):
+                self.init_fire_mode()
+            self.update_fire(dt)
+
         self.fps_lbl.set_text(f"FPS: RECORDING ({self.record_fps} FPS)")
         self.update_hud_labels()
         if self.active_routine_name:
@@ -7012,6 +7307,9 @@ class FireworksApp:
             active_rockets = 0
         elif self.major_mode == "SYNAESTHESIA Classic":
             active_stars = len(self.syn_stars) * 20 + 300 if hasattr(self, 'syn_stars') else 0
+            active_rockets = 0
+        elif self.major_mode == "FIRE Plasma":
+            active_stars = np.sum(self.fire_spark_active) if hasattr(self, 'fire_spark_active') else 0
             active_rockets = 0
             
         self.shell_lbl.set_text(f"Active Shells: {active_rockets}")
@@ -7456,6 +7754,176 @@ class FireworksApp:
         h_pos = np.zeros((0, 3), dtype=np.float32)
         h_col = np.zeros((0, 4), dtype=np.float32)
         return pts, cols, sizes, h_pos, h_col
+
+    def init_moon_texture(self):
+        try:
+            from PIL import Image
+            import os
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            # Paths to search for moon.png: 1) CWD, 2) Script directory, 3) relative path
+            paths_to_try = [
+                os.path.join(os.getcwd(), "moon.png"),
+                os.path.join(base_dir, "moon.png"),
+                "moon.png"
+            ]
+            
+            moon_path = None
+            for p in paths_to_try:
+                if os.path.exists(p):
+                    moon_path = p
+                    break
+                    
+            if moon_path is not None:
+                img = Image.open(moon_path).convert("RGBA")
+                img = img.transpose(Image.FLIP_TOP_BOTTOM)
+                w, h = img.size
+                pixels = img.tobytes("raw", "RGBA")
+                
+                self.moon_texture_id = gl.glGenTextures(1)
+                gl.glBindTexture(gl.GL_TEXTURE_2D, self.moon_texture_id)
+                gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
+                gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
+                gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE)
+                gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_EDGE)
+                
+                gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
+                gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, w, h, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, pixels)
+                gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
+                print(f"SUCCESS: Loaded moon texture using Pillow from {moon_path} ({w}x{h})")
+            else:
+                print(f"Warning: moon.png not found in search paths: {paths_to_try}")
+                self.moon_texture_id = 0
+        except Exception as e:
+            print(f"Error loading moon.png with Pillow: {e}")
+            self.moon_texture_id = 0
+
+    # =========================================================================
+    # MODE 6: FIRE PLASMA (Procedural flames with persistent reactive sparks)
+    # =========================================================================
+    def init_fire_mode(self):
+        N_sparks = 1500
+        self.fire_spark_pos = np.zeros((N_sparks, 3), dtype=np.float32)
+        self.fire_spark_vel = np.zeros((N_sparks, 3), dtype=np.float32)
+        self.fire_spark_col = np.zeros((N_sparks, 4), dtype=np.float32)
+        self.fire_spark_size = np.zeros(N_sparks, dtype=np.float32)
+        self.fire_spark_life = np.zeros(N_sparks, dtype=np.float32)
+        self.fire_spark_max_life = np.zeros(N_sparks, dtype=np.float32)
+        self.fire_spark_active = np.zeros(N_sparks, dtype=np.bool_)
+        self.next_fire_spark_idx = 0
+
+    def spawn_fire_spark(self, band, reaction_val):
+        idx = self.next_fire_spark_idx
+        self.next_fire_spark_idx = (self.next_fire_spark_idx + 1) % len(self.fire_spark_pos)
+        
+        # Position: bottom of the screen (lower y)
+        # Sized to align perfectly with the narrower double-layered flame column
+        x = np.random.uniform(-4.5, 4.5)
+        y = np.random.uniform(-1.0, 0.5)
+        z = np.random.uniform(-2.5, 2.5)
+        self.fire_spark_pos[idx] = [x, y, z]
+        
+        # Velocity: High-speed popping embers shooting off vertically and horizontally
+        vx = np.random.uniform(-3.5, 3.5) * (1.0 + reaction_val * 0.3)
+        vy = np.random.uniform(6.5, 12.0) * (1.0 + reaction_val * 0.4)
+        vz = np.random.uniform(-1.0, 1.0)
+        self.fire_spark_vel[idx] = [vx, vy, vz]
+        
+        # Initial color is white-hot, which will cool thermochromatically over its lifespan
+        self.fire_spark_col[idx] = [1.0, 1.0, 0.9, np.random.uniform(0.75, 1.0)]
+        
+        # Size: random size, modulated by note-intensity
+        self.fire_spark_size[idx] = np.random.uniform(3.5, 8.0) * (1.0 + reaction_val * 0.25)
+        max_life = np.random.uniform(1.8, 3.8)
+        self.fire_spark_life[idx] = max_life
+        self.fire_spark_max_life[idx] = max_life
+        self.fire_spark_active[idx] = True
+
+    def update_fire(self, dt):
+        active_mask = self.fire_spark_active
+        if np.any(active_mask):
+            # Apply velocity translation
+            self.fire_spark_pos[active_mask] += self.fire_spark_vel[active_mask] * dt
+            
+            # --- PHYSICAL AIR RESISTANCE & TERMINAL BUOYANCY ---
+            # Horizontal velocities slow down exponentially due to fluid drag
+            self.fire_spark_vel[active_mask, 0] *= np.exp(-2.0 * dt)
+            # Vertical velocities decay exponentially toward a stable terminal rising draft speed
+            self.fire_spark_vel[active_mask, 1] = 1.6 + (self.fire_spark_vel[active_mask, 1] - 1.6) * np.exp(-2.5 * dt)
+            self.fire_spark_vel[active_mask, 2] *= np.exp(-1.5 * dt)
+            
+            # Apply horizontal wind sway based on sin wave
+            time_val = self.get_sim_time()
+            self.fire_spark_pos[active_mask, 0] += np.sin(time_val * 3.5 + self.fire_spark_pos[active_mask, 1] * 1.5) * 0.65 * dt
+            
+            # Decrease life
+            self.fire_spark_life[active_mask] -= dt
+            
+            expired = self.fire_spark_life <= 0.0
+            self.fire_spark_active[expired] = False
+            
+            # Thermochromatic cooling and micro-shimmering for still active sparks
+            still_active = np.where(self.fire_spark_active)[0]
+            if len(still_active) > 0:
+                for idx in still_active:
+                    frac = self.fire_spark_life[idx] / self.fire_spark_max_life[idx]
+                    
+                    # Cooling color gradient: White-Hot -> Yellow-Gold -> Orange -> Red -> Fade
+                    if frac > 0.8:
+                        r, g, b = 1.0, 1.0, 0.9
+                    elif frac > 0.55:
+                        t = (frac - 0.55) / 0.25
+                        r = 1.0
+                        g = 0.85 + 0.15 * t
+                        b = 0.15 + 0.75 * t
+                    elif frac > 0.25:
+                        t = (frac - 0.25) / 0.30
+                        r = 1.0
+                        g = 0.2 + 0.65 * t
+                        b = 0.0
+                    else:
+                        t = frac / 0.25
+                        r = 0.45 + 0.55 * t
+                        g = 0.02 * t
+                        b = 0.0
+                        
+                    # Realistic rapid micro-shimmering / flickering in intensity and alpha
+                    shimmer = 0.55 + 0.45 * np.sin(time_val * np.random.uniform(25.0, 45.0) + idx)
+                    alpha = np.clip(frac * shimmer, 0.0, 1.0)
+                    
+                    self.fire_spark_col[idx] = [r, g, b, alpha]
+
+        # Spawn sparks based on real-time frequency reactions
+        if self.react_bass > 0.4:
+            count = int(self.react_bass * 8)
+            for _ in range(count):
+                self.spawn_fire_spark("bass", self.react_bass)
+                
+        if self.react_mid > 0.4:
+            count = int(self.react_mid * 6)
+            for _ in range(count):
+                self.spawn_fire_spark("mid", self.react_mid)
+                
+        if self.react_treble > 0.4:
+            count = int(self.react_treble * 6)
+            for _ in range(count):
+                self.spawn_fire_spark("treble", self.react_treble)
+                
+        if self.active_rarity is not None:
+            self.update_active_rarity(dt)
+
+    def render_fire(self):
+        act_mask = self.fire_spark_active
+        if np.any(act_mask):
+            pos_combined = self.fire_spark_pos[act_mask]
+            col_combined = self.fire_spark_col[act_mask]
+            size_combined = self.fire_spark_size[act_mask]
+        else:
+            pos_combined = np.zeros((0, 3), dtype=np.float32)
+            col_combined = np.zeros((0, 4), dtype=np.float32)
+            size_combined = np.zeros(0, dtype=np.float32)
+            
+        return pos_combined, col_combined, size_combined, np.zeros((0, 3), dtype=np.float32), np.zeros((0, 4), dtype=np.float32)
 
 
 if __name__ == "__main__":
