@@ -51,12 +51,40 @@ def main():
     is_windows = sys.platform == 'win32'
     is_mac = sys.platform == 'darwin'
 
-    # Locate _internal folder (PyInstaller 6 layout)
-    internal_dir = os.path.join(bundle_dir, "_internal")
-    if not os.path.exists(internal_dir):
-        # Fall back to root folder for flat or older layouts
-        internal_dir = bundle_dir
-    print(f"Found _internal directory at: {internal_dir}")
+    # Check if we are inside a macOS .app bundle
+    app_dir = None
+    parts = bundle_dir.split(os.sep)
+    for i, part in enumerate(parts):
+        if part.endswith('.app'):
+            app_dir = os.sep.join(parts[:i+1])
+            break
+
+    if app_dir:
+        # Under PyInstaller 6+ macOS App Bundle structure:
+        # Contents/MacOS contains the executable
+        # Contents/Resources contains the data files
+        # Contents/Frameworks contains the binary libraries (dylibs)
+        contents_dir = os.path.join(app_dir, "Contents")
+        macos_dir = os.path.join(contents_dir, "MacOS")
+        resources_dir = os.path.join(contents_dir, "Resources")
+        frameworks_dir = os.path.join(contents_dir, "Frameworks")
+        
+        # Data files are placed in Contents/Resources
+        internal_dir = resources_dir
+        binary_search_dir = app_dir
+        print(f"Detected macOS split App Bundle layout.")
+        print(f"  App directory: {app_dir}")
+        print(f"  Executable directory: {macos_dir}")
+        print(f"  Resources directory (data files): {resources_dir}")
+        print(f"  Frameworks directory (binaries): {frameworks_dir}")
+    else:
+        # Locate _internal folder (PyInstaller 6 layout on Windows/Linux)
+        internal_dir = os.path.join(bundle_dir, "_internal")
+        if not os.path.exists(internal_dir):
+            # Fall back to root folder for flat or older layouts
+            internal_dir = bundle_dir
+        binary_search_dir = bundle_dir
+        print(f"Found _internal directory at: {internal_dir}")
 
     # 0. Sanitize loaders.cache to be bundle-relative before validating
     cache_file = os.path.join(internal_dir, "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders.cache")
@@ -84,8 +112,15 @@ def main():
     print("\n--- CHECK 2: Verifying bundled FFmpeg ---")
     ffmpeg_names = ["ffmpeg.exe", "ffmpeg"]
     ffmpeg_path = None
+    
+    search_bases = []
+    if app_dir:
+        search_bases = [macos_dir, frameworks_dir, resources_dir, app_dir]
+    else:
+        search_bases = [bundle_dir, internal_dir]
+
     for name in ffmpeg_names:
-        for base in [bundle_dir, internal_dir]:
+        for base in search_bases:
             p = os.path.join(base, name)
             if os.path.exists(p):
                 ffmpeg_path = p
@@ -109,12 +144,12 @@ def main():
     print("\n--- CHECK 3: Verifying binary path references (leaks) ---")
     binary_files = []
     for ext in ["*.dylib", "*.so", "Melochor", "*.dll", "Melochor.exe"]:
-        binary_files.extend(glob.glob(os.path.join(bundle_dir, "**", ext), recursive=True))
+        binary_files.extend(glob.glob(os.path.join(binary_search_dir, "**", ext), recursive=True))
 
     # Gather a set of all filenames (lowercase) bundled inside the package
     # This helps us differentiate between system path resolution on MSYS2 GHA runner and actual missing dependencies
     bundled_filenames = set()
-    for root, dirs, files in os.walk(bundle_dir):
+    for root, dirs, files in os.walk(binary_search_dir):
         for f in files:
             bundled_filenames.add(f.lower())
 
