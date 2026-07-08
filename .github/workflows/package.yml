@@ -92,19 +92,19 @@ jobs:
       - name: Install System Dependencies (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          brew install gtk4 gobject-introspection pkg-config portaudio libsndfile
+          brew install gtk4 gobject-introspection pkg-config portaudio libsndfile libffi
+          
+          # Set standard environment variables for dynamic pygobject compilation
+          echo "PKG_CONFIG_PATH=$(brew --prefix libffi)/lib/pkgconfig" >> $GITHUB_ENV
+          echo "LDFLAGS=-L$(brew --prefix libffi)/lib" >> $GITHUB_ENV
+          echo "CPATH=$(brew --prefix libffi)/include" >> $GITHUB_ENV
 
       - name: Install Python Dependencies (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          if [[ $(uname -m) == 'arm64' ]]; then
-            export PKG_CONFIG_PATH="/opt/homebrew/opt/libffi/lib/pkgconfig"
-          else
-            export PKG_CONFIG_PATH="/usr/local/opt/libffi/lib/pkgconfig"
-          fi
-          python3 -m pip install --upgrade pip setuptools
-          python3 -m pip install pyinstaller pycairo pygobject
-          python3 -m pip install numpy scipy sounddevice soundfile audioread PyOpenGL
+          python -m pip install --upgrade pip setuptools
+          python -m pip install pyinstaller pycairo pygobject
+          python -m pip install numpy scipy sounddevice soundfile audioread PyOpenGL
 
       - name: Download Static FFmpeg (macOS)
         if: matrix.os == 'macos-latest'
@@ -125,7 +125,7 @@ jobs:
       - name: Build Standalone Executable (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          python3 -m pyinstaller Melochor.spec
+          python -m pyinstaller Melochor.spec
 
       - name: Fix Library Paths (macOS)
         if: matrix.os == 'macos-latest'
@@ -167,7 +167,7 @@ jobs:
       - name: Validate Standalone Bundle (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          python3 validate_bundle.py dist/Melochor.app/Contents/MacOS
+          python validate_bundle.py dist/Melochor.app/Contents/MacOS
 
       - name: Re-sign Bundle (macOS)
         if: matrix.os == 'macos-latest'
