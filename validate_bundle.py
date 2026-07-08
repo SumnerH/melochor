@@ -242,9 +242,26 @@ def main():
     print("\n--- CHECK 4: Verifying Python environment and GTK importability ---")
     
     # We want to run a brief python check that mimics the frozen app startup
-    # We configure environment variables pointing to the bundle's assets
+    # We configure environment variables pointing to the bundle's assets.
+    # To prevent host-side PyGObject (introspection) from failing due to isolated paths,
+    # we prepend the bundled typelibs but keep Homebrew/system paths as fallbacks.
     test_env = os.environ.copy()
-    test_env["GI_TYPELIB_PATH"] = os.path.join(internal_dir, "gi_typelibs")
+    
+    bundled_gi_path = os.path.join(internal_dir, "gi_typelibs")
+    path_sep = ";" if is_windows else ":"
+    fallback_paths = []
+    
+    if is_mac:
+        for brew_prefix in ["/opt/homebrew", "/usr/local"]:
+            system_gi = os.path.join(brew_prefix, "lib", "girepository-1.0")
+            if os.path.exists(system_gi):
+                fallback_paths.append(system_gi)
+                
+    gi_paths = [bundled_gi_path] + fallback_paths
+    if os.environ.get("GI_TYPELIB_PATH"):
+        gi_paths.append(os.environ["GI_TYPELIB_PATH"])
+        
+    test_env["GI_TYPELIB_PATH"] = path_sep.join(gi_paths)
     test_env["GSETTINGS_SCHEMA_DIR"] = os.path.join(internal_dir, "share", "glib-2.0", "schemas")
     test_env["GDK_PIXBUF_MODULE_FILE"] = os.path.join(internal_dir, "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders.cache")
     
