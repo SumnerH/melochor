@@ -20,8 +20,14 @@ elif sys.platform == 'darwin' and os.path.exists(ffmpeg_mac):
 if sys.platform == 'win32':
     # On Windows (MSYS2), we can find mingw64 prefix
     mingw_prefix = os.environ.get('MINGW_PREFIX', '/mingw64')
+    if mingw_prefix.startswith('/'):
+        # Convert virtual MSYS2 path to a real path if possible
+        mingw_prefix = os.path.abspath(mingw_prefix)
     if not os.path.exists(mingw_prefix):
-        mingw_prefix = 'C:/msys64/mingw64' # fallback
+        for fallback in ['C:/msys64/mingw64', 'D:/msys64/mingw64', '/mingw64']:
+            if os.path.exists(fallback):
+                mingw_prefix = fallback
+                break
     
     # 1. Gather all core GTK4 DLLs and their dependencies using a recursive dependency searcher
     dll_dir = os.path.join(mingw_prefix, 'bin')
@@ -134,6 +140,8 @@ elif sys.platform == 'darwin':
             'libgobject',
             'libgio',
             'libgmodule',
+            'libportaudio',
+            'libsndfile',
         ]
         
         core_dylibs = []
