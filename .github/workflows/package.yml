@@ -102,11 +102,11 @@ jobs:
       - name: Install Python Dependencies (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          python -m pip install --upgrade pip setuptools
-          python -m pip install pyinstaller
-          python -m pip install pycairo
-          python -m pip install pygobject
-          python -m pip install numpy scipy sounddevice soundfile audioread PyOpenGL
+          $pythonLocation/bin/python -m pip install --upgrade pip setuptools
+          $pythonLocation/bin/python -m pip install pyinstaller
+          $pythonLocation/bin/python -m pip install pycairo
+          $pythonLocation/bin/python -m pip install pygobject
+          $pythonLocation/bin/python -m pip install numpy scipy sounddevice soundfile audioread PyOpenGL
 
       - name: Download Static FFmpeg (macOS)
         if: matrix.os == 'macos-latest'
@@ -127,7 +127,7 @@ jobs:
       - name: Build Standalone Executable (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          python -m pyinstaller Melochor.spec
+          $pythonLocation/bin/python -m pyinstaller Melochor.spec
 
       - name: Fix Library Paths (macOS)
         if: matrix.os == 'macos-latest'
@@ -169,7 +169,7 @@ jobs:
       - name: Validate Standalone Bundle (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          python validate_bundle.py dist/Melochor.app/Contents/MacOS
+          $pythonLocation/bin/python validate_bundle.py dist/Melochor.app/Contents/MacOS
 
       - name: Re-sign Bundle (macOS)
         if: matrix.os == 'macos-latest'
