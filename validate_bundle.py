@@ -265,9 +265,25 @@ def main():
     test_env["GSETTINGS_SCHEMA_DIR"] = os.path.join(internal_dir, "share", "glib-2.0", "schemas")
     test_env["GDK_PIXBUF_MODULE_FILE"] = os.path.join(internal_dir, "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders.cache")
     
-    # Add DLL directories for ctypes on Windows
+    # Add DLL directories for ctypes on Windows, or dylib search path on macOS
     if is_windows:
         test_env["PATH"] = f"{bundle_dir};{internal_dir};{test_env.get('PATH', '')}"
+    elif is_mac:
+        dyld_paths = []
+        if app_dir:
+            frameworks_dir = os.path.join(app_dir, "Contents", "Frameworks")
+            dyld_paths.append(frameworks_dir)
+        else:
+            dyld_paths.append(bundle_dir)
+            
+        if os.environ.get("DYLD_LIBRARY_PATH"):
+            dyld_paths.append(os.environ["DYLD_LIBRARY_PATH"])
+        test_env["DYLD_LIBRARY_PATH"] = ":".join(dyld_paths)
+        
+        dyld_fallback_paths = list(dyld_paths)
+        if os.environ.get("DYLD_FALLBACK_LIBRARY_PATH"):
+            dyld_fallback_paths.append(os.environ["DYLD_FALLBACK_LIBRARY_PATH"])
+        test_env["DYLD_FALLBACK_LIBRARY_PATH"] = ":".join(dyld_fallback_paths)
 
     # Verify we can import gi and load Gtk-4.0 without crashing
     py_code = """
