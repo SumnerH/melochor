@@ -86,16 +86,16 @@ jobs:
       - name: Install System Dependencies (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          brew install pygobject3 gtk4 gobject-introspection pkg-config portaudio libsndfile
+          brew install python@3.12 gtk4 gobject-introspection pkg-config portaudio libsndfile
 
       - name: Install Python Dependencies (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          BREW_PYTHON=$(brew --prefix)/bin/python3
+          BREW_PYTHON=$(brew --prefix python@3.12)/bin/python3
           $BREW_PYTHON -m pip install --break-system-packages --upgrade pip setuptools
           $BREW_PYTHON -m pip install --break-system-packages pyinstaller
-          # Install dependencies cleanly, omitting pygobject since it is provided by Homebrew
-          $BREW_PYTHON -m pip install --break-system-packages numpy scipy sounddevice soundfile audioread PyOpenGL
+          # Install dependencies cleanly, including pygobject (which compiles against Homebrew's gobject-introspection)
+          $BREW_PYTHON -m pip install --break-system-packages numpy scipy sounddevice soundfile audioread PyOpenGL pygobject
 
       - name: Download Static FFmpeg (macOS)
         if: matrix.os == 'macos-latest'
@@ -116,7 +116,7 @@ jobs:
       - name: Build Standalone Executable (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          BREW_PYTHON=$(brew --prefix)/bin/python3
+          BREW_PYTHON=$(brew --prefix python@3.12)/bin/python3
           $BREW_PYTHON -m pyinstaller Melochor.spec
 
       - name: Fix Library Paths (macOS)
@@ -159,7 +159,7 @@ jobs:
       - name: Validate Standalone Bundle (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          BREW_PYTHON=$(brew --prefix)/bin/python3
+          BREW_PYTHON=$(brew --prefix python@3.12)/bin/python3
           $BREW_PYTHON validate_bundle.py dist/Melochor.app/Contents/MacOS
 
       - name: Re-sign Bundle (macOS)
