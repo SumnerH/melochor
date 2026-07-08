@@ -94,6 +94,14 @@ jobs:
         run: |
           brew install gtk4 gobject-introspection pkg-config portaudio libsndfile libffi cairo
           
+          # Force compile glib gsettings schemas to guarantee gschemas.compiled exists for PyInstaller
+          for prefix in "/opt/homebrew" "/usr/local"; do
+            if [ -d "$prefix/share/glib-2.0/schemas" ]; then
+              echo "Compiling GSettings schemas in $prefix..."
+              glib-compile-schemas "$prefix/share/glib-2.0/schemas" || true
+            fi
+          done
+          
           # Set standard environment variables for dynamic pygobject compilation
           echo "PKG_CONFIG_PATH=$(brew --prefix libffi)/lib/pkgconfig" >> $GITHUB_ENV
           echo "LDFLAGS=-L$(brew --prefix libffi)/lib" >> $GITHUB_ENV
