@@ -7939,7 +7939,7 @@ class FireworksApp:
         if h % 2 != 0:
             h = (h // 2) * 2
             
-        print(f"\nStarting offline HEVC recording of fireworks performance...")
+        print(f"\nStarting offline H.264 recording of fireworks performance...")
         print(f"Target file: {self.record_path}")
         print(f"Resolution: {w}x{h} @ {self.record_fps} FPS")
         
@@ -7956,14 +7956,14 @@ class FireworksApp:
             '-s', f'{w}x{h}', '-pix_fmt', 'rgba', '-r', str(self.record_fps),
             '-i', '-',
             '-vf', 'vflip',
-            '-c:v', 'libx265', '-pix_fmt', 'yuv420p', '-crf', '18', '-preset', 'ultrafast',
+            '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-preset', 'ultrafast',
             self.temp_video_path
         ]
         
         try:
             creationflags = 0x08000000 if sys.platform == 'win32' else 0
             self.ffmpeg_process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=creationflags)
-            print("Successfully opened FFmpeg libx265 encoding process pipe.")
+            print("Successfully opened FFmpeg libx264 encoding process pipe.")
             self.auto_launch = False
             self.auto_rotate = False
             self.playback_start_time = 0.0
@@ -8169,7 +8169,7 @@ class FireworksApp:
                 p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=creationflags)
                 stdout, stderr = p.communicate()
                 if p.returncode == 0:
-                    print(f"\nSuccessfully generated finalized HEVC MP4 movie with audio at: {self.record_path}")
+                    print(f"\nSuccessfully generated finalized H.264 MP4 movie with audio at: {self.record_path}")
                 else:
                     err = stderr.decode('utf-8', errors='ignore')[-300:]
                     print(f"Error multiplexing audio: {err}")
