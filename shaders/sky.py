@@ -1,5 +1,4 @@
-
-# Modern Shader Sources (GLSL ES 3.00)
+# Modern Shader Sources (GLSL ES 3.00) - Sky Shaders
 SKY_VERTEX_SHADER = """#version 300 es
 layout (location = 0) in vec2 aPos;
 out vec2 vPos;
@@ -329,31 +328,31 @@ void main() {
                 }
             }
         }    
-            // Slow-drifting nighttime clouds (drift speed based on song tempo)
-            vec2 cloud_uv = vPos * vec2(uAspect * 0.8, 1.0) * 0.85;
-            float drift_speed = 0.015 * (1.0 + uWormholeSpeedFactor * 0.5);
-            cloud_uv.x -= uTime * drift_speed;
-            cloud_uv.y -= uTime * drift_speed * 0.12;
-            
-            float cloud_noise = fbm(cloud_uv * 2.5 + vec2(uTime * drift_speed * 0.2, 0.0));
-            cloud_noise += fbm(cloud_uv * 5.0) * 0.35;
-            
-            float cloud_density = smoothstep(0.28, 0.75, cloud_noise) * 0.65;
-            cloud_density *= smoothstep(-0.84, -0.35, vPos.y); // Fade out near ground
-            
-            // Backlighting effect if clouds pass near the moon!
-            float dist_to_moon = length(moon_uv - moon_pos);
-            float moon_glow = exp(-dist_to_moon * 4.5) * 0.38;
-            
-            // Campfire warm light reflecting off the bottom of the clouds
-            float dist_to_fire = length(vec2(vPos.x * 1.5, vPos.y - (-0.84)));
-            float fire_reflection = exp(-dist_to_fire * 1.8) * (0.3 + 0.3 * uReactBass);
-            vec3 fire_glow_on_cloud = vec3(0.85, 0.28, 0.02) * fire_reflection;
-            
-            vec3 cloud_color = mix(vec3(0.06, 0.07, 0.11), vec3(0.55, 0.52, 0.45), moon_glow);
-            cloud_color += fire_glow_on_cloud;
-            
-            base_color = mix(base_color, cloud_color, cloud_density);
+        // Slow-drifting nighttime clouds (drift speed based on song tempo)
+        vec2 cloud_uv = vPos * vec2(uAspect * 0.8, 1.0) * 0.85;
+        float drift_speed = 0.015 * (1.0 + uWormholeSpeedFactor * 0.5);
+        cloud_uv.x -= uTime * drift_speed;
+        cloud_uv.y -= uTime * drift_speed * 0.12;
+        
+        float cloud_noise = fbm(cloud_uv * 2.5 + vec2(uTime * drift_speed * 0.2, 0.0));
+        cloud_noise += fbm(cloud_uv * 5.0) * 0.35;
+        
+        float cloud_density = smoothstep(0.28, 0.75, cloud_noise) * 0.65;
+        cloud_density *= smoothstep(-0.84, -0.35, vPos.y); // Fade out near ground
+        
+        // Backlighting effect if clouds pass near the moon!
+        float dist_to_moon = length(moon_uv - moon_pos);
+        float moon_glow = exp(-dist_to_moon * 4.5) * 0.38;
+        
+        // Campfire warm light reflecting off the bottom of the clouds
+        float dist_to_fire = length(vec2(vPos.x * 1.5, vPos.y - (-0.84)));
+        float fire_reflection = exp(-dist_to_fire * 1.8) * (0.3 + 0.3 * uReactBass);
+        vec3 fire_glow_on_cloud = vec3(0.85, 0.28, 0.02) * fire_reflection;
+        
+        vec3 cloud_color = mix(vec3(0.06, 0.07, 0.11), vec3(0.55, 0.52, 0.45), moon_glow);
+        cloud_color += fire_glow_on_cloud;
+        
+        base_color = mix(base_color, cloud_color, cloud_density);
 
         // --- 2. Highly Realistic Procedural Campfire Visualizer ---
         vec2 uv = vPos;
@@ -808,167 +807,3 @@ void main() {
     FragColor = vec4(base_color, 1.0);
 }
 """
-
-LINE_VERTEX_SHADER = """#version 300 es
-layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec4 aColor;
-out vec4 vColor;
-uniform mat4 projection;
-uniform mat4 view;
-uniform int uFireMode;
-void main() {
-    vColor = aColor;
-    if (uFireMode == 1) {
-        gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0);
-    } else {
-        gl_Position = projection * view * vec4(aPos, 1.0);
-    }
-}
-"""
-
-LINE_FRAGMENT_SHADER = """#version 300 es
-precision mediump float;
-in vec4 vColor;
-out vec4 FragColor;
-void main() {
-    FragColor = vColor;
-}
-"""
-
-PARTICLE_VERTEX_SHADER = """#version 300 es
-layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec4 aColor;
-layout (location = 2) in float aSize;
-
-out vec4 vColor;
-out float vRand;
-out float vStyle; // 0.0 = Star/Spark, 1.0 = Smooth Gaseous Puff
-
-uniform mat4 projection;
-uniform mat4 view;
-uniform int uFireMode;
-
-// High quality GPU hash function to generate a stable random seed [0, 1] per particle
-float hash3(vec3 p) {
-    return fract(sin(dot(p, vec3(12.9898, 78.233, 45.164))) * 43758.5453123);
-}
-
-void main() {
-    vColor = aColor;
-    vRand = hash3(aPos);
-    vStyle = aSize < 0.0 ? 1.0 : 0.0;
-    
-    if (uFireMode == 1) {
-        // Direct screen-space projection for flat 2D effects (e.g., procedural campfire)
-        gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0);
-        gl_PointSize = abs(aSize) * 2.5;
-    } else {
-        // 3D Perspective Projection for full space scenes
-        vec4 mvPos = view * vec4(aPos, 1.0);
-        gl_Position = projection * mvPos;
-        float dist = max(0.1, -mvPos.z);
-        gl_PointSize = abs(aSize) * (42.0 / dist);
-    }
-}
-"""
-
-PARTICLE_FRAGMENT_SHADER = """#version 300 es
-precision mediump float;
-in vec4 vColor;
-in float vRand;
-in float vStyle;
-out vec4 FragColor;
-
-uniform int uStarShape;
-
-// Simple 2D hash for micro-turbulent edge burning noise
-float hash2(vec2 p) {
-    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
-}
-
-void main() {
-    vec2 coord = gl_PointCoord - vec2(0.5);
-    float r = length(coord);
-    if (r > 0.5) {
-        discard;
-    }
-    
-    if (vStyle > 0.5) {
-        // Smooth gaseous puff with turbulent noise to form continuous smoke/clouds
-        float t = r / 0.5;
-        float noise = hash2(gl_PointCoord * (14.0 + vRand * 10.0) + vec2(vRand)) * 0.12;
-        float alpha = pow(max(0.0, 1.0 - (r + noise) / 0.5), 2.2) * vColor.a;
-        FragColor = vec4(vColor.rgb, alpha);
-    } else {
-        // Star/Spark style
-        // Convert to polar coordinates
-        float theta = atan(coord.y, coord.x);
-        
-        float max_r = 0.48;
-        if (uStarShape == 1) {
-            max_r = 0.48;
-        } else if (uStarShape == 2 || uStarShape == 3) {
-            float d_limit = (uStarShape == 2) ? 0.32 : 0.48;
-            max_r = d_limit / (abs(cos(theta)) + abs(sin(theta)));
-        } else if (uStarShape >= 4 && uStarShape <= 6) {
-            float spikes_n = float(uStarShape);
-            max_r = 0.28 + 0.20 * cos(spikes_n * (theta - 1.5707963));
-        } else {
-            // Default uStarShape == 0 (original organic spark)
-            float spikes = 4.0 + floor(vRand * 4.0);
-            float rotation = vRand * 6.28318;
-            float flare1 = cos(theta * spikes + rotation);
-            float flare2 = sin(theta * (spikes + 2.0) - rotation * 1.5);
-            float flare_profile = 0.35 + 0.15 * flare1 + 0.05 * flare2;
-            float edge_noise = hash2(coord * (10.0 + vRand * 50.0)) * 0.07;
-            max_r = flare_profile - edge_noise;
-        }
-        
-        if (r > max_r) {
-            discard;
-        }
-        
-        float t = r / max_r;
-        float core = pow(1.0 - t, 4.0);
-        float alpha = pow(1.0 - t, 1.5) * vColor.a;
-        vec3 spark_color = mix(vColor.rgb, vec3(1.0, 1.0, 0.95), core * 0.85);
-        spark_color += vec3(core * 0.40);
-        FragColor = vec4(spark_color, alpha);
-    }
-}
-"""
-
-import sys
-import OpenGL.GL as gl
-
-def compile_shader(shader_type, source):
-    # Dynamic preprocessor to map GLES 3.00 shaders to Desktop GLSL 3.30 on Windows and macOS
-    if sys.platform in ('win32', 'darwin'):
-        if source.startswith("#version 300 es") or "#version 300 es" in source:
-            source = source.replace("#version 300 es", "#version 330 core")
-            
-    shader = gl.glCreateShader(shader_type)
-    gl.glShaderSource(shader, source)
-    gl.glCompileShader(shader)
-    status = gl.glGetShaderiv(shader, gl.GL_COMPILE_STATUS)
-    if not status:
-        error = gl.glGetShaderInfoLog(shader).decode()
-        gl.glDeleteShader(shader)
-        raise RuntimeError(f"Shader compilation failed: {error}")
-    return shader
-
-def create_program(vertex_source, fragment_source):
-    vs = compile_shader(gl.GL_VERTEX_SHADER, vertex_source)
-    fs = compile_shader(gl.GL_FRAGMENT_SHADER, fragment_source)
-    program = gl.glCreateProgram()
-    gl.glAttachShader(program, vs)
-    gl.glAttachShader(program, fs)
-    gl.glLinkProgram(program)
-    gl.glDeleteShader(vs)
-    gl.glDeleteShader(fs)
-    status = gl.glGetProgramiv(program, gl.GL_LINK_STATUS)
-    if not status:
-        error = gl.glGetProgramInfoLog(program).decode()
-        gl.glDeleteProgram(program)
-        raise RuntimeError(f"Program linking failed: {error}")
-    return program
