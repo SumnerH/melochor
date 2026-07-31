@@ -1,0 +1,5853 @@
+import sys
+import time
+import random
+import ctypes
+import ctypes.util
+import numpy as np
+import os
+import json
+import subprocess
+import math
+import gi
+gi.require_version('Gtk', '4.0')
+from gi.repository import Gtk, GLib, Gdk, GObject
+import OpenGL.GL as gl
+import OpenGL.contextdata
+
+# Mock PyOpenGL context
+OpenGL.contextdata.getContext = lambda context=None: 1
+
+from constants import (
+    RARITY_INTERVAL,
+    COLORS,
+    COLOR_LIST,
+    NEON_PALETTE,
+    TRANQUIL_PALETTE,
+    METAL_PALETTE,
+    SUPPORTED_ROUTINES
+)
+from shaders import (
+    SKY_VERTEX_SHADER,
+    SKY_FRAGMENT_SHADER,
+    LINE_VERTEX_SHADER,
+    LINE_FRAGMENT_SHADER,
+    PARTICLE_VERTEX_SHADER,
+    PARTICLE_FRAGMENT_SHADER,
+    create_program,
+    compile_shader
+)
+from meshes import (
+    make_rocky_planet,
+    make_3d_asteroid,
+    make_solid_squid,
+    make_solid_seahorse,
+    make_solid_manta,
+    make_solid_fish,
+    make_solid_bird,
+    make_solid_butterfly
+)
+from firework import Firework
+from unified_audio_player import UnifiedAudioPlayer
+from helpers import (
+    get_palette_colors,
+    perspective_matrix,
+    look_at_matrix,
+    get_meeus_moon_phase
+)
+
+class FireworksApp:
+    def __init__(self, record_path=None, audio_path=None, playlist_files=None, random_mode=False, tmp_dir=None, shuffle_mode=False):
+        import tempfile
+        self.tmp_dir = tmp_dir if tmp_dir else tempfile.gettempdir()
+        self.audio_player = UnifiedAudioPlayer()
+        Firework.app = self
+        self.shuffle_mode = shuffle_mode
+        self.opt_trailers = 0        # 0: off, 1..10 range
+        self.opt_gravity = 1.0       # 0.0 to 10.0 range
+        self.opt_star_shape = 0      # 0: default, 1..6 shapes
+        self.opt_color_mode = 'REALISTIC' # 'REALISTIC', 'NEON', 'TRANQUIL', 'METAL'
+        self.opt_height_restrict = True
+        self.mandala_slices = 12
+        
+        self.active_presets = [
+            {
+                "name": "Fire Plasma",
+                "major_mode": "FIRE Plasma",
+                "show_rockets": True,
+                "opt_color_mode": "REALISTIC",
+                "opt_trailers": 6,
+                "opt_gravity": 1.0,
+                "opt_height_restrict": True,
+                "opt_star_shape": 0
+            },
+            {
+                "name": "Fireworks",
+                "major_mode": "FIREWORKS",
+                "show_rockets": True,
+                "opt_color_mode": "REALISTIC",
+                "opt_trailers": 0,
+                "opt_gravity": 1.0,
+                "opt_height_restrict": True,
+                "opt_star_shape": 0
+            },
+            {
+                "name": "Glory",
+                "major_mode": "FIREWORKS",
+                "show_rockets": False,
+                "opt_color_mode": "NEON",
+                "opt_trailers": 10,
+                "opt_gravity": 0.0,
+                "opt_height_restrict": False,
+                "opt_star_shape": 2 # small diamonds
+            },
+            {
+                "name": "Wormhole",
+                "major_mode": "TUNNEL Wormhole",
+                "show_rockets": True,
+                "opt_color_mode": "REALISTIC",
+                "opt_trailers": 0,
+                "opt_gravity": 1.0,
+                "opt_height_restrict": True,
+                "opt_star_shape": 0
+            },
+            {
+                "name": "Mandala",
+                "major_mode": "MANDALA Sacred",
+                "show_rockets": True,
+                "opt_color_mode": "REALISTIC",
+                "opt_trailers": 0,
+                "opt_gravity": 1.0,
+                "opt_height_restrict": True,
+                "opt_star_shape": 0,
+                "mandala_slices": 12
+            },
+            {
+                "name": "Trance",
+                "major_mode": "MANDALA Sacred",
+                "show_rockets": True,
+                "opt_color_mode": "TRANQUIL",
+                "opt_trailers": 10,
+                "opt_gravity": 0.5,
+                "opt_height_restrict": False,
+                "opt_star_shape": 2, # larger diamonds
+                "mandala_slices": 4
+            },
+            {
+                "name": "Underwater",
+                "major_mode": "UNDERWATER Lava",
+                "show_rockets": True,
+                "opt_color_mode": "REALISTIC",
+                "opt_trailers": 0,
+                "opt_gravity": 1.0,
+                "opt_height_restrict": True,
+                "opt_star_shape": 0
+            },
+            {
+                "name": "Synaesthesia",
+                "major_mode": "SYNAESTHESIA Classic",
+                "show_rockets": True,
+                "opt_color_mode": "REALISTIC",
+                "opt_trailers": 0,
+                "opt_gravity": 1.0,
+                "opt_height_restrict": True,
+                "opt_star_shape": 5, # shape star (5 points)
+                "syn_star_size": 0.25,
+                "syn_fade_mode": "Wave"
+            },
+            {
+                "name": "Random",
+                "major_mode": None,
+                "random_preset": True
+            }
+        ]
+        self.preset_idx = 0
+        self.preset_random_mode = random_mode
+        self.preset_random_timer = 0.0
+        
+        self.syn_star_size = 0.5
+        self.syn_fade_mode = "Stars"
+
+        self.record_path = record_path
+        self.is_recording = record_path is not None
+        self.record_time = 0.0
+        self.record_fps = 30
+        self.record_dt = 1.0 / self.record_fps
+        self.ffmpeg_process = None
+        self.temp_video_path = "temp_recording.mp4"
+        
+        # Configure dynamic audio & display script path
+        raw_paths = []
+        if audio_path:
+            raw_paths.append(audio_path)
+        if playlist_files:
+            raw_paths.extend(playlist_files)
+            
+        self.playlist = self.load_playlist_files(raw_paths) if raw_paths else []
+        self.playlist_idx = 0
+        self.audio_path = self.playlist[self.playlist_idx] if self.playlist else ""
+        self.audio_explicit = bool(raw_paths)
+        self.script_path = self.get_mangled_script_path(self.audio_path)
+        
+        self.show_rockets = True
+        self.show_legend = True
+
+        self.fireworks = []
+        self.routine_queue = []
+        self.active_routine_name = ""
+        self.routine_timer = 0.0
+        
+        self.camera_dist = 26.0
+        self.camera_theta = 0.0
+        self.camera_phi = 0.25
+        self.auto_rotate = False
+        
+        self.start_time = time.time()
+        self.last_time = time.time()
+        self.react_bass_smooth = 0.0
+        
+        self.auto_launch = True
+        self.launch_timer = 0.0
+        self.next_launch_interval = 0.8
+        
+        self.fps = 60.0
+        self.fps_filter = 0.95
+        
+        self.is_fullscreen = False
+        
+        self.drag_base_theta = 0.0
+        self.drag_base_phi = 0.0
+        
+        # VAO / VBO / Shader Program references
+        self.sky_program = None
+        self.moon_texture_id = None
+        self.line_program = None
+        self.particle_program = None
+        self.hood_vao = None
+        self.hood_pos_vbo = None
+        self.hood_col_vbo = None
+
+        # Music Sync Playback State
+        self.music_playing = False
+        self.music_process = None
+        self.playback_start_time = 0.0
+        self.script_events = []
+        self.next_event_idx = 0
+        self.loaded_script_name = "None"
+        self.script_duration = 0.0
+        self.script_bpm = 120.0
+        self.current_key = "N/A"
+        self.current_section_name = "None"
+        self.current_section_category = "None"
+        self.script_total_events = 0
+        self.color_hints = []
+        self.saved_auto_launch = True
+
+        # Dynamic Psychedelic Modes
+        self.modes = ["FIREWORKS", "TUNNEL Wormhole", "MANDALA Sacred", "UNDERWATER Lava", "SYNAESTHESIA Classic", "FIRE Plasma"]
+        self.major_mode_idx = 0
+        self.major_mode = self.modes[self.major_mode_idx]
+        self.react_bass = 0.0
+        self.react_mid = 0.0
+        self.react_treble = 0.0
+        self.current_stereo_panning = 0.0
+        self.procedural_beat_timer = 0.0
+        
+        # Climax Events and BPM phase
+        self.climax_flash = 0.0
+        self.last_climax_trigger_time = 0.0
+        self.tempo_phase = 0.0
+        
+        # Rarity system properties
+        self.rarity_cooldown = random.randint(0, int(RARITY_INTERVAL))
+        self.rarity_queued_type = None
+        self.active_rarity = None
+        self.current_rarity_cycle_name = "None"
+        self.rarity_cycle_list = [
+            "SQUID", "MANTA", "SEAHORSE", "LANTERN_FISH",
+            "PLANET", "GALAXY", "ASTEROIDS",
+            "CATHERINE_WHEEL",
+            "BIRD", "SMOKE", "SUN_BURST", "BUTTERFLY"
+        ]
+        self.rarity_cycle_idx = -1
+        self.lightning_active_timer = 0.0
+        self.active_lightning_bolts = []
+        self.wormhole_supernova_age = 0.0
+        self.wormhole_supernova_active = False
+        self.wormhole_shooting_star_active = False
+        self.wormhole_shooting_star_x = 0.0
+        self.wormhole_shooting_star_y = 0.0
+        self.wormhole_shooting_star_z = 0.0
+        self.peace_symbol_timer = 0.0
+        self.halo_timer = 0.0
+        
+        # Meeus Moon Phase state variables
+        self.moon_illumed = 0.5
+        self.moon_is_waning = False
+        self.last_moon_update_time = 0.0
+        self.recalculate_moon_phase()
+
+    def recalculate_moon_phase(self):
+        try:
+            fraction, is_waning = get_meeus_moon_phase()
+            self.moon_illumed = fraction
+            self.moon_is_waning = is_waning
+            print(f"Meeus Moon Phase calculated at startup / 12h tick: Illuminated: {fraction * 100:.2f}%, Waning: {is_waning}")
+        except Exception as e:
+            print(f"Error calculating Meeus moon phase, using fallback waning crescent: {e}")
+            self.moon_illumed = 0.16
+            self.moon_is_waning = True
+
+    def generate_lightning_bolt(self, start, end, depth=0, max_depth=3, branch_prob=0.18):
+        # Generates a list of line segments: (pt0, pt1, depth)
+        segments = []
+        
+        # Calculate steps based on distance
+        dist = np.linalg.norm(np.array(end) - np.array(start))
+        steps = int(max(5, dist * 18))
+        
+        current_pt = np.array(start, dtype=np.float32)
+        target_pt = np.array(end, dtype=np.float32)
+        
+        for i in range(1, steps + 1):
+            t = i / steps
+            # Interp point
+            next_pt = current_pt + (target_pt - current_pt) * (1.0 / (steps - i + 1))
+            
+            # Add jaggedness (perpendicular to direction)
+            if i < steps:
+                dir_vec = target_pt - current_pt
+                perp = np.array([-dir_vec[1], dir_vec[0], 0.0], dtype=np.float32)
+                perp_len = np.linalg.norm(perp)
+                if perp_len > 0.001:
+                    perp /= perp_len
+                # Jaggedness scale decreases near the end point (strikes the ground precisely!)
+                jagged_scale = 0.065 * (1.0 - t) * np.random.uniform(-1.0, 1.0)
+                next_pt += perp * jagged_scale
+                
+            # Line segment from current_pt to next_pt
+            segments.append((current_pt.copy(), next_pt.copy(), depth))
+            
+            # Occasional branching!
+            if depth < max_depth and np.random.uniform(0.0, 1.0) < branch_prob and i < steps - 1:
+                # Spawn a branch going downwards-sideways
+                branch_dir = (next_pt - current_pt)
+                angle = np.random.uniform(-0.7, 0.7)
+                # Rotate branch_dir
+                c, s = np.cos(angle), np.sin(angle)
+                bx = branch_dir[0] * c - branch_dir[1] * s
+                by = branch_dir[0] * s + branch_dir[1] * c
+                branch_end = next_pt + np.array([bx, by, 0.0], dtype=np.float32) * np.random.uniform(0.7, 1.3)
+                segments.extend(self.generate_lightning_bolt(next_pt.copy(), branch_end, depth + 1, max_depth, branch_prob))
+                
+            current_pt = next_pt
+            
+        return segments
+
+    def get_mangled_script_path(self, audio_path):
+        if not audio_path:
+            return ""
+        import hashlib
+        abs_path = os.path.abspath(audio_path)
+        path_hash = hashlib.sha256(abs_path.encode('utf-8')).hexdigest()
+        h1 = path_hash[0:2]
+        h2 = path_hash[2:4]
+        base_name = os.path.splitext(os.path.basename(abs_path))[0]
+        safe_base = "".join(c if c.isalnum() or c in ('-', '_') else "_" for c in base_name)
+        cached_dir = os.path.join(self.tmp_dir, "fireworks_cache", h1, h2)
+        os.makedirs(cached_dir, exist_ok=True)
+        return os.path.join(cached_dir, f"{safe_base}_{path_hash}.json")
+
+    def load_playlist_files(self, paths):
+        resolved = []
+        audio_exts = ('.mp3', '.wav', '.ogg', '.opus', '.flac', '.m4a', '.aac')
+        for p in paths:
+            if not p or p.lower().endswith('.json'):
+                continue
+            if os.path.isdir(p):
+                try:
+                    for root, dirs, files in os.walk(p):
+                        files.sort()
+                        for f in files:
+                            if f.lower().endswith(audio_exts):
+                                resolved.append(os.path.join(root, f))
+                except Exception as e:
+                    print(f"Error scanning directory {p}: {e}")
+            elif p.lower().endswith('.m3u'):
+                if os.path.exists(p):
+                    m3u_dir = os.path.dirname(os.path.abspath(p))
+                    try:
+                        with open(p, 'r', encoding='utf-8', errors='ignore') as f:
+                            for line in f:
+                                line = line.strip()
+                                if line and not line.startswith('#'):
+                                    if not os.path.isabs(line):
+                                        full_path = os.path.abspath(os.path.join(m3u_dir, line))
+                                    else:
+                                        full_path = line
+                                    resolved.append(full_path)
+                    except Exception as e:
+                        print(f"Error reading playlist file {p}: {e}")
+                else:
+                    print(f"Playlist file {p} not found!")
+            else:
+                resolved.append(p)
+        if self.shuffle_mode:
+            random.shuffle(resolved)
+        return resolved
+
+    def load_and_play_track(self):
+        if getattr(self, 'preset_random_mode', False) and getattr(self, 'preset_random_timer', 0.0) >= 45.0:
+            print(f"[Random Mode] Triggering preset switch at start of track: {os.path.basename(self.audio_path) if self.audio_path else 'None'}")
+            self.pick_random_preset()
+
+        # 1. Stop current sync playback
+        self.stop_sync_playback()
+        
+        # Clear existing visualizer events
+        self.script_events = []
+        self.next_event_idx = 0
+        self.loaded_script_name = "None"
+        self.update_legend_labels()
+        
+        if not self.audio_path or not os.path.exists(self.audio_path):
+            print(f"Audio file not found: {self.audio_path}")
+            return
+            
+        print(f"Loading and playing track: {self.audio_path}")
+        
+        # 2. Check if JSON script exists and is up-to-date
+        json_exists = False
+        import audio_analyzer
+        if os.path.exists(self.script_path):
+            try:
+                with open(self.script_path, 'r') as f:
+                    data = json.load(f)
+                ver = data.get("metadata", {}).get("analyzer_version", 0)
+                if ver >= audio_analyzer.ANALYZER_VERSION:
+                    json_exists = True
+            except Exception as e:
+                print(f"Error checking JSON validity: {e}")
+                
+        # 3. Play audio IMMEDIATELY
+        self.saved_auto_launch = self.auto_launch
+        self.auto_launch = False
+        self.fireworks.clear()
+        
+        try:
+            if self.audio_player.play(self.audio_path):
+                self.music_playing = True
+                self.playback_start_time = time.time()
+            else:
+                raise RuntimeError("UnifiedAudioPlayer failed to play track")
+        except Exception as e:
+            print(f"Failed to start audio playback: {e}")
+            self.auto_launch = self.saved_auto_launch
+            self.update_legend_labels()
+            return
+
+        # 4. If JSON is valid, load it immediately and start sync
+        if json_exists:
+            print("Up-to-date JSON found. Loading immediately...")
+            self.load_sync_script(self.script_path)
+            self.next_event_idx = 0
+            self.check_pregenerate_next_track()
+        else:
+            # 5. Otherwise, start asynchronous background generation
+            print("No up-to-date JSON found. Starting background analysis thread...")
+            import threading
+            threading.Thread(target=self.async_analyze_and_activate, daemon=True).start()
+
+    def async_analyze_and_activate(self):
+        try:
+            import audio_analyzer
+            print(f"[Async Analyzer] Analyzing {self.audio_path} in background...")
+            hints = getattr(self, 'color_hints', None) or ["strontium_red", "magnesium_white", "copper_blue"]
+            script = audio_analyzer.analyze_audio(self.audio_path, hints)
+            
+            with open(self.script_path, 'w') as f:
+                json.dump(script, f, indent=2)
+            print(f"[Async Analyzer] Background analysis completed and saved to {self.script_path}")
+            
+            GLib.idle_add(self.activate_async_json, self.script_path)
+        except Exception as e:
+            print(f"[Async Analyzer] Error in background analysis: {e}")
+
+    def activate_async_json(self, filepath):
+        expected_script_path = self.get_mangled_script_path(self.audio_path)
+        if filepath != expected_script_path:
+            print(f"Background analysis finished for {filepath}, but active track has changed. Ignoring.")
+            return False
+            
+        print(f"Activating asynchronously generated JSON: {filepath}")
+        if self.load_sync_script(filepath):
+            elapsed = time.time() - self.playback_start_time
+            idx = 0
+            while idx < len(self.script_events) and self.script_events[idx].get("time", 0.0) < elapsed:
+                idx += 1
+            self.next_event_idx = idx
+            print(f"Choreography synced to elapsed play time: {elapsed:.2f}s (starting at event index {idx})")
+            
+            self.check_pregenerate_next_track()
+            
+        return False
+
+    def check_pregenerate_next_track(self):
+        if not self.playlist or len(self.playlist) <= 1:
+            return
+            
+        next_idx = (self.playlist_idx + 1) % len(self.playlist)
+        next_audio_path = self.playlist[next_idx]
+        next_script_path = self.get_mangled_script_path(next_audio_path)
+        
+        json_exists = False
+        import audio_analyzer
+        if os.path.exists(next_script_path):
+            try:
+                with open(next_script_path, 'r') as f:
+                    data = json.load(f)
+                ver = data.get("metadata", {}).get("analyzer_version", 0)
+                if ver >= audio_analyzer.ANALYZER_VERSION:
+                    json_exists = True
+            except Exception:
+                pass
+                
+        if not json_exists:
+            print(f"Pre-emptive Cache: Next track '{os.path.basename(next_audio_path)}' has no up-to-date JSON.")
+            print(f"Starting pre-emptive background analysis for next track...")
+            import threading
+            threading.Thread(target=self.async_pregenerate_track, args=(next_audio_path, next_script_path), daemon=True).start()
+        else:
+            print(f"Pre-emptive Cache: Next track '{os.path.basename(next_audio_path)}' already has up-to-date JSON.")
+
+    def async_pregenerate_track(self, audio_path, script_path):
+        try:
+            import audio_analyzer
+            print(f"[Pre-emptive Analyzer] Pre-generating JSON for {audio_path} in background...")
+            hints = ["strontium_red", "magnesium_white", "copper_blue"]
+            script = audio_analyzer.analyze_audio(audio_path, hints)
+            with open(script_path, 'w') as f:
+                json.dump(script, f, indent=2)
+            print(f"[Pre-emptive Analyzer] Finished pre-generating JSON for {audio_path}.")
+        except Exception as e:
+            print(f"[Pre-emptive Analyzer] Error pre-generating JSON for {audio_path}: {e}")
+
+    def play_next_track(self):
+        if not self.playlist:
+            return
+        next_idx = (self.playlist_idx + 1) % len(self.playlist)
+        self.playlist_idx = next_idx
+        self.audio_path = self.playlist[self.playlist_idx]
+        self.script_path = self.get_mangled_script_path(self.audio_path)
+        self.load_and_play_track()
+
+    def play_previous_track(self):
+        if not self.playlist:
+            return
+        prev_idx = (self.playlist_idx - 1) % len(self.playlist)
+        self.playlist_idx = prev_idx
+        self.audio_path = self.playlist[self.playlist_idx]
+        self.script_path = self.get_mangled_script_path(self.audio_path)
+        self.load_and_play_track()
+
+    def apply_preset(self, idx):
+        self.preset_idx = idx
+        preset = self.active_presets[idx]
+        
+        if preset.get("random_preset"):
+            self.preset_random_mode = True
+            self.preset_random_timer = 0.0
+            self.pick_random_preset()
+        else:
+            self.preset_random_mode = False
+            self.apply_preset_settings(preset)
+
+    def apply_preset_settings(self, preset):
+        # Clear any active or queued rarity from previous modes
+        self.active_rarity = None
+        self.rarity_queued_type = None
+        
+        self.major_mode = preset["major_mode"]
+        if self.major_mode in self.modes:
+            self.major_mode_idx = self.modes.index(self.major_mode)
+            
+        if self.major_mode != "FIREWORKS":
+            self.fireworks.clear()
+            
+        self.show_rockets = preset["show_rockets"]
+        self.opt_color_mode = preset["opt_color_mode"]
+        self.opt_trailers = preset["opt_trailers"]
+        self.opt_gravity = preset["opt_gravity"]
+        self.opt_height_restrict = preset["opt_height_restrict"]
+        self.opt_star_shape = preset["opt_star_shape"]
+        
+        if self.major_mode == "SYNAESTHESIA Classic":
+            if self.opt_star_shape in (1, 2, 3):
+                self.syn_points_are_diamonds = True
+            elif self.opt_star_shape in (4, 5, 6):
+                self.syn_points_are_diamonds = False
+        
+        if "syn_star_size" in preset:
+            self.syn_star_size = preset["syn_star_size"]
+        if "syn_fade_mode" in preset:
+            self.syn_fade_mode = preset["syn_fade_mode"]
+            
+        self.mandala_slices = preset.get("mandala_slices", 12)
+        self.update_legend_labels()
+
+    def pick_random_preset(self):
+        self.preset_random_timer = 0.0
+        candidates = list(range(len(self.active_presets) - 1))
+        if hasattr(self, 'last_random_preset_idx') and self.last_random_preset_idx in candidates and len(candidates) > 1:
+            candidates.remove(self.last_random_preset_idx)
+        chosen_idx = random.choice(candidates)
+        self.last_random_preset_idx = chosen_idx
+        
+        preset = self.active_presets[chosen_idx]
+        print(f"RANDOM PRESET SWITCH: Switching to {preset['name']}!")
+        self.apply_preset_settings(preset)
+
+    def update_preset_random_timer(self, dt):
+        if hasattr(self, 'preset_random_mode') and self.preset_random_mode:
+            self.preset_random_timer += dt
+
+    def get_sim_time(self):
+        if hasattr(self, 'is_recording') and self.is_recording:
+            return self.record_time
+        return time.time() - self.start_time
+
+    def load_css(self):
+        css_data = """
+        .hud-title {
+            font-family: 'Outfit', 'Inter', 'Sans-Serif', sans-serif;
+            font-size: 16px;
+            font-weight: bold;
+            color: #e6f0ff;
+        }
+        .hud-subtitle {
+            font-family: 'Outfit', 'Inter', 'Sans-Serif', sans-serif;
+            font-size: 10px;
+            color: #96b4dc;
+        }
+        .hud-stats-fps {
+            font-family: 'Inter', 'Monospace', monospace;
+            font-size: 11px;
+            font-weight: bold;
+            color: #64e696;
+            margin-bottom: 2px;
+        }
+        .hud-stats {
+            font-family: 'Inter', 'Monospace', monospace;
+            font-size: 10px;
+            color: #c8dcff;
+        }
+        .hud-routine {
+            font-family: 'Inter', 'Sans-Serif', sans-serif;
+            font-size: 11px;
+            font-weight: bold;
+            color: #ffa834;
+            margin-top: 3px;
+        }
+        .hud-legend {
+            background-color: rgba(10, 10, 25, 0.65);
+            border: 1px solid rgba(130, 150, 180, 0.2);
+            border-radius: 6px;
+            padding: 12px;
+        }
+        .hud-legend-title {
+            font-family: 'Outfit', 'Inter', sans-serif;
+            font-weight: bold;
+            color: #e2e6ff;
+            font-size: 10px;
+            margin-bottom: 6px;
+        }
+        .hud-legend label {
+            font-family: 'Inter', 'Monospace', monospace;
+            font-size: 9px;
+            color: #b4c8f0;
+        }
+        .hud-music-time {
+            font-family: 'Inter', 'Monospace', monospace;
+            font-size: 11px;
+            font-weight: bold;
+            color: #34c7f3;
+            margin-top: 2px;
+        }
+        """
+        provider = Gtk.CssProvider()
+        if hasattr(provider, 'load_from_string'):
+            provider.load_from_string(css_data)
+        else:
+            provider.load_from_data(css_data.encode('utf-8'))
+        
+        display = Gdk.Display.get_default()
+        Gtk.StyleContext.add_provider_for_display(
+            display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+
+    def on_activate(self, app):
+        self.win = Gtk.ApplicationWindow(application=app)
+        self.win.set_title("Melochor: 3D OpenGL Audio Visualizer")
+        self.win.set_default_size(1280, 720)
+        
+        self.load_css()
+        
+        overlay = Gtk.Overlay()
+        
+        self.gl_area = Gtk.GLArea()
+        self.gl_area.set_required_version(3, 2)
+        self.gl_area.set_has_depth_buffer(True)
+        self.gl_area.connect("realize", self.on_realize)
+        self.gl_area.connect("render", self.on_render)
+        overlay.set_child(self.gl_area)
+        
+        self.hud_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.hud_box.set_valign(Gtk.Align.START)
+        self.hud_box.set_halign(Gtk.Align.START)
+        self.hud_box.set_margin_start(20)
+        self.hud_box.set_margin_top(20)
+        
+        title_lbl = Gtk.Label(label="MELOCHOR 3D")
+        title_lbl.add_css_class("hud-title")
+        title_lbl.set_halign(Gtk.Align.START)
+        self.hud_box.append(title_lbl)
+        
+        sub_lbl = Gtk.Label(label="Interactive OpenGL Audio Visualizer & Screensaver")
+        sub_lbl.add_css_class("hud-subtitle")
+        sub_lbl.set_halign(Gtk.Align.START)
+        self.hud_box.append(sub_lbl)
+        
+        stats_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        stats_box.set_margin_top(15)
+        stats_box.set_halign(Gtk.Align.START)
+        
+        self.fps_lbl = Gtk.Label(label="FPS: 60.0")
+        self.fps_lbl.add_css_class("hud-stats-fps")
+        self.fps_lbl.set_halign(Gtk.Align.START)
+        stats_box.append(self.fps_lbl)
+
+        self.hud_bpm_lbl = Gtk.Label(label="BPM: 120.0")
+        self.hud_bpm_lbl.add_css_class("hud-stats")
+        self.hud_bpm_lbl.set_halign(Gtk.Align.START)
+        stats_box.append(self.hud_bpm_lbl)
+
+        self.hud_key_lbl = Gtk.Label(label="Key: N/A")
+        self.hud_key_lbl.add_css_class("hud-stats")
+        self.hud_key_lbl.set_halign(Gtk.Align.START)
+        stats_box.append(self.hud_key_lbl)
+
+        self.hud_sec_name_lbl = Gtk.Label(label="Section: None")
+        self.hud_sec_name_lbl.add_css_class("hud-stats")
+        self.hud_sec_name_lbl.set_halign(Gtk.Align.START)
+        stats_box.append(self.hud_sec_name_lbl)
+
+        self.hud_sec_cat_lbl = Gtk.Label(label="Category: None")
+        self.hud_sec_cat_lbl.add_css_class("hud-stats")
+        self.hud_sec_cat_lbl.set_halign(Gtk.Align.START)
+        stats_box.append(self.hud_sec_cat_lbl)
+        
+        self.shell_lbl = Gtk.Label(label="Active Shells: 0")
+        self.shell_lbl.add_css_class("hud-stats")
+        self.shell_lbl.set_halign(Gtk.Align.START)
+        stats_box.append(self.shell_lbl)
+        
+        self.part_lbl = Gtk.Label(label="Simulated Particles: 0")
+        self.part_lbl.add_css_class("hud-stats")
+        self.part_lbl.set_halign(Gtk.Align.START)
+        stats_box.append(self.part_lbl)
+        
+        self.routine_lbl = Gtk.Label(label="Routine: None")
+        self.routine_lbl.add_css_class("hud-routine")
+        self.routine_lbl.set_halign(Gtk.Align.START)
+        stats_box.append(self.routine_lbl)
+        
+        self.hud_box.append(stats_box)
+
+        # Beautiful Music Sync Panel
+        music_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        music_box.set_margin_top(15)
+        music_box.set_halign(Gtk.Align.START)
+        
+        music_hdr = Gtk.Label(label="MUSIC SYNCHRONIZER:")
+        music_hdr.add_css_class("hud-legend-title")
+        music_hdr.set_halign(Gtk.Align.START)
+        music_box.append(music_hdr)
+        
+        self.music_track_lbl = Gtk.Label(label="Track: None")
+        self.music_track_lbl.add_css_class("hud-stats")
+        self.music_track_lbl.set_halign(Gtk.Align.START)
+        music_box.append(self.music_track_lbl)
+        
+        self.music_time_lbl = Gtk.Label(label="Time: 00:00 / 00:00")
+        self.music_time_lbl.add_css_class("hud-music-time")
+        self.music_time_lbl.set_halign(Gtk.Align.START)
+        music_box.append(self.music_time_lbl)
+        
+        self.music_section_lbl = Gtk.Label(label="Section: None")
+        self.music_section_lbl.add_css_class("hud-stats")
+        self.music_section_lbl.set_halign(Gtk.Align.START)
+        music_box.append(self.music_section_lbl)
+        
+        self.hud_box.append(music_box)
+
+        overlay.add_overlay(self.hud_box)
+        
+        self.legend_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        self.legend_box.add_css_class("hud-legend")
+        self.legend_box.set_valign(Gtk.Align.END)
+        self.legend_box.set_halign(Gtk.Align.START)
+        self.legend_box.set_margin_start(20)
+        self.legend_box.set_margin_bottom(20)
+        
+        leg_title = Gtk.Label(label="KEYBOARD CONTROLS:")
+        leg_title.add_css_class("hud-legend-title")
+        leg_title.set_halign(Gtk.Align.START)
+        self.legend_box.append(leg_title)
+        
+        lbl_space = Gtk.Label(label="[SPACE]  - Play/Pause Sync Playback")
+        lbl_space.set_halign(Gtk.Align.START)
+        self.legend_box.append(lbl_space)
+
+        lbl_return = Gtk.Label(label="[ENTER]  - Launch Manual Shell")
+        lbl_return.set_halign(Gtk.Align.START)
+        self.legend_box.append(lbl_return)
+        
+        self.lbl_auto_launch = Gtk.Label()
+        self.lbl_auto_launch.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_auto_launch)
+        
+        self.lbl_auto_rotate = Gtk.Label()
+        self.lbl_auto_rotate.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_auto_rotate)
+        
+        self.lbl_music = Gtk.Label()
+        self.lbl_music.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_music)
+        
+        self.lbl_rockets_toggle = Gtk.Label()
+        self.lbl_rockets_toggle.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_rockets_toggle)
+        
+        self.lbl_legend_toggle = Gtk.Label()
+        self.lbl_legend_toggle.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_legend_toggle)
+
+        self.lbl_mode_toggle = Gtk.Label()
+        self.lbl_mode_toggle.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_mode_toggle)
+        
+        self.lbl_rarity_cycle = Gtk.Label()
+        self.lbl_rarity_cycle.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_rarity_cycle)
+
+        lbl_tweaks_title = Gtk.Label(label="\nOPTIONAL TWEAKS:")
+        lbl_tweaks_title.add_css_class("hud-legend-title")
+        lbl_tweaks_title.set_halign(Gtk.Align.START)
+        self.legend_box.append(lbl_tweaks_title)
+        
+        self.lbl_opt_color = Gtk.Label()
+        self.lbl_opt_color.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_opt_color)
+
+        self.lbl_opt_shape = Gtk.Label()
+        self.lbl_opt_shape.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_opt_shape)
+
+        self.lbl_opt_gravity = Gtk.Label()
+        self.lbl_opt_gravity.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_opt_gravity)
+
+        self.lbl_opt_trailers = Gtk.Label()
+        self.lbl_opt_trailers.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_opt_trailers)
+        
+        self.lbl_opt_height = Gtk.Label()
+        self.lbl_opt_height.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_opt_height)
+        
+        self.lbl_mandala_slices = Gtk.Label()
+        self.lbl_mandala_slices.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_mandala_slices)
+        
+        self.update_legend_labels()
+        
+        lbl_clear = Gtk.Label(label="[C]      - Clear Active Particles")
+        lbl_clear.set_halign(Gtk.Align.START)
+        self.legend_box.append(lbl_clear)
+        
+        lbl_fs = Gtk.Label(label="[F]      - Toggle Fullscreen")
+        lbl_fs.set_halign(Gtk.Align.START)
+        self.legend_box.append(lbl_fs)
+        
+        lbl_quit = Gtk.Label(label="[ESC/Q]  - Quit Screensaver")
+        lbl_quit.set_halign(Gtk.Align.START)
+        self.legend_box.append(lbl_quit)
+        
+        lbl_routines_title = Gtk.Label(label="\nCHOREOGRAPHED ROUTINES:")
+        lbl_routines_title.add_css_class("hud-legend-title")
+        lbl_routines_title.set_halign(Gtk.Align.START)
+        self.legend_box.append(lbl_routines_title)
+        
+        self.lbl_r1 = Gtk.Label(label="[1]  - American Flag")
+        self.lbl_r1.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_r1)
+        
+        self.lbl_r2 = Gtk.Label(label="[2]  - Liberty Bell")
+        self.lbl_r2.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_r2)
+        
+        self.lbl_r3 = Gtk.Label(label="[3]  - Statue of Liberty")
+        self.lbl_r3.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_r3)
+        
+        self.lbl_r4 = Gtk.Label(label="[4]  - Flower Bouquet")
+        self.lbl_r4.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_r4)
+        
+        self.lbl_r5 = Gtk.Label(label="[5]  - The Dragon")
+        self.lbl_r5.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_r5)
+        
+        self.lbl_r6 = Gtk.Label(label="[6]  - Supernova")
+        self.lbl_r6.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_r6)
+        
+        self.lbl_r7 = Gtk.Label(label="[7]  - Shooting Star")
+        self.lbl_r7.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_r7)
+        
+        overlay.add_overlay(self.legend_box)
+        
+        self.win.set_child(overlay)
+        
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect("key-pressed", self.on_key_pressed)
+        self.win.add_controller(key_controller)
+        
+        drag_gesture = Gtk.GestureDrag()
+        drag_gesture.connect("drag-begin", self.on_drag_begin)
+        drag_gesture.connect("drag-update", self.on_drag_update)
+        self.gl_area.add_controller(drag_gesture)
+        
+        scroll_controller = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL)
+        scroll_controller.connect("scroll", self.on_scroll)
+        self.gl_area.add_controller(scroll_controller)
+
+        # File Drag and Drop Support
+        try:
+            drop_target = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
+            drop_target.connect("drop", self.on_file_drop)
+            self.win.add_controller(drop_target)
+        except Exception as e:
+            print(f"Failed to initialize Drag & Drop: {e}")
+
+        # Context Menu Right-Click Gestures
+        right_click = Gtk.GestureClick.new()
+        right_click.set_button(3) # Right mouse button
+        right_click.connect("pressed", self.on_right_click)
+        self.gl_area.add_controller(right_click)
+        
+        GLib.timeout_add(16, self.on_tick)
+        
+        # Connect close-request signal to cleanly terminate background music
+        self.win.connect("close-request", self.on_close_request)
+        
+        # Explicit audio script parsing & auto-start
+        if self.preset_random_mode:
+            self.apply_preset(len(self.active_presets) - 1)
+
+        if self.is_recording:
+            if not os.path.exists(self.script_path):
+                print(f"No display script found for recording. Generating synchronously: {self.script_path}...")
+                try:
+                    import audio_analyzer
+                    script = audio_analyzer.analyze_audio(self.audio_path, ["strontium_red", "magnesium_white", "copper_blue"])
+                    with open(self.script_path, 'w') as f:
+                        json.dump(script, f, indent=2)
+                except Exception as e:
+                    print(f"Failed to generate script for recording: {e}")
+                    sys.exit(1)
+            self.load_sync_script(self.script_path)
+        else:
+            # Play first track immediately (analyzes asynchronously in background if needed)
+            GLib.idle_add(self.load_and_play_track)
+            
+        self.win.present()
+        
+        if self.audio_explicit:
+            self.win.fullscreen()
+            self.is_fullscreen = True
+ 
+    def update_hud_labels(self):
+        if hasattr(self, 'hud_bpm_lbl') and self.hud_bpm_lbl:
+            bpm_val = getattr(self, 'script_bpm', 120.0)
+            self.hud_bpm_lbl.set_text(f"BPM: {bpm_val:.1f}")
+        if hasattr(self, 'hud_key_lbl') and self.hud_key_lbl:
+            key_val = getattr(self, 'current_key', "N/A")
+            self.hud_key_lbl.set_text(f"Key: {key_val}")
+        if hasattr(self, 'hud_sec_name_lbl') and self.hud_sec_name_lbl:
+            sec_val = getattr(self, 'current_section_name', "None")
+            self.hud_sec_name_lbl.set_text(f"Section: {sec_val}")
+        if hasattr(self, 'hud_sec_cat_lbl') and self.hud_sec_cat_lbl:
+            cat_val = getattr(self, 'current_section_category', "None")
+            self.hud_sec_cat_lbl.set_text(f"Category: {cat_val}")
+
+    def update_legend_labels(self):
+        if hasattr(self, 'lbl_opt_color') and self.lbl_opt_color:
+            self.lbl_opt_color.set_text(f"[O]      - Color Mode: {self.opt_color_mode}")
+        if hasattr(self, 'lbl_opt_shape') and self.lbl_opt_shape:
+            shapes_desc = {0: "Default", 1: "Circles", 2: "Small Diamonds", 3: "Larger Diamonds", 4: "4-Pt Stars", 5: "5-Pt Stars", 6: "6-Pt Stars"}
+            self.lbl_opt_shape.set_text(f"[P]      - Star Shape: {shapes_desc.get(self.opt_star_shape, 'Default')}")
+        if hasattr(self, 'lbl_opt_gravity') and self.lbl_opt_gravity:
+            grav_desc = "OFF" if self.opt_gravity == 0.0 else f"{self.opt_gravity}x"
+            self.lbl_opt_gravity.set_text(f"[G]      - Gravity: {grav_desc}")
+        if hasattr(self, 'lbl_opt_trailers') and self.lbl_opt_trailers:
+            trail_desc = "OFF" if self.opt_trailers == 0 else f"Len {self.opt_trailers}"
+            self.lbl_opt_trailers.set_text(f"[L]      - Trailers: {trail_desc}")
+        if hasattr(self, 'lbl_opt_height') and self.lbl_opt_height:
+            height_desc = "ON" if self.opt_height_restrict else "OFF"
+            self.lbl_opt_height.set_text(f"[Y]      - Height Restriction: {height_desc}")
+        if hasattr(self, 'lbl_mandala_slices') and self.lbl_mandala_slices:
+            self.lbl_mandala_slices.set_text(f"[S]      - Mandala Slices: {self.mandala_slices}")
+
+        self.lbl_auto_launch.set_text(f"[A]      - Toggle Auto-Launcher ({'ON' if self.auto_launch else 'OFF'})")
+        self.lbl_auto_rotate.set_text(f"[R]      - Toggle Camera Auto-Rotation ({'ON' if self.auto_rotate else 'OFF'})")
+        if self.music_playing:
+            self.lbl_music.set_text("[M]      - Toggle Music Sync (PLAYING)")
+        elif len(self.script_events) > 0:
+            self.lbl_music.set_text("[M]      - Toggle Music Sync (READY)")
+        else:
+            self.lbl_music.set_text("[M]      - Toggle Music Sync (NO SCRIPT)")
+            
+        if hasattr(self, 'lbl_rockets_toggle') and self.lbl_rockets_toggle:
+            self.lbl_rockets_toggle.set_text(f"[T]      - Toggle Rockets ({'ON' if self.show_rockets else 'OFF'})")
+        if hasattr(self, 'lbl_legend_toggle') and self.lbl_legend_toggle:
+            self.lbl_legend_toggle.set_text("[H]      - Toggle Keyboard Controls HUD")
+        if hasattr(self, 'lbl_mode_toggle') and self.lbl_mode_toggle:
+            preset_name = self.active_presets[self.preset_idx]["name"]
+            if getattr(self, 'preset_random_mode', False) and hasattr(self, 'last_random_preset_idx'):
+                cur_preset = self.active_presets[self.last_random_preset_idx]["name"]
+                self.lbl_mode_toggle.set_text(f"[V]      - Cycle Visual Mode: {preset_name} ({cur_preset})")
+            else:
+                self.lbl_mode_toggle.set_text(f"[V]      - Cycle Visual Mode: {preset_name}")
+        if hasattr(self, 'lbl_rarity_cycle') and self.lbl_rarity_cycle:
+            rarity_name = getattr(self, 'current_rarity_cycle_name', 'None')
+            self.lbl_rarity_cycle.set_text(f"[K]      - Cycle Rarities ({rarity_name})")
+            
+        if hasattr(self, 'lbl_r1'):
+            if self.major_mode == "FIREWORKS":
+                self.lbl_r1.set_text("[1]  - American Flag")
+                self.lbl_r2.set_text("[2]  - Liberty Bell")
+                self.lbl_r3.set_text("[3]  - Statue of Liberty")
+                self.lbl_r4.set_text("[4]  - Flower Bouquet")
+                self.lbl_r5.set_text("[5]  - The Dragon")
+            elif self.major_mode == "TUNNEL Wormhole":
+                self.lbl_r1.set_text("[1]  - Plasma Burst")
+                self.lbl_r2.set_text("[2]  - Gravity Surge")
+                self.lbl_r3.set_text("[3]  - Stardust Stream")
+                self.lbl_r4.set_text("[4]  - Event Horizon")
+                self.lbl_r5.set_text("[5]  - Lightning Flash")
+            elif self.major_mode == "UNDERWATER Lava":
+                self.lbl_r1.set_text("[1]  - Coral Pulse")
+                self.lbl_r2.set_text("[2]  - Geyser Eruption")
+                self.lbl_r3.set_text("[3]  - Plankton Surge")
+                self.lbl_r4.set_text("[4]  - Deep Vent Blast")
+                self.lbl_r5.set_text("[5]  - Bioluminescent Rainbow")
+            elif self.major_mode == "MANDALA Sacred":
+                self.lbl_r1.set_text("[1]  - Lotus Bloom")
+                self.lbl_r2.set_text("[2]  - Cosmic Spin")
+                self.lbl_r3.set_text("[3]  - Infinite Pulse")
+                self.lbl_r4.set_text("[4]  - Geometric Collapse")
+                self.lbl_r5.set_text("[5]  - Astral Projection")
+            elif self.major_mode == "SYNAESTHESIA Classic":
+                shape_name = "Diamond" if getattr(self, 'syn_points_are_diamonds', True) else "Star"
+                self.lbl_r1.set_text(f"[1]  - Shape: {shape_name}")
+                self.lbl_r2.set_text(f"[2]  - Star Size: {getattr(self, 'syn_star_size', 0.5)}")
+                self.lbl_r3.set_text(f"[3]  - Brightness: {getattr(self, 'syn_brightness', 0.35)}")
+                self.lbl_r4.set_text(f"[4]  - Fade Mode: {getattr(self, 'syn_fade_mode', 'Stars')}")
+                self.lbl_r5.set_text("[5]  - Trigger Star Burst")
+            elif self.major_mode == "FIRE Plasma":
+                self.lbl_r1.set_text("[1]  - Flame Flare (Bass)")
+                self.lbl_r2.set_text("[2]  - Flame Wave (Mid)")
+                self.lbl_r3.set_text("[3]  - Treble Spark Shower")
+                self.lbl_r4.set_text("[4]  - Fire Eruption")
+                self.lbl_r5.set_text("[5]  - Lightning Strike")
+                
+        if hasattr(self, 'lbl_r6'):
+            if self.major_mode == "MANDALA Sacred":
+                self.lbl_r6.set_text("[6]  - Peace Symbol")
+            elif self.major_mode in ("SYNAESTHESIA Classic", "FIRE Plasma"):
+                self.lbl_r6.set_text("")
+            else:
+                self.lbl_r6.set_text("[6]  - Supernova")
+        if hasattr(self, 'lbl_r7'):
+            if self.major_mode == "MANDALA Sacred":
+                self.lbl_r7.set_text("[7]  - Halo & Outward Sparks")
+            elif self.major_mode in ("SYNAESTHESIA Classic", "FIRE Plasma"):
+                self.lbl_r7.set_text("")
+            else:
+                self.lbl_r7.set_text("[7]  - Shooting Star")
+
+    # =========================================================================
+    # MODE 2: COSMIC WORMHOLE TUNNEL (Winding Plasma Tunnel Overhaul)
+    # =========================================================================
+    def init_tunnel_mode(self):
+        # Curved path dynamics (serpentine tunnel path)
+        self.wormhole_bend_x = 0.0
+        self.wormhole_bend_y = 0.0
+        self.target_bend_x = 0.0
+        self.target_bend_y = 0.0
+        self.wormhole_phase_x = 0.0
+        self.wormhole_phase_y = 0.0
+        self.tunnel_change_timer = 0.0
+
+        # WALL GEMS (glowing crystal nodules - heavily reduced)
+        N_gems = 15
+        self.gem_z = np.random.uniform(-60.0, 10.0, N_gems).astype(np.float32)
+        self.gem_angle = np.random.uniform(0.0, 2 * np.pi, N_gems).astype(np.float32)
+        self.gem_base_radius = np.random.uniform(7.5, 9.5, N_gems).astype(np.float32)
+        self.gem_col = np.zeros((N_gems, 4), dtype=np.float32)
+        for i in range(N_gems):
+            self.gem_col[i] = random.choice([
+                (1.0, 0.2, 0.2, 1.0),   # Ruby
+                (0.2, 1.0, 0.4, 1.0),   # Emerald
+                (0.15, 0.5, 1.0, 1.0),  # Sapphire
+                (0.95, 0.95, 1.0, 1.0), # Diamond
+                (1.0, 0.75, 0.05, 1.0)  # Topaz
+            ])
+        self.gem_size = np.random.uniform(11.0, 17.0, N_gems).astype(np.float32)
+
+        # WALL GEMS SPARKS SYSTEM (Preallocated spark particle pool)
+        N_sparks = 900
+        self.spark_pos = np.zeros((N_sparks, 3), dtype=np.float32)
+        self.spark_vel = np.zeros((N_sparks, 3), dtype=np.float32)
+        self.spark_col = np.zeros((N_sparks, 4), dtype=np.float32)
+        self.spark_size = np.zeros(N_sparks, dtype=np.float32)
+        self.spark_age = np.zeros(N_sparks, dtype=np.float32)
+        self.spark_max_age = np.ones(N_sparks, dtype=np.float32)
+        self.spark_active = np.zeros(N_sparks, dtype=np.bool_)
+        self.next_spark_idx = 0
+
+    def update_tunnel(self, dt):
+        # Calculate dynamic tempo speed factor with floor at 40.0 and cap at 240.0 BPM
+        bpm = self.script_bpm if (hasattr(self, 'script_bpm') and self.script_bpm > 0.0) else 40.0
+        bpm = np.clip(bpm, 40.0, 240.0)
+        
+        # Pronounced non-linear scaling: floor of 0.15 at 40 BPM, nominal 1.0 at 120 BPM, and cap of 4.0 at 240 BPM
+        if bpm <= 120.0:
+            speed_factor = 0.15 + 0.85 * ((bpm - 40.0) / 80.0) ** 1.8
+        else:
+            speed_factor = 1.0 + 3.0 * ((bpm - 120.0) / 120.0) ** 1.5
+        
+        # Constant, elegant forward travel camera speed, scaled dynamically and non-linearly by tempo BPM
+        speed = 8.5 * speed_factor * dt
+        self.gem_z += speed
+        
+        gem_passed = self.gem_z > 10.0
+        num_gem_passed = np.sum(gem_passed)
+        if num_gem_passed > 0:
+            self.gem_z[gem_passed] = np.random.uniform(-60.0, -50.0, num_gem_passed).astype(np.float32)
+            self.gem_angle[gem_passed] = np.random.uniform(0.0, 2 * np.pi, num_gem_passed).astype(np.float32)
+            
+        # Smooth wall spin speed
+        spin_speed = (0.12 + self.react_mid * 0.4) * dt
+        self.gem_angle += spin_speed * 0.8
+        
+        # Update curving serpentine bend coordinates
+        self.wormhole_phase_x += (0.4 + self.react_bass * 0.5) * dt
+        self.wormhole_phase_y += (0.25 + self.react_mid * 0.3) * dt
+        
+        # Music drops trigger gentle serpentine shifting
+        self.tunnel_change_timer += dt
+        if (self.react_bass > 1.25 and random.random() < 0.12) or self.tunnel_change_timer > 5.5:
+            self.tunnel_change_timer = 0.0
+            self.target_bend_x = np.random.uniform(-3.0, 3.0)
+            self.target_bend_y = np.random.uniform(-3.0, 3.0)
+            
+        # Smooth transitions
+        self.wormhole_bend_x += (self.target_bend_x - self.wormhole_bend_x) * dt * 1.5
+        self.wormhole_bend_y += (self.target_bend_y - self.wormhole_bend_y) * dt * 1.5
+        
+        # Audio frequency hits trigger gem spark burst emissions on all bands
+        if self.react_bass > 1.0 or self.react_mid > 0.75 or self.react_treble > 0.4 or random.random() < 0.15:
+            near_gems = np.where((self.gem_z < -5.0) & (self.gem_z > -45.0))[0]
+            if len(near_gems) > 0:
+                g_idx = random.choice(near_gems)
+                self.spawn_gem_sparks(g_idx)
+                
+        # Update Sparks
+        active_sparks = self.spark_active
+        if np.any(active_sparks):
+            self.spark_pos[active_sparks] += self.spark_vel[active_sparks] * dt
+            self.spark_age[active_sparks] += dt
+            
+            expired = (self.spark_age >= self.spark_max_age) & active_sparks
+            self.spark_active[expired] = False
+            
+            self.spark_col[active_sparks, 3] = np.clip(
+                1.0 - self.spark_age[active_sparks] / self.spark_max_age[active_sparks], 0.0, 1.0
+            )
+
+    def spawn_gem_sparks(self, g_idx):
+        gz = self.gem_z[g_idx]
+        g_angle = self.gem_angle[g_idx]
+        g_rad = self.gem_base_radius[g_idx]
+        g_color = self.gem_col[g_idx]
+        
+        gx = g_rad * np.cos(g_angle)
+        gy = g_rad * np.sin(g_angle)
+        
+        num_sparks_spawn = 6
+        for _ in range(num_sparks_spawn):
+            idx = self.next_spark_idx
+            self.spark_pos[idx] = [gx, gy, gz]
+            
+            rad_speed = np.random.uniform(-14.0, -3.0)
+            tan_speed = np.random.uniform(-5.0, 5.0)
+            z_speed = np.random.uniform(-18.0, 6.0)
+            
+            cos_a = np.cos(g_angle)
+            sin_a = np.sin(g_angle)
+            
+            vx = rad_speed * cos_a - tan_speed * sin_a
+            vy = rad_speed * sin_a + tan_speed * cos_a
+            vz = z_speed
+            
+            self.spark_vel[idx] = [vx, vy, vz]
+            
+            # Determine normalized center-of-mass frequency index of current audio frame (f_avg between 0.0 and 1.0)
+            total_e = self.react_bass + self.react_mid + self.react_treble + 1e-5
+            f_avg = (self.react_bass * 0.10 + self.react_mid * 0.50 + self.react_treble * 0.90) / total_e
+            
+            # Spread sparks slightly across spectrum around f_avg
+            f_spark = np.clip(f_avg + np.random.uniform(-0.18, 0.18), 0.0, 1.0)
+            
+            # Continuous color mapping:
+            # 0.0: low bass (dark purple [0.45, 0.0, 0.70]) -> 0.33: mid-low (dark blue [0.0, 0.15, 0.65])
+            # -> 0.66: midranges (medium green [0.10, 0.68, 0.22]) -> 1.0: trebles (medium yellow [0.72, 0.72, 0.08])
+            if f_spark < 0.33:
+                frac = f_spark / 0.33
+                col_r = 0.45 * (1.0 - frac) + 0.0 * frac
+                col_g = 0.0 * (1.0 - frac) + 0.15 * frac
+                col_b = 0.70 * (1.0 - frac) + 0.65 * frac
+            elif f_spark < 0.66:
+                frac = (f_spark - 0.33) / 0.33
+                col_r = 0.0 * (1.0 - frac) + 0.10 * frac
+                col_g = 0.15 * (1.0 - frac) + 0.68 * frac
+                col_b = 0.65 * (1.0 - frac) + 0.22 * frac
+            else:
+                frac = (f_spark - 0.66) / 0.34
+                col_r = 0.10 * (1.0 - frac) + 0.72 * frac
+                col_g = 0.68 * (1.0 - frac) + 0.72 * frac
+                col_b = 0.22 * (1.0 - frac) + 0.08 * frac
+                
+            self.spark_col[idx] = [col_r, col_g, col_b, 1.0]
+            self.spark_size[idx] = np.random.uniform(5.0, 9.0)
+            self.spark_age[idx] = 0.0
+            self.spark_max_age[idx] = np.random.uniform(0.4, 0.9)
+            self.spark_active[idx] = True
+            
+            self.next_spark_idx = (self.next_spark_idx + 1) % len(self.spark_pos)
+
+    def get_bend_offsets(self, z_arr):
+        bx = self.wormhole_bend_x * np.sin(z_arr * 0.06 + self.wormhole_phase_x)
+        by = self.wormhole_bend_y * np.cos(z_arr * 0.06 + self.wormhole_phase_y)
+        return bx, by
+
+    def render_tunnel(self):
+        get_bend_offsets = self.get_bend_offsets
+            
+        hood_tri_pos = []
+        hood_tri_col = []
+        
+        # Render Gems with fog
+        gbx, gby = get_bend_offsets(self.gem_z)
+        gx = self.gem_base_radius * np.cos(self.gem_angle) + gbx
+        gy = self.gem_base_radius * np.sin(self.gem_angle) + gby + 4.0
+        gz = self.gem_z
+        
+        gem_col_arr = self.gem_col.copy()
+        gem_col_arr[:, 3] *= np.clip((gz + 60.0) / 60.0, 0.0, 1.0)
+        
+        # Render active sparks
+        active_mask = self.spark_active
+        num_act = np.sum(active_mask)
+        
+        # Gather additional backdrop particles (Aurora, Planet, Galaxy, Asteroids, Supernova)
+        aurora_pos = []
+        aurora_col = []
+        aurora_size = []
+        time_val = self.get_sim_time()
+        
+        # 1. CONTINUOUS BACKGROUND AURORA BOREALIS OUTSIDE TUNNEL WALLS (extremely transparent)
+        for i_strip in range(15):
+            ang = (i_strip / 14.0) * np.pi * 0.8 + np.pi * 0.1 # cover top half & sides
+            for p_idx in range(25):
+                z_coord = -55.0 + p_idx * 2.5
+                bx, by = get_bend_offsets(z_coord)
+                R_aur = 11.5 + np.sin(ang * 4.0 + time_val * 1.5) * np.cos(z_coord * 0.07 - time_val * 0.8) * 1.3
+                px = R_aur * np.cos(ang) + bx
+                py = R_aur * np.sin(ang) + by + 4.0
+                pz = z_coord
+                
+                ang_f = abs(ang - np.pi / 2.0) / (np.pi / 2.0)
+                # Blend from vibrant neon emerald-green to purple-pink outer sheets
+                col_r = 0.1 * (1.0 - ang_f) + 0.75 * ang_f
+                col_g = 0.95 * (1.0 - ang_f) + 0.1 * ang_f
+                col_b = 0.35 * (1.0 - ang_f) + 0.9 * ang_f
+                
+                fog_factor = np.clip((z_coord + 50.0) / 50.0, 0.0, 1.0)
+                alpha = 0.32 * fog_factor * (0.32 + self.react_mid * 0.68) * (1.0 - ang_f * 0.2)
+                
+                aurora_pos.append([px, py, pz])
+                aurora_col.append([col_r, col_g, col_b, alpha])
+                aurora_size.append(5.0)
+                
+        # 2. PLANET RARITY (solid 3D rocky sphere with tilting rings)
+        if self.active_rarity is not None and self.active_rarity['type'] == 'PLANET':
+            r = self.active_rarity
+            p_pts, p_cols = make_rocky_planet(r['pos'], 2.3, r['phase'], r.get('style', 'JUPITER'))
+            # Apply bend offsets to planet triangles before buffering
+            bent_pts = []
+            for pt in p_pts:
+                bx, by = get_bend_offsets(pt[2])
+                bent_pts.append([pt[0] + bx, pt[1] + by + 4.0, pt[2]])
+            hood_tri_pos.extend(bent_pts)
+            hood_tri_col.extend(p_cols)
+                
+        # 3. GALAXY RARITY (spiral structure outside tunnel)
+        if self.active_rarity is not None and self.active_rarity['type'] == 'GALAXY':
+            r = self.active_rarity
+            center = r['pos']
+            for i_g in range(160):
+                t_frac = i_g / 160.0
+                rad = 0.3 + t_frac * 4.5
+                arm_ang = t_frac * 16.0 + (np.pi if i_g % 2 == 0 else 0.0) + r['phase']
+                rx = rad * np.cos(arm_ang)
+                ry = rad * np.sin(arm_ang) * 0.4
+                rz = np.sin(arm_ang * 2.0) * 0.2
+                p_world = center + np.array([rx, ry, rz])
+                bx, by = get_bend_offsets(p_world[2])
+                px = p_world[0] + bx
+                py = p_world[1] + by + 4.0
+                pz = p_world[2]
+                # Adjust fog boundary specifically for Galaxy since it starts at Z = -85.0
+                fog_factor = np.clip((pz + 85.0) / 60.0, 0.0, 1.0)
+                alpha = (1.0 - t_frac * 0.5) * (0.6 + np.sin(time_val * 6.0 + i_g) * 0.3) * fog_factor
+                if t_frac < 0.15:
+                    col = [1.0, 0.85, 1.0, alpha] # Core starburst
+                    size_pt = 12.0
+                elif i_g % 2 == 0:
+                    col = [0.15, 0.7, 1.0, alpha] # Cyan spiral arm
+                    size_pt = 6.0
+                else:
+                    col = [0.95, 0.2, 0.75, alpha] # Magenta spiral arm
+                    size_pt = 6.0
+                aurora_pos.append([px, py, pz])
+                aurora_col.append(col)
+                aurora_size.append(size_pt)
+                
+        # 4. ASTEROIDS RARITY (tumbling rocks drifting past as solid 3D meshes)
+        if self.active_rarity is not None and self.active_rarity['type'] == 'ASTEROIDS':
+            r = self.active_rarity
+            center = r['pos']
+            for k in range(len(r['offsets'])):
+                ast_pos = center + r['offsets'][k]
+                rot = r['rotations'][k]
+                rad_ast = 0.55 + 0.15 * np.sin(k * 4.0)
+                a_pts, a_cols = make_3d_asteroid(ast_pos, rad_ast, rot)
+                for pt, col in zip(a_pts, a_cols):
+                    bx, by = get_bend_offsets(pt[2])
+                    px = pt[0] + bx
+                    py = pt[1] + by + 4.0
+                    pz = pt[2]
+                    fog_factor = np.clip((pz + 50.0) / 50.0, 0.0, 1.0)
+                    c_fog = [col[0], col[1], col[2], col[3] * fog_factor]
+                    hood_tri_pos.append([px, py, pz])
+                    hood_tri_col.append(c_fog)
+                    
+        # 5. REAL SUPERNOVA SHOCKWAVE EXPANSION SHELL (Blinding core with filaments)
+        if self.wormhole_supernova_active:
+            r_shock = self.wormhole_supernova_age * 16.0
+            center_z = -50.0
+            for i_sn in range(160):
+                lat = (i_sn / 160.0) * np.pi - np.pi / 2.0
+                lon = (i_sn * 2.39996) % (2.0 * np.pi)
+                turb = 1.0 + 0.12 * np.sin(lon * 5.0 + self.wormhole_supernova_age * 12.0)
+                
+                lx = np.cos(lat) * np.cos(lon) * turb
+                ly = np.cos(lat) * np.sin(lon) * turb
+                lz = np.sin(lat) * turb
+                p_world = np.array([lx, ly, lz]) * r_shock
+                p_world[2] += center_z
+                
+                bx, by = get_bend_offsets(p_world[2])
+                px = p_world[0] + bx
+                py = p_world[1] + by + 4.0
+                pz = p_world[2]
+                
+                alpha = np.clip(1.0 - (self.wormhole_supernova_age / 3.5), 0.0, 1.0)
+                if self.wormhole_supernova_age < 0.6:
+                    col = [1.0, 0.95, 0.85, alpha] # Blinding hot white core flash
+                    size_pt = 14.0
+                elif i_sn % 3 == 0:
+                    col = [1.0, 0.5, 0.1, alpha] # Fiery orange expanding shell gas
+                    size_pt = 10.0
+                elif i_sn % 3 == 1:
+                    col = [0.1, 0.85, 1.0, alpha] # Cyan shock border
+                    size_pt = 8.0
+                else:
+                    col = [0.95, 0.15, 0.5, alpha] # Magenta glowing filaments
+                    size_pt = 9.0
+                aurora_pos.append([px, py, pz])
+                aurora_col.append(col)
+                aurora_size.append(size_pt)
+                
+        # 6. MASSIVE FLY-BY SHOOTING STAR HEAD
+        if self.wormhole_shooting_star_active:
+            bx, by = get_bend_offsets(self.wormhole_shooting_star_z)
+            px = self.wormhole_shooting_star_x + bx
+            py = self.wormhole_shooting_star_y + by + 4.0
+            pz = self.wormhole_shooting_star_z
+            fog_factor = np.clip((pz + 50.0) / 50.0, 0.0, 1.0)
+            aurora_pos.append([px, py, pz])
+            aurora_col.append([1.0, 1.0, 1.0, 1.0 * fog_factor])
+            aurora_size.append(16.0)
+            
+        if num_act > 0:
+            sp_pos = self.spark_pos[active_mask].copy()
+            sbx, sby = get_bend_offsets(sp_pos[:, 2])
+            sp_pos[:, 0] += sbx
+            sp_pos[:, 1] += sby + 4.0
+            
+            sp_col = self.spark_col[active_mask]
+            sp_size = self.spark_size[active_mask]
+            
+            pos_combined = np.concatenate([
+                np.stack([gx, gy, gz], axis=1),
+                sp_pos
+            ], axis=0).astype(np.float32)
+            
+            col_combined = np.concatenate([
+                gem_col_arr,
+                sp_col
+            ], axis=0).astype(np.float32)
+            
+            size_combined = np.concatenate([
+                self.gem_size * (1.1 + self.react_treble * 0.8),
+                sp_size
+            ], axis=0).astype(np.float32)
+        else:
+            pos_combined = np.stack([gx, gy, gz], axis=1).astype(np.float32)
+            col_combined = gem_col_arr.astype(np.float32)
+            size_combined = (self.gem_size * (1.1 + self.react_treble * 0.8)).astype(np.float32)
+            
+        if len(aurora_pos) > 0:
+            pos_combined = np.concatenate([pos_combined, np.array(aurora_pos, dtype=np.float32)], axis=0)
+            col_combined = np.concatenate([col_combined, np.array(aurora_col, dtype=np.float32)], axis=0)
+            size_combined = np.concatenate([size_combined, np.array(aurora_size, dtype=np.float32)], axis=0)
+            
+        return pos_combined, col_combined, size_combined, np.array(hood_tri_pos, dtype=np.float32), np.array(hood_tri_col, dtype=np.float32)
+
+    def get_tangential_jelly_dir(self, pos):
+        # Calculate camera look/position to target [0, 4, 0]
+        cx = self.camera_dist * np.cos(self.camera_phi) * np.sin(self.camera_theta)
+        cy = self.camera_dist * np.sin(self.camera_phi)
+        cz = self.camera_dist * np.cos(self.camera_phi) * np.cos(self.camera_theta)
+        cam_pos = np.array([cx, cy, cz], dtype=np.float32)
+        v_view = pos - cam_pos
+        dist = np.linalg.norm(v_view)
+        if dist < 1e-4:
+            v_view = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+        else:
+            v_view = v_view / dist
+        
+        # Perpendicular vector 1
+        if abs(v_view[0]) > 0.9:
+            v_perp1 = np.array([v_view[1], -v_view[0], 0.0], dtype=np.float32)
+        else:
+            v_perp1 = np.array([0.0, v_view[2], -v_view[1]], dtype=np.float32)
+        v_perp1 /= np.linalg.norm(v_perp1)
+        
+        # Perpendicular vector 2
+        v_perp2 = np.cross(v_view, v_perp1)
+        v_perp2 /= np.linalg.norm(v_perp2)
+        
+        # Angle in the plane perpendicular to view
+        alpha = np.random.uniform(0.0, 2 * np.pi)
+        # Angle out of plane (clamped to 30 degrees = pi / 6)
+        beta = np.random.uniform(-np.pi / 6.0, np.pi / 6.0)
+        
+        v_plane = np.cos(alpha) * v_perp1 + np.sin(alpha) * v_perp2
+        jelly_dir = v_plane * np.cos(beta) + v_view * np.sin(beta)
+        
+        # Ensure the jellyfish swims generally upwards (positive y)
+        if jelly_dir[1] < 0:
+            jelly_dir = -jelly_dir
+            
+        jelly_dir /= np.linalg.norm(jelly_dir)
+        return jelly_dir
+
+    # =========================================================================
+    # MODE 3: BIOLUMINESCENT UNDERWATER DEEP-SEA LAVA LAMP
+    # =========================================================================
+    def init_underwater_mode(self):
+        N_bubbles = 2500
+        self.bubble_pos = np.zeros((N_bubbles, 3), dtype=np.float32)
+        self.bubble_vel = np.zeros((N_bubbles, 3), dtype=np.float32)
+        self.bubble_col = np.zeros((N_bubbles, 4), dtype=np.float32)
+        self.bubble_size = np.zeros(N_bubbles, dtype=np.float32)
+        self.bubble_phase = np.zeros(N_bubbles, dtype=np.float32)
+        self.bubble_active = np.zeros(N_bubbles, dtype=np.bool_)
+        self.bubble_is_fragment = np.zeros(N_bubbles, dtype=np.bool_)
+        self.next_bubble_idx = 0
+        self.vent_locs = [
+            [-3.0, -2.5, 6.0],   # Left Foreground Vent (raised and brought closer)
+            [0.0, -2.5, 4.0],    # Center Foreground Vent (raised and brought closer)
+            [3.0, -2.5, 7.0]     # Right Foreground Vent (raised and brought closer)
+        ]
+
+        N_algae = 1500
+        self.algae_pos = np.random.uniform(
+            [-10.0, -2.5, -5.0], [10.0, 9.0, 12.0], (N_algae, 3)
+        ).astype(np.float32)
+        self.algae_phase = np.random.uniform(0.0, 2 * np.pi, (N_algae, 3)).astype(np.float32)
+        self.algae_col = np.zeros((N_algae, 4), dtype=np.float32)
+        for i in range(N_algae):
+            self.algae_col[i] = random.choice([
+                (0.1, 0.95, 0.4, 0.5), # Emerald Green
+                (0.1, 0.7, 1.0, 0.5),  # Cyan
+                (0.35, 0.15, 1.0, 0.5) # Neon Violet
+            ])
+        self.algae_size = np.random.uniform(2.5, 6.0, N_algae).astype(np.float32)
+
+        # Irregular Stalagmites Volcanic Vents 3D Geometry Setup (Taller and rugged)
+        # 3 vents, 6 rings of height, 4 points per ring = 72 points
+        self.num_vent_pts = 72
+        self.vent_pts_pos = np.zeros((self.num_vent_pts, 3), dtype=np.float32)
+        self.vent_pts_col = np.zeros((self.num_vent_pts, 4), dtype=np.float32)
+        self.vent_pts_size = np.zeros(self.num_vent_pts, dtype=np.float32)
+        
+        idx = 0
+        for v_loc in self.vent_locs:
+            ruggedness_seed = [np.random.uniform(0.8, 1.2, 4) for _ in range(6)]
+            for ring in range(6):
+                y_offset = ring * 0.35 # Height off seabed
+                rad = 1.05 - ring * 0.17 # Stalagmite chimney tapers upward
+                if ring == 5:
+                    rad = 0.3 # narrow crater opening
+                    
+                num_ring_pts = 4
+                for p in range(num_ring_pts):
+                    angle = (p * 2 * np.pi / num_ring_pts) + ring * 0.4
+                    r_jit = rad * ruggedness_seed[ring][p]
+                    vx = v_loc[0] + r_jit * np.cos(angle) + np.random.uniform(-0.06, 0.06)
+                    vy = v_loc[1] + y_offset + np.random.uniform(-0.04, 0.04)
+                    vz = v_loc[2] + r_jit * np.sin(angle) + np.random.uniform(-0.06, 0.06)
+                    
+                    self.vent_pts_pos[idx] = [vx, vy, vz]
+                    if ring == 5:
+                        self.vent_pts_col[idx] = [0.1, 0.95, 1.0, 0.95] # Hot cyan lip
+                        self.vent_pts_size[idx] = 13.0
+                    else:
+                        self.vent_pts_col[idx] = [0.10, 0.14, 0.20, 0.85]
+                        self.vent_pts_size[idx] = 18.0 - ring * 2.2
+                    idx += 1
+
+        # Textured Sandy/Rocky Sea Floor Setup (Replacing computer grid lines)
+        self.num_seabed_pts = 1500
+        self.seabed_pos = np.zeros((self.num_seabed_pts, 3), dtype=np.float32)
+        self.seabed_col = np.zeros((self.num_seabed_pts, 4), dtype=np.float32)
+        self.seabed_size = np.zeros(self.num_seabed_pts, dtype=np.float32)
+        
+        self.seabed_pos[:, 0] = np.random.uniform(-16.0, 16.0, self.num_seabed_pts)
+        self.seabed_pos[:, 1] = -2.5 + np.random.uniform(-0.15, 0.15, self.num_seabed_pts)
+        self.seabed_pos[:, 2] = np.random.uniform(-5.0, 15.0, self.num_seabed_pts)
+        
+        for i in range(self.num_seabed_pts):
+            self.seabed_col[i] = random.choice([
+                (0.24, 0.18, 0.12, 0.75),  # Deep sand gold-brown
+                (0.32, 0.26, 0.18, 0.70),  # Soft sandy beige
+                (0.12, 0.14, 0.18, 0.85),  # Dark basalt stone
+                (0.10, 0.22, 0.14, 0.65)   # Moss/Algae-covered rock
+            ])
+            self.seabed_size[i] = np.random.uniform(-4.0, -12.0)
+
+        # Bioluminescent Waving Seaweed / Marine Plants Setup
+        self.num_plants = 20
+        self.plant_base = np.random.uniform([-10.0, -2.5, -5.0], [10.0, -2.5, 12.0], (self.num_plants, 3)).astype(np.float32)
+        self.plant_phase = np.random.uniform(0.0, 2 * np.pi, self.num_plants).astype(np.float32)
+        self.plant_color = np.zeros((self.num_plants, 3), dtype=np.float32)
+        for i in range(self.num_plants):
+            self.plant_color[i] = random.choice([
+                (0.12, 0.90, 0.35), # Emerald Mint Seaweed
+                (0.05, 0.75, 0.85), # Glowing Teal Seaweed
+                (0.70, 0.95, 0.15)  # Neon Yellow-Green Kelp
+            ])
+
+        # Overhauled Pulsing 3D Jellyfish (Halved to 5 individuals representing Moon and Crystal)
+        self.num_jelly = 5
+        self.jelly_pos = np.zeros((self.num_jelly, 3), dtype=np.float32)
+        self.jelly_dir = np.zeros((self.num_jelly, 3), dtype=np.float32)
+        self.jelly_vel = np.zeros((self.num_jelly, 3), dtype=np.float32)
+        self.jelly_col = np.zeros((self.num_jelly, 4), dtype=np.float32)
+        self.jelly_size = np.zeros(self.num_jelly, dtype=np.float32)
+        self.jelly_phase = np.zeros(self.num_jelly, dtype=np.float32)
+        self.jelly_species = np.array([i % 2 for i in range(self.num_jelly)], dtype=np.int32)
+        
+        for i in range(self.num_jelly):
+            self.jelly_pos[i] = [
+                np.random.uniform(-6.0, 6.0),
+                np.random.uniform(-1.5, 8.0),
+                np.random.uniform(-2.0, 12.0)
+            ]
+            # Restrict swimming direction to 90 degrees +/- 30 degrees relative to camera view
+            self.jelly_dir[i] = self.get_tangential_jelly_dir(self.jelly_pos[i])
+            
+            sp = self.jelly_species[i]
+            if sp == 0:     # Moon Jelly (lavender-pink translucent)
+                self.jelly_col[i] = (0.85, 0.65, 0.95, 1.0)
+                self.jelly_size[i] = np.random.uniform(22.0, 28.0)
+            else:           # Crystal Jelly (cyan-blue highly transparent)
+                self.jelly_col[i] = (0.0, 0.85, 1.0, 1.0)
+                self.jelly_size[i] = np.random.uniform(20.0, 26.0)
+                
+            self.jelly_phase[i] = np.random.uniform(0.0, 2 * np.pi)
+            
+        # Glowing 3D Animated Squid initialization
+        self.squid_pos = np.array([0.0, 3.0, 5.0], dtype=np.float32)
+        self.squid_dir = np.array([1.0, 0.1, 0.0], dtype=np.float32)
+        self.squid_dir /= np.linalg.norm(self.squid_dir)
+        self.squid_vel = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+        self.squid_phase = 0.0
+        self.squid_jet_cooldown = 0.0
+            
+        # Initialize plankton and seabed phosphorescence twinkling states
+        self.algae_twinkle_phase = np.random.uniform(0.0, 2 * np.pi, N_algae).astype(np.float32)
+        self.algae_random_rates = np.random.uniform(0.8, 1.5, N_algae).astype(np.float32)
+        self.seabed_twinkle_phase = np.random.uniform(0.0, 2 * np.pi, self.num_seabed_pts).astype(np.float32)
+        self.seabed_is_glowing = (np.random.rand(self.num_seabed_pts) < 0.28) # 28% of seabed points glow
+
+
+    def update_underwater(self, dt):
+        # Spawn bubbles based on volume hits and frequencies
+        num_to_spawn = 0
+        is_treble_heavy = False
+        
+        # Determine peak activity
+        max_react = max(self.react_bass, self.react_mid, self.react_treble)
+        
+        if max_react > 0.3:
+            # High volume hit: release significantly more bubbles!
+            if self.react_treble > self.react_bass:
+                is_treble_heavy = True
+                # Treble hit: spawn MANY tiny, fast bubbles (up to 32 bubbles for intense peaks)
+                num_to_spawn = int(2 + (self.react_treble ** 1.8) * 30.0)
+            else:
+                # Bass hit: spawn FEWER giant, slow bubbles (up to 10 bubbles)
+                num_to_spawn = int(1 + (self.react_bass ** 1.8) * 9.0)
+                
+            # Add some randomness to keep the pattern uneven
+            if random.random() > 0.85:
+                num_to_spawn = int(num_to_spawn * 0.5)
+        else:
+            # Occasional light trickle when music is quiet
+            if random.random() < 0.12:
+                num_to_spawn = random.choice([1, 2])
+                is_treble_heavy = random.random() < 0.5
+                    
+        num_to_spawn = min(num_to_spawn, 35) # Cap to avoid overloading
+        
+        for _ in range(num_to_spawn):
+            idx = self.next_bubble_idx
+            
+            # Determine spout index biased by stereo panning
+            p = getattr(self, 'current_stereo_panning', 0.0)
+            p_left = max(0.05, 0.33 - 0.5 * p)
+            p_right = max(0.05, 0.33 + 0.5 * p)
+            p_center = max(0.05, 1.0 - p_left - p_right)
+            total = p_left + p_center + p_right
+            probs = [p_left / total, p_center / total, p_right / total]
+            v_idx = np.random.choice([0, 1, 2], p=probs)
+            v_loc = self.vent_locs[v_idx]
+            
+            # Bubbles rise directly from the open stalagmite mouths (y_offset=1.75)
+            self.bubble_pos[idx] = [v_loc[0], v_loc[1] + 1.75, v_loc[2]] + np.random.uniform([-0.25, 0.0, -0.25], [0.25, 0.15, 0.25])
+            
+            # Compute a frequency-dependent reactive color
+            tot_energy = self.react_bass + self.react_mid + self.react_treble + 1e-5
+            fb = self.react_bass / tot_energy
+            fm = self.react_mid / tot_energy
+            ft = self.react_treble / tot_energy
+            
+            # Blend colors: Bass (deep blue/magenta), Mid (teal/green), Treble (cyan/white)
+            r_c = fb * 0.05 + fm * 0.1 + ft * 0.7
+            g_c = fb * 0.35 + fm * 0.9 + ft * 0.9
+            b_c = fb * 1.0 + fm * 0.5 + ft * 1.0
+            r_c = np.clip(r_c + np.random.uniform(-0.05, 0.05), 0.0, 1.0)
+            g_c = np.clip(g_c + np.random.uniform(-0.05, 0.05), 0.0, 1.0)
+            b_c = np.clip(b_c + np.random.uniform(-0.05, 0.05), 0.0, 1.0)
+            alpha = np.clip(0.3 * fb + 0.6 * fm + 0.85 * ft + np.random.uniform(-0.1, 0.1), 0.25, 0.95)
+
+            if is_treble_heavy:
+                # Treble: tiny, fast bubbles
+                self.bubble_size[idx] = np.random.uniform(1.2, 2.5)
+                rise_speed = np.random.uniform(1.6, 2.8) * (1.0 + self.react_treble * 0.3)
+                self.bubble_vel[idx] = [
+                    np.random.uniform(-0.5, 0.5),
+                    rise_speed,
+                    np.random.uniform(-0.5, 0.5)
+                ]
+                # Frequency-reactive bubble color
+                self.bubble_col[idx] = [r_c, g_c, b_c, alpha]
+            else:
+                # Bass: fewer, bigger, slower bubbles
+                self.bubble_size[idx] = np.random.uniform(5.5, 9.0)
+                rise_speed = np.random.uniform(0.6, 1.2) * (1.0 + self.react_bass * 0.2)
+                self.bubble_vel[idx] = [
+                    np.random.uniform(-0.2, 0.2),
+                    rise_speed,
+                    np.random.uniform(-0.2, 0.2)
+                ]
+                # Frequency-reactive bubble color
+                self.bubble_col[idx] = [r_c, g_c, b_c, alpha]
+                
+            self.bubble_phase[idx] = np.random.uniform(0.0, 2 * np.pi)
+            self.bubble_active[idx] = True
+            self.bubble_is_fragment[idx] = False # Spawned bubbles are not fragments
+            self.next_bubble_idx = (self.next_bubble_idx + 1) % len(self.bubble_pos)
+            
+        # Burst a small proportion of active normal bubbles on big volume hits
+        if max_react > 0.8 and random.random() < 0.25:
+            active_normal_indices = np.where(self.bubble_active & ~self.bubble_is_fragment)[0]
+            if len(active_normal_indices) > 0:
+                # Burst up to ~6% of active normal bubbles
+                num_burst = max(1, int(len(active_normal_indices) * 0.06))
+                burst_indices = np.random.choice(active_normal_indices, size=min(num_burst, len(active_normal_indices)), replace=False)
+                for b_idx in burst_indices:
+                    # Deactivate the original bubble
+                    self.bubble_active[b_idx] = False
+                    # Spawn 4 to 6 micro fragments
+                    num_frags = random.randint(4, 6)
+                    for _ in range(num_frags):
+                        f_idx = self.next_bubble_idx
+                        # Position is close to the original bubble's position
+                        self.bubble_pos[f_idx] = self.bubble_pos[b_idx] + np.random.uniform(-0.05, 0.05, 3)
+                        # Speed: shooting outwards
+                        theta = np.random.uniform(0.0, 2 * np.pi)
+                        phi = np.random.uniform(-np.pi/2, np.pi/2)
+                        speed = np.random.uniform(1.5, 3.5)
+                        self.bubble_vel[f_idx] = [
+                            speed * np.cos(phi) * np.cos(theta),
+                            speed * np.sin(phi) + 0.5, # slight upward bias
+                            speed * np.cos(phi) * np.sin(theta)
+                        ]
+                        # Color: bright cyan-white
+                        self.bubble_col[f_idx] = [0.6, 0.9, 1.0, 1.0]
+                        self.bubble_size[f_idx] = np.random.uniform(0.7, 1.4)
+                        self.bubble_phase[f_idx] = np.random.uniform(0.0, 2 * np.pi)
+                        self.bubble_active[f_idx] = True
+                        self.bubble_is_fragment[f_idx] = True
+                        self.next_bubble_idx = (self.next_bubble_idx + 1) % len(self.bubble_pos)
+            
+        # Update Bubbles
+        active = self.bubble_active
+        if np.any(active):
+            self.bubble_pos[active] += self.bubble_vel[active] * dt
+            t = self.get_sim_time() * 3.5
+            self.bubble_pos[active, 0] += np.sin(t + self.bubble_phase[active]) * dt * 0.55
+            
+            # Growth/Shrinkage
+            self.bubble_size[active & ~self.bubble_is_fragment] += dt * 0.5
+            self.bubble_size[active & self.bubble_is_fragment] -= dt * 3.0
+            
+            # Decay alpha for fragments
+            self.bubble_col[active & self.bubble_is_fragment, 3] -= dt * 3.0
+            
+            # Apply height-based fade to normal active bubbles
+            normal_active = active & ~self.bubble_is_fragment
+            if np.any(normal_active):
+                norm_heights = self.bubble_pos[normal_active, 1]
+                norm_fade = np.clip((15.0 - norm_heights) / 5.0, 0.0, 1.0)
+                self.bubble_col[normal_active, 3] *= norm_fade
+                
+            # Deactivate bubbles that are too high, shrunk too small, or faded completely
+            too_high = (self.bubble_pos[:, 1] > 15.0) & active
+            self.bubble_active[too_high] = False
+            
+            shrunk_too_small = (self.bubble_size <= 0.1) & active
+            self.bubble_active[shrunk_too_small] = False
+            
+            faded_out = (self.bubble_col[:, 3] <= 0.0) & active
+            self.bubble_active[faded_out] = False
+
+        # Plankton drift
+        t_val = self.get_sim_time()
+        self.algae_pos[:, 0] += np.sin(t_val * 0.45 + self.algae_phase[:, 0]) * dt * 0.25
+        self.algae_pos[:, 1] += np.cos(t_val * 0.35 + self.algae_phase[:, 1]) * dt * 0.18
+        self.algae_pos[:, 2] += np.sin(t_val * 0.25 + self.algae_phase[:, 2]) * dt * 0.10
+        
+        x_out = self.algae_pos[:, 0] > 15.0
+        self.algae_pos[x_out, 0] = -15.0
+        x_out_neg = self.algae_pos[:, 0] < -15.0
+        self.algae_pos[x_out_neg, 0] = 15.0
+        
+        y_out = self.algae_pos[:, 1] > 9.0
+        self.algae_pos[y_out, 1] = -2.5
+        y_out_neg = self.algae_pos[:, 1] < -2.5
+        self.algae_pos[y_out_neg, 1] = 9.0
+        
+        # Individual plankton (algae) twinkling, modulated by the music
+        # 1. Map depth-gradient (vertical spectral blending weights)
+        y_norm = np.clip((self.algae_pos[:, 1] + 2.5) / 11.5, 0.0, 1.0)
+        w_bass = (1.0 - y_norm) ** 2
+        w_treble = y_norm ** 2
+        w_mid = 1.0 - w_bass - w_treble
+
+        # 2. Localized spectral energy per particle
+        e_local = (w_bass * self.react_bass + 
+                   w_mid * self.react_mid + 
+                   w_treble * self.react_treble)
+
+        # 3. Map horizontal stereo soundstage scale
+        x_norm = np.clip(self.algae_pos[:, 0] / 15.0, -1.0, 1.0)
+        s_coeff = 1.0 + 0.8 * (x_norm * self.current_stereo_panning)
+
+        # 4. Compute final spatial-audio reaction factor
+        r_local = e_local * s_coeff
+
+        # 5. Tick individual phases forward (using self.algae_random_rates for flicker-free variation)
+        self.algae_twinkle_phase += (1.5 + r_local * 6.0) * dt * self.algae_random_rates
+
+        # 6. Apply to brightness (alpha)
+        algae_twinkle = np.sin(self.algae_twinkle_phase) * 0.5 + 0.5
+        self.algae_col[:, 3] = (0.15 + r_local * 0.85) * (0.2 + 0.8 * algae_twinkle)
+
+        # Seabed bioluminescent phosphorescence twinkling
+        self.seabed_twinkle_phase += (1.2 + self.react_bass * 5.0) * dt * np.random.uniform(0.7, 1.4, self.num_seabed_pts)
+        for i in range(self.num_seabed_pts):
+            if self.seabed_is_glowing[i]:
+                twinkle_val = np.sin(self.seabed_twinkle_phase[i]) * 0.5 + 0.5
+                self.seabed_col[i, 3] = (0.25 + self.react_bass * 0.75) * (0.15 + 0.85 * twinkle_val)
+
+        # Update Jellyfish pulsing and movement physics
+        for i in range(self.num_jelly):
+            # Phase-locked directly to global tempo_phase to prevent drift and lock strictly on beat
+            pulse_rate = 0.5 if (i % 2 == 1) else 1.0
+            stagger = i * 0.25
+            self.jelly_phase[i] = 2.0 * np.pi * (self.tempo_phase * pulse_rate + stagger)
+            
+            cos_val = np.cos(self.jelly_phase[i])
+            if cos_val > 0.0:
+                # Thrust synchronized directly with beat and amplified by real-time bass reactions
+                thrust = 3.2 * cos_val * (1.0 + self.react_bass * 2.2)
+                self.jelly_vel[i] += self.jelly_dir[i] * thrust * dt
+            else:
+                drag = 1.0
+                self.jelly_vel[i] -= self.jelly_vel[i] * drag * dt
+                
+            # Apply position update
+            self.jelly_pos[i] += self.jelly_vel[i] * dt
+            
+            # Gentle ambient upward buoyancy drift
+            self.jelly_pos[i, 1] += 0.22 * dt
+            
+            # Reset jellyfish if they exit the water ceiling (expanded height limit to match bubbles)
+            if self.jelly_pos[i, 1] > 16.0:
+                self.jelly_pos[i, 1] = -11.0 # travel completely off-screen from bottom to top
+                self.jelly_pos[i, 0] = np.random.uniform(-10.0, 10.0)
+                self.jelly_pos[i, 2] = np.random.uniform(-4.0, 12.0)
+                self.jelly_vel[i] = [0.0, 0.0, 0.0]
+                self.jelly_dir[i] = self.get_tangential_jelly_dir(self.jelly_pos[i])
+                
+        # Update Glowing Squid Rarity pulsing, jet propulsion, and movement physics if active
+        if self.active_rarity is not None and self.active_rarity['type'] == 'SQUID':
+            bpm_rate = self.script_bpm / 60.0
+            self.squid_phase += (bpm_rate * 0.7 + self.react_bass * 7.0) * dt
+            cos_sq = np.cos(self.squid_phase)
+            
+            # Cooldown ticks down
+            if not hasattr(self, 'squid_jet_cooldown'):
+                self.squid_jet_cooldown = 0.0
+            if self.squid_jet_cooldown > 0.0:
+                self.squid_jet_cooldown -= dt
+
+            # Big beat hit -> jet ink and speed off!
+            if self.react_bass > 0.85 and self.squid_jet_cooldown <= 0.0:
+                self.squid_vel += self.squid_dir * 18.0
+                self.squid_jet_cooldown = 1.2
+                
+                # Jet ink: spawn a burst of dark ink bubbles behind the squid
+                for _ in range(18):
+                    idx = self.next_bubble_idx
+                    self.bubble_pos[idx] = self.squid_pos - self.squid_dir * 1.5 + np.random.uniform(-0.35, 0.35, 3)
+                    self.bubble_size[idx] = np.random.uniform(5.5, 10.0)
+                    self.bubble_vel[idx] = -self.squid_dir * np.random.uniform(2.0, 5.0) + np.random.uniform(-0.6, 0.6, 3)
+                    self.bubble_col[idx] = [0.01, 0.005, 0.03, 0.95] # dark ink
+                    self.bubble_phase[idx] = np.random.uniform(0.0, 2.0 * np.pi)
+                    self.bubble_active[idx] = True
+                    self.bubble_is_fragment[idx] = False
+                    self.next_bubble_idx = (self.next_bubble_idx + 1) % len(self.bubble_pos)
+
+            if cos_sq > 0.0:
+                # Cruising speed slowed down to 1/4 (thrust is scaled down from 4.5 to 1.125)
+                sq_thrust = 1.125 * cos_sq * (1.0 + self.react_bass * 1.5)
+                self.squid_vel += self.squid_dir * sq_thrust * dt
+            
+            # Drag is applied continuously to make impulse and cruising velocity decay naturally
+            sq_drag = 1.2 if cos_sq <= 0.0 else 0.4
+            self.squid_vel -= self.squid_vel * sq_drag * dt
+            self.squid_pos += self.squid_vel * dt
+            target_dir = np.array([-self.squid_pos[0]*0.1, 0.1, 4.0 - self.squid_pos[2]*0.2], dtype=np.float32)
+            if np.linalg.norm(target_dir) > 1e-4:
+                target_dir /= np.linalg.norm(target_dir)
+                self.squid_dir = 0.95 * self.squid_dir + 0.05 * target_dir
+                # Restrict squid direction vector to within 30 degrees of camera-perpendicular X-Y plane
+                self.squid_dir[2] = np.clip(self.squid_dir[2], -0.45, 0.45)
+                self.squid_dir /= np.linalg.norm(self.squid_dir)
+            if self.squid_pos[1] > 18.0 or self.squid_pos[1] < -18.0 or abs(self.squid_pos[0]) > 24.0 or self.squid_pos[2] < -18.0 or self.squid_pos[2] > 24.0:
+                self.squid_pos = np.array([np.random.uniform(-12.0, 12.0), np.random.uniform(-12.0, -4.0), np.random.uniform(-6.0, 8.0)], dtype=np.float32)
+                self.squid_vel = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+                self.squid_dir = np.array([np.random.uniform(-1.0, 1.0), np.random.uniform(-0.2, 0.2), np.random.uniform(-0.45, 0.45)], dtype=np.float32)
+                self.squid_dir /= np.linalg.norm(self.squid_dir)
+
+    def render_underwater(self):
+        act_mask = self.bubble_active
+        if np.any(act_mask):
+            b_pos = self.bubble_pos[act_mask]
+            b_col = self.bubble_col[act_mask]
+            b_size = -self.bubble_size[act_mask]
+        else:
+            b_pos = np.zeros((0, 3), dtype=np.float32)
+            b_col = np.zeros((0, 4), dtype=np.float32)
+            b_size = np.zeros(0, dtype=np.float32)
+            
+        a_pos = self.algae_pos
+        a_col = self.algae_col
+        a_size = -self.algae_size * (1.0 + self.react_treble * 0.4)
+        
+        # Render irregular Stalagmite Vents on seabed
+        v_pos = self.vent_pts_pos
+        v_col = self.vent_pts_col.copy()
+        v_size = -self.vent_pts_size.copy()
+        for i in range(self.num_vent_pts):
+            if i % 24 >= 20: # Glowing crater mouths
+                v_col[i, 3] = 0.5 + self.react_bass * 0.5
+                v_size[i] *= (1.0 + self.react_bass * 0.4)
+                
+        # Render Sandy/Rocky Sea Floor Points
+        seabed_pos = self.seabed_pos
+        seabed_col = self.seabed_col
+        seabed_size = self.seabed_size
+
+        # Render Bioluminescent Seaweed / Waving Marine Plants
+        plant_pos_list = []
+        plant_col_list = []
+        plant_size_list = []
+        t_val = self.get_sim_time()
+        
+        for p in range(self.num_plants):
+            base_col = self.plant_color[p]
+            base_pos = self.plant_base[p]
+            p_phase = self.plant_phase[p]
+            
+            for s in range(8):
+                dist = s * 0.38
+                y = base_pos[1] + dist
+                sway = np.sin(2.0 * np.pi * self.tempo_phase + p_phase + s * 0.45) * 0.08 * (s + 1.0)
+                x = base_pos[0] + sway
+                z = base_pos[2]
+                
+                plant_pos_list.append([x, y, z])
+                plant_col_list.append([
+                    base_col[0], base_col[1], base_col[2],
+                    0.65 * (1.0 - s * 0.09) * (0.5 + self.react_mid * 0.5)
+                ])
+                plant_size_list.append(-8.0 * (1.1 - s * 0.08))
+
+        # Render Overhauled Moon and Crystal Jellyfish
+        j_pos_list = []
+        j_col_list = []
+        j_size_list = []
+        
+        hood_tri_pos = []
+        hood_tri_col = []
+        
+        for i in range(self.num_jelly):
+            species = self.jelly_species[i] # 0 = Moon Jelly, 1 = Crystal Jelly
+            base_col = self.jelly_col[i]
+            base_size = self.jelly_size[i]
+            pos = self.jelly_pos[i]
+            dir_vec = self.jelly_dir[i]
+            
+            cos_val = np.cos(self.jelly_phase[i])
+            
+            # Setup dynamic local 3D orientation frame
+            dx, dy, dz = dir_vec
+            if abs(dx) < 0.9:
+                u = np.cross(dir_vec, [1.0, 0.0, 0.0])
+            else:
+                u = np.cross(dir_vec, [0.0, 1.0, 0.0])
+            u /= np.linalg.norm(u)
+            w = np.cross(dir_vec, u)
+            
+            # HIGH-FIDELITY PARABOLOID DOME MESH MODEL (5 rings of 12 vertices = 60 vertices)
+            # Dynamic deformation: contracts (elongates & pinches) on thrust, relaxes (shortens & widens) on glide
+            if species == 0:     # Moon Jelly: round, flatter profile
+                base_radius = 1.15
+                base_height = 0.65
+            else:               # Crystal Jelly: taller conical profile
+                base_radius = 0.90
+                base_height = 0.95
+                
+            deform_radius = base_radius * (1.0 - (0.22 + 0.08 * self.react_bass) * max(0.0, cos_val))
+            deform_height = base_height * (1.0 + (0.28 + 0.12 * self.react_bass) * max(0.0, cos_val))
+            
+            # Generate the 60 bell dome coordinates
+            v_coords = []
+            v_cols = []
+            for ring in range(5):
+                h_frac = ring / 4.0 # 0.0 at apex, 1.0 at rim
+                r_frac = np.sin(h_frac * np.pi / 2.0)
+                
+                ring_radius = deform_radius * r_frac
+                ring_height = deform_height * (1.0 - h_frac)
+                
+                # Dynamic saucer-like contraction folding for Moon Jelly margin
+                if species == 0 and ring >= 3:
+                    pinch = 1.0 - 0.18 * max(0.0, cos_val) * (h_frac - 0.5)
+                    ring_radius *= pinch
+                
+                # Glowing transparency profiles (increased opacity for gorgeous translucent bells)
+                if species == 0:     # Moon Jelly: round, flatter profile
+                    alpha_val = (0.16 - h_frac * 0.08) * (0.35 + self.react_treble * 0.85)
+                else:               # Crystal Jelly: taller conical profile
+                    alpha_val = (0.11 - h_frac * 0.05) * (0.35 + self.react_treble * 0.85)
+                
+                col = [base_col[0], base_col[1], base_col[2], alpha_val]
+                
+                for k in range(12):
+                    ang = k * 2.0 * np.pi / 12.0
+                    
+                    # 8 shallow lobes along the bell rim for Moon Jelly
+                    if species == 0 and ring == 4:
+                        ring_radius_mod = ring_radius * (1.0 + 0.06 * np.cos(8.0 * ang))
+                    else:
+                        ring_radius_mod = ring_radius
+                        
+                    offset = (u * np.cos(ang) + w * np.sin(ang)) * ring_radius_mod + dir_vec * ring_height
+                    jelly_v_pos = pos + offset
+                    
+                    v_coords.append(jelly_v_pos)
+                    v_cols.append(col)
+                    
+                    # Fluorescent GFP margin organs: bright neon-green/teal points on the rim for Crystal Jelly
+                    if species == 1 and ring == 4:
+                        col_pt = [0.1, 0.95, 0.25, 0.85 * (0.8 + self.react_treble * 0.4)]
+                        size_pt = -base_size * 0.25
+                        j_pos_list.append(jelly_v_pos)
+                        j_col_list.append(col_pt)
+                        j_size_list.append(size_pt)
+                    elif species == 1 and k % 3 == 0:
+                        # Radial canals (ribs)
+                        col_pt = [0.0, 0.95, 0.6, 0.45 * (0.8 + self.react_treble * 0.4)] # Glowing neon emerald-green rib
+                        size_pt = -base_size * 0.12
+                        j_pos_list.append(jelly_v_pos)
+                        j_col_list.append(col_pt)
+                        j_size_list.append(size_pt)
+            
+            # Build seamless triangle mesh quads connecting the 5 concentric rings (12 columns)
+            for ring in range(4):
+                for k in range(12):
+                    k_next = (k + 1) % 12
+                    i00 = ring * 12 + k
+                    i10 = ring * 12 + k_next
+                    i01 = (ring + 1) * 12 + k
+                    i11 = (ring + 1) * 12 + k_next
+                    
+                    hood_tri_pos.append(v_coords[i00])
+                    hood_tri_pos.append(v_coords[i10])
+                    hood_tri_pos.append(v_coords[i11])
+                    hood_tri_col.append(v_cols[i00])
+                    hood_tri_col.append(v_cols[i10])
+                    hood_tri_col.append(v_cols[i11])
+                    
+                    hood_tri_pos.append(v_coords[i00])
+                    hood_tri_pos.append(v_coords[i11])
+                    hood_tri_pos.append(v_coords[i01])
+                    hood_tri_col.append(v_cols[i00])
+                    hood_tri_col.append(v_cols[i11])
+                    hood_tri_col.append(v_cols[i01])
+            
+            # SPECIES-SPECIFIC BIOLUMINESCENT ANATOMY DETAILS
+            if species == 0:
+                # 1. MOON JILLYFISH: 4 Glowing clover/horseshoe-shaped reproductive organ cores (each built of 3 small points to form a crescent)
+                for k in range(4):
+                    ang_base = k * 2.0 * np.pi / 4.0
+                    # Create a horseshoe crescent loop
+                    for sub in [-0.2, 0.0, 0.2]:
+                        ang = ang_base + sub
+                        rad_factor = 0.26 * (1.0 - 0.12 * abs(sub))
+                        c_offset = (u * np.cos(ang) + w * np.sin(ang)) * rad_factor * deform_radius
+                        c_pos = pos + dir_vec * (0.32 + 0.05 * np.cos(sub * 2.0)) * deform_height + c_offset
+                        j_pos_list.append(c_pos)
+                        j_col_list.append([1.0, 0.15, 0.65, 0.70 * (0.8 + self.react_mid * 0.4)])
+                        j_size_list.append(-base_size * 0.32)
+                    
+                # 2. MOON JELLYFISH: 4 central frilly lavender-pink flowing oral arms
+                for arm in range(4):
+                    ang = arm * 2.0 * np.pi / 4.0
+                    arm_anchor = pos + (u * np.cos(ang) + w * np.sin(ang)) * 0.15
+                    for s in range(8):
+                        dist = s * 0.22
+                        wave_phase = self.jelly_phase[i] - s * 0.6 - t_val * 2.5
+                        ripple = u * np.sin(wave_phase) * 0.06 * (s + 1.0) + w * np.cos(wave_phase * 1.2) * 0.04 * (s + 1.0)
+                        arm_pos = arm_anchor - dir_vec * dist + ripple
+                        
+                        j_pos_list.append(arm_pos)
+                        j_col_list.append([0.95, 0.25, 0.80, 0.45 * (1.0 - 0.11 * s) * (0.8 + self.react_mid * 0.4)])
+                        j_size_list.append(-base_size * 0.45 * (1.0 - 0.08 * s))
+                        
+                # 3. MOON JELLYFISH: Fine fringe of short pink tentacles along the bell rim
+                for k in range(12):
+                    ang = k * 2.0 * np.pi / 12.0
+                    rim_anchor = pos + (u * np.cos(ang) + w * np.sin(ang)) * deform_radius
+                    for s in range(3):
+                        dist = s * 0.12
+                        wave_phase = self.jelly_phase[i] - s * 0.8 - t_val * 3.0
+                        ripple = u * np.sin(wave_phase) * 0.03 + w * np.cos(wave_phase) * 0.03
+                        ten_pos = rim_anchor - dir_vec * dist + ripple
+                        
+                        j_pos_list.append(ten_pos)
+                        j_col_list.append([0.90, 0.35, 0.75, 0.30 * (1.0 - 0.25 * s) * (0.8 + self.react_treble * 0.4)])
+                        j_size_list.append(-base_size * 0.15 * (1.0 - 0.15 * s))
+                        
+            else:
+                # 1. CRYSTAL JELLYFISH: Glowing neon-cyan/white inner mouth core
+                for k in range(3):
+                    c_pos = pos + dir_vec * (0.2 + k * 0.18) * deform_height
+                    j_pos_list.append(c_pos)
+                    j_col_list.append([0.0, 0.85, 1.0, 0.65 * (0.8 + self.react_mid * 0.4)])
+                    j_size_list.append(-base_size * 0.45)
+                    
+                # 2. CRYSTAL JELLYFISH: Exceptionally long, thin trailing bioluminescent neon-blue tentacles
+                num_t = 12
+                for k in range(num_t):
+                    ang = k * 2.0 * np.pi / num_t
+                    rim_anchor = pos + (u * np.cos(ang) + w * np.sin(ang)) * deform_radius
+                    for s in range(14): # Very long, majestic trailing lines
+                        dist = s * 0.45
+                        wave_phase = self.jelly_phase[i] - s * 0.42 - t_val * 2.2
+                        wave_amp = 0.13 * (s + 1.0)
+                        ripple = u * np.sin(wave_phase) * wave_amp + w * np.cos(wave_phase * 1.15) * wave_amp * 0.65
+                        ten_pos = rim_anchor - dir_vec * dist + ripple
+                        
+                        j_pos_list.append(ten_pos)
+                        # Fade out to deep bioluminescent blue at the tips
+                        alpha_fade = 0.55 * (1.0 - 0.06 * s) * (0.8 + self.react_treble * 0.4)
+                        gfp_blend = max(0.0, 1.0 - s * 0.15) # Green near the base rim, blending to blue tips
+                        col_r = 0.0
+                        col_g = 0.55 * gfp_blend + 0.1 * (1.0 - gfp_blend)
+                        col_b = 1.0
+                        j_col_list.append([col_r, col_g, col_b, alpha_fade])
+                        j_size_list.append(-base_size * 0.16 * (1.0 - 0.04 * s))
+                        
+            # Draw Squid, Manta, Seahorse, or Lantern Fish Rarity as solid 3D triangle meshes
+            if self.active_rarity is not None and self.active_rarity['type'] == 'SQUID':
+                sq_pts, sq_cols = make_solid_squid(self.squid_pos, self.squid_dir, self.squid_phase, self.react_bass, self.react_mid, self.react_treble)
+                hood_tri_pos.extend(sq_pts)
+                hood_tri_col.extend(sq_cols)
+                
+            if self.active_rarity is not None and self.active_rarity['type'] == 'MANTA':
+                m_pts, m_cols = make_solid_manta(self.active_rarity['pos'], self.active_rarity['dir'], self.active_rarity['phase'])
+                hood_tri_pos.extend(m_pts)
+                hood_tri_col.extend(m_cols)
+                
+            if self.active_rarity is not None and self.active_rarity['type'] == 'SEAHORSE':
+                sh_pts, sh_cols = make_solid_seahorse(self.active_rarity['pos'], self.active_rarity['phase'])
+                hood_tri_pos.extend(sh_pts)
+                hood_tri_col.extend(sh_cols)
+                
+            if self.active_rarity is not None and self.active_rarity['type'] == 'LANTERN_FISH':
+                r = self.active_rarity
+                center = r['pos']
+                for k in range(len(r['offsets'])):
+                    fish_pos = center + r['offsets'][k]
+                    fish_pos[1] += np.sin(self.get_sim_time() * 8.0 + k) * 0.15
+                    # Recolor fish bodies to beautiful matte deep purple-blue and indigo
+                    col_fish = [0.18, 0.15, 0.45, 1.0] if k % 2 == 0 else [0.08, 0.05, 0.32, 1.0]
+                    lf_pts, lf_cols = make_solid_fish(fish_pos, r['dir'], self.get_sim_time() + k, col_fish)
+                    hood_tri_pos.extend(lf_pts)
+                    hood_tri_col.extend(lf_cols)
+                    
+        j_pos_arr = np.array(j_pos_list, dtype=np.float32) if len(j_pos_list) > 0 else np.zeros((0, 3), dtype=np.float32)
+        j_col_arr = np.array(j_col_list, dtype=np.float32) if len(j_col_list) > 0 else np.zeros((0, 4), dtype=np.float32)
+        j_size_arr = np.array(j_size_list, dtype=np.float32) if len(j_size_list) > 0 else np.zeros(0, dtype=np.float32)
+
+        # Convert seaweed plant lists to NumPy arrays
+        p_pos_arr = np.array(plant_pos_list, dtype=np.float32) if len(plant_pos_list) > 0 else np.zeros((0, 3), dtype=np.float32)
+        p_col_arr = np.array(plant_col_list, dtype=np.float32) if len(plant_col_list) > 0 else np.zeros((0, 4), dtype=np.float32)
+        p_size_arr = np.array(plant_size_list, dtype=np.float32) if len(plant_size_list) > 0 else np.zeros(0, dtype=np.float32)
+
+        # Concatenate all visual elements into unified arrays for high-performance rendering
+        pos_combined = np.concatenate([b_pos, a_pos, v_pos, seabed_pos, p_pos_arr, j_pos_arr], axis=0).astype(np.float32)
+        col_combined = np.concatenate([b_col, a_col, v_col, seabed_col, p_col_arr, j_col_arr], axis=0).astype(np.float32)
+        size_combined = np.concatenate([b_size, a_size, v_size, seabed_size, p_size_arr, j_size_arr], axis=0).astype(np.float32)
+
+        return pos_combined, col_combined, size_combined, np.array(hood_tri_pos, dtype=np.float32), np.array(hood_tri_col, dtype=np.float32)
+
+    def init_mandala_mode(self):
+        M = 250
+        if not hasattr(self, 'mandala_slices'):
+            self.mandala_slices = 12
+        self.mandala_base_pos = np.zeros((M, 3), dtype=np.float32)
+        self.mandala_base_pos[:, 1] = 4.0
+        self.mandala_base_vel = np.zeros((M, 3), dtype=np.float32)
+        self.mandala_base_ages = np.zeros(M, dtype=np.float32)
+        self.mandala_base_max_ages = np.zeros(M, dtype=np.float32)
+        self.mandala_base_col = np.zeros((M, 4), dtype=np.float32)
+        self.mandala_base_size = np.zeros(M, dtype=np.float32)
+        
+        for i in range(M):
+            self.reset_mandala_particle(i)
+
+    def reset_mandala_particle(self, idx):
+        self.mandala_base_pos[idx] = [0.0, 4.0, 0.0]
+        angle = np.random.uniform(0.0, 2 * np.pi)
+        speed = np.random.uniform(1.5, 4.5)
+        self.mandala_base_vel[idx, 0] = speed * np.cos(angle)
+        self.mandala_base_vel[idx, 1] = speed * np.sin(angle)
+        self.mandala_base_vel[idx, 2] = np.random.uniform(-0.2, 0.2)
+        
+        self.mandala_base_ages[idx] = 0.0
+        self.mandala_base_max_ages[idx] = np.random.uniform(1.8, 3.2)
+        if self.opt_color_mode != 'REALISTIC':
+            pal = get_palette_colors(self.opt_color_mode)
+            col_choice = random.choice(pal)
+        else:
+            col_choice = random.choice([
+                COLORS["sodium_gold"],
+                COLORS["strontium_red"],
+                COLORS["potassium_purple"],
+                COLORS["copper_blue"],
+                COLORS["magnesium_white"]
+            ])
+        self.mandala_base_col[idx] = col_choice
+        self.mandala_base_col[idx, 3] = np.random.uniform(0.6, 1.0)
+        self.mandala_base_size[idx] = np.random.uniform(5.0, 11.0)
+
+    def update_mandala(self, dt):
+        speed_factor = 1.0 + self.react_bass * 2.5
+        if self.opt_gravity > 0.0:
+            self.mandala_base_vel[:, 1] -= 3.0 * self.opt_gravity * dt
+        self.mandala_base_pos += self.mandala_base_vel * speed_factor * dt
+
+        if self.opt_trailers > 0:
+            target_history_len = self.opt_trailers * 2
+            if not hasattr(self, 'mandala_history') or self.mandala_history is None:
+                self.mandala_history = []
+            self.mandala_history.append((self.mandala_base_pos.copy(), self.mandala_base_col.copy(), self.mandala_base_ages.copy(), self.mandala_base_max_ages.copy()))
+            while len(self.mandala_history) > target_history_len:
+                self.mandala_history.pop(0)
+        else:
+            self.mandala_history = None
+        
+        center = np.array([0.0, 4.0, 0.0], dtype=np.float32)
+        to_center = center[np.newaxis, :] - self.mandala_base_pos
+        dist_c = np.linalg.norm(to_center, axis=1, keepdims=True) + 1e-6
+        
+        tangent_x = -to_center[:, 1] / dist_c[:, 0]
+        tangent_y = to_center[:, 0] / dist_c[:, 0]
+        self.mandala_base_pos[:, 0] += tangent_x * (0.8 + self.react_mid * 2.0) * dt
+        self.mandala_base_pos[:, 1] += tangent_y * (0.8 + self.react_mid * 2.0) * dt
+        
+        self.mandala_base_ages += dt
+        expired = self.mandala_base_ages >= self.mandala_base_max_ages
+        for idx in np.where(expired)[0]:
+            self.reset_mandala_particle(idx)
+
+    def render_mandala(self):
+        pal = get_palette_colors(self.opt_color_mode) if self.opt_color_mode != 'REALISTIC' else None
+        M = len(self.mandala_base_pos)
+        S = self.mandala_slices
+        angles = np.arange(S) * (2 * np.pi / S) + (self.get_sim_time() * (0.15 + self.react_mid * 0.6))
+        shifted = self.mandala_base_pos - np.array([0.0, 4.0, 0.0])
+        
+        x = shifted[:, 0][:, np.newaxis]
+        y = shifted[:, 1][:, np.newaxis]
+        z = shifted[:, 2][:, np.newaxis]
+        
+        cos_a = np.cos(angles)[np.newaxis, :]
+        sin_a = np.sin(angles)[np.newaxis, :]
+        
+        rot_x = x * cos_a - y * sin_a
+        rot_y = x * sin_a + y * cos_a
+        rot_z = np.tile(z, (1, S))
+        
+        rot_pos = np.stack([rot_x, rot_y + 4.0, rot_z], axis=2)
+        pos_arr = rot_pos.reshape(-1, 3).astype(np.float32)
+        col_arr = np.repeat(self.mandala_base_col, S, axis=0).copy()
+        
+        # Apply current life ratio fade to current colors before historical appending
+        ages_rep = np.repeat(self.mandala_base_ages, S)
+        max_ages_rep = np.repeat(self.mandala_base_max_ages, S)
+        life_ratio = ages_rep / max_ages_rep
+        col_arr[:, 3] *= np.clip(1.0 - life_ratio, 0.0, 1.0)
+        
+        current_size_arr = np.repeat(self.mandala_base_size, S) * (1.0 + self.react_treble * 0.5)
+        
+        all_pos_list = [pos_arr]
+        all_col_list = [col_arr]
+        all_size_list = [current_size_arr]
+
+        if hasattr(self, 'mandala_history') and self.mandala_history is not None and len(self.mandala_history) > 0:
+            hist_len = len(self.mandala_history)
+            for h_idx, (h_pos, h_col, h_ages, h_max_ages) in enumerate(self.mandala_history):
+                fade_factor = (h_idx + 1) / (hist_len + 1)
+                shifted_h = h_pos - np.array([0.0, 4.0, 0.0])
+                hx = shifted_h[:, 0][:, np.newaxis]
+                hy = shifted_h[:, 1][:, np.newaxis]
+                hz = shifted_h[:, 2][:, np.newaxis]
+                
+                h_rot_x = hx * cos_a - hy * sin_a
+                h_rot_y = hx * sin_a + hy * cos_a
+                h_rot_z = np.tile(hz, (1, S))
+                
+                h_rot_pos = np.stack([h_rot_x, h_rot_y + 4.0, h_rot_z], axis=2)
+                h_pos_arr = h_rot_pos.reshape(-1, 3).astype(np.float32)
+                
+                h_col_arr = np.repeat(h_col, S, axis=0).copy()
+                h_ages_rep = np.repeat(h_ages, S)
+                h_max_rep = np.repeat(h_max_ages, S)
+                h_ratio = h_ages_rep / h_max_rep
+                
+                h_col_arr[:, 3] *= np.clip(1.0 - h_ratio, 0.0, 1.0) * fade_factor * 0.45
+                h_size_arr = np.repeat(self.mandala_base_size, S) * (1.0 + self.react_treble * 0.5) * (0.4 + 0.6 * fade_factor)
+                
+                all_pos_list.append(h_pos_arr)
+                all_col_list.append(h_col_arr)
+                all_size_list.append(h_size_arr)
+                
+        pos_arr = np.concatenate(all_pos_list, axis=0)
+        col_arr = np.concatenate(all_col_list, axis=0)
+        size_arr = np.concatenate(all_size_list, axis=0)
+        
+        mandala_tri_pos = []
+        mandala_tri_col = []
+        
+        # Render Peace Symbol Overlay in central space (Un-sliced to remain perfectly legible)
+        if self.peace_symbol_timer > 0.0:
+            peace_pos, peace_col, peace_size = [], [], []
+            R = 3.6 + np.sin(self.get_sim_time() * 6.0) * 0.15
+            center = np.array([0.0, 4.0, 0.0], dtype=np.float32)
+            alpha_p = np.clip(self.peace_symbol_timer / 1.0, 0.0, 1.0) * (0.65 + self.react_mid * 0.35)
+            p_col_rgb = list(pal[0][:3]) if pal else [1.0, 0.82, 0.1]
+            for k_pt in range(60):
+                ang = k_pt * 2.0 * np.pi / 60.0
+                pt = center + np.array([R * np.cos(ang), R * np.sin(ang), 0.0], dtype=np.float32)
+                peace_pos.append(pt)
+                peace_col.append(p_col_rgb + [alpha_p])
+                peace_size.append(10.0 + np.sin(self.get_sim_time() * 12.0 + k_pt) * 4.0)
+            for y_pt in np.linspace(-R, R, 20):
+                pt = center + np.array([0.0, y_pt, 0.0], dtype=np.float32)
+                peace_pos.append(pt)
+                peace_col.append([1.0, 0.82, 0.1, alpha_p])
+                peace_size.append(10.0)
+            for r_pt in np.linspace(0.0, R, 15):
+                pt = center + np.array([r_pt * np.cos(5.0 * np.pi / 4.0), r_pt * np.sin(5.0 * np.pi / 4.0), 0.0], dtype=np.float32)
+                peace_pos.append(pt)
+                peace_col.append([1.0, 0.82, 0.1, alpha_p])
+                peace_size.append(10.0)
+            for r_pt in np.linspace(0.0, R, 15):
+                pt = center + np.array([r_pt * np.cos(7.0 * np.pi / 4.0), r_pt * np.sin(7.0 * np.pi / 4.0), 0.0], dtype=np.float32)
+                peace_pos.append(pt)
+                peace_col.append([1.0, 0.82, 0.1, alpha_p])
+                peace_size.append(10.0)
+            pos_arr = np.concatenate([pos_arr, np.array(peace_pos, dtype=np.float32)], axis=0)
+            col_arr = np.concatenate([col_arr, np.array(peace_col, dtype=np.float32)], axis=0)
+            size_arr = np.concatenate([size_arr, np.array(peace_size, dtype=np.float32)], axis=0)
+            
+        # Render Pulsing Halo Effect with outward firing sparks (Un-sliced circle with scattered sparks)
+        if self.halo_timer > 0.0:
+            halo_pos, halo_col, halo_size = [], [], []
+            R_halo = 5.2 + self.react_bass * 1.5 + np.sin(self.get_sim_time() * 5.0) * 0.25
+            center = np.array([0.0, 4.0, 0.0], dtype=np.float32)
+            alpha_h = np.clip(self.halo_timer / 1.0, 0.0, 1.0)
+            for i_h in range(80):
+                ang = i_h * 2.0 * np.pi / 80.0 + self.get_sim_time() * 1.5
+                pt = center + np.array([R_halo * np.cos(ang), R_halo * np.sin(ang), 0.0], dtype=np.float32)
+                halo_pos.append(pt)
+                halo_col.append([0.1, 0.85, 1.0, alpha_h])
+                halo_size.append(12.0)
+                if i_h % 4 == 0 and random.random() < 0.28:
+                    spark_r = R_halo + np.random.uniform(0.1, 1.8)
+                    spark_ang = ang + np.random.uniform(-0.1, 0.1)
+                    s_pt = center + np.array([spark_r * np.cos(spark_ang), spark_r * np.sin(spark_ang), np.random.uniform(-0.1, 0.1)], dtype=np.float32)
+                    halo_pos.append(s_pt)
+                    h_col_rgb = list(pal[1 % len(pal)][:3]) if pal else [0.9, 0.15, 0.5]
+                    halo_col.append(h_col_rgb + [alpha_h * 0.6])
+                    halo_size.append(6.0)
+            pos_arr = np.concatenate([pos_arr, np.array(halo_pos, dtype=np.float32)], axis=0)
+            col_arr = np.concatenate([col_arr, np.array(halo_col, dtype=np.float32)], axis=0)
+            size_arr = np.concatenate([size_arr, np.array(halo_size, dtype=np.float32)], axis=0)
+            
+        # Render Mandala Mode Symmetrical Rarities (Bird, Smoke, Sun Burst, Butterfly)
+        if self.active_rarity is not None:
+            r = self.active_rarity
+            r_pos_list, r_col_list, r_size_list = [], [], []
+            if r['type'] == 'BIRD':
+                # Render high-quality 3D Bird singleton directly as solid asymmetric (no pairs!)
+                b_pts, b_cols = make_solid_bird(r['pos'], np.array([np.cos(r['ang']), np.sin(r['ang']), 0.0]), r['phase'])
+                mandala_tri_pos.extend(b_pts)
+                mandala_tri_col.extend(b_cols)
+            elif r['type'] == 'SMOKE':
+                for j in range(len(r['particles_pos'])):
+                    pt_relative = r['particles_pos'][j] - np.array([0.0, 4.0, 0.0])
+                    r_pos_list.append(pt_relative)
+                    rad = r['particles_rad'][j]
+                    alpha = 0.72 * (1.0 - rad / 12.0)
+                    c1 = list(pal[0][:3]) if pal else [0.15, 0.85, 0.92]
+                    c2 = list(pal[2 % len(pal)][:3]) if pal else [0.75, 0.12, 0.92]
+                    col = c1 + [alpha] if j % 2 == 0 else c2 + [alpha]
+                    r_col_list.append(col)
+                    r_size_list.append(18.0 + rad * 3.5) # made smoke highly visible
+            elif r['type'] == 'SUN_BURST':
+                # Sunburst overhaul: 16 spokes, 24 points per spoke, golden-orange gradients, larger points
+                for i_sp in range(16):
+                    spoke_ang = i_sp * (np.pi / 8.0) + r['phase']
+                    max_rad = (3.5 - r['life']) * 4.5
+                    for j_pt in range(24):
+                        pt_frac = j_pt / 23.0
+                        rad = pt_frac * max_rad
+                        pt_relative = np.array([rad * np.cos(spoke_ang), rad * np.sin(spoke_ang), 0.0])
+                        r_pos_list.append(pt_relative)
+                        alpha = 0.8 * (1.0 - pt_frac) * np.clip(r['life'] / 1.0, 0.0, 1.0)
+                        if pal:
+                            c_mix = (1.0 - pt_frac) * np.array(pal[0][:3]) + pt_frac * np.array(pal[2 % len(pal)][:3])
+                            r_col_list.append(list(c_mix) + [alpha])
+                        else:
+                            r_col_list.append([1.0, 0.4 + 0.55 * (1.0 - pt_frac), 0.0, alpha])
+                        r_size_list.append(16.0 * (1.0 - pt_frac * 0.3))
+            elif r['type'] == 'BUTTERFLY':
+                # Render high-quality 3D Butterfly singleton directly as solid asymmetric (no pairs!)
+                bf_pts, bf_cols = make_solid_butterfly(r['pos'], np.array([np.cos(r['ang']), np.sin(r['ang']), 0.0]), r['phase'])
+                if pal:
+                    for idx_c in range(len(bf_cols)):
+                        bf_cols[idx_c] = list(pal[idx_c % len(pal)][:3]) + [bf_cols[idx_c][3]]
+                mandala_tri_pos.extend(bf_pts)
+                mandala_tri_col.extend(bf_cols)
+            if r['type'] == 'BIRD' and pal:
+                for idx_c in range(len(mandala_tri_col)):
+                    mandala_tri_col[idx_c] = list(pal[idx_c % len(pal)][:3]) + [mandala_tri_col[idx_c][3]]
+                
+            if len(r_pos_list) > 0:
+                sym_pos, sym_col, sym_size = [], [], []
+                angles_s = np.arange(S) * (2 * np.pi / S)
+                r_pos_arr = np.array(r_pos_list)
+                r_col_arr = np.array(r_col_list)
+                r_size_arr = np.array(r_size_list)
+                for ang_s in angles_s:
+                    cos_s = np.cos(ang_s)
+                    sin_s = np.sin(ang_s)
+                    rot_x = r_pos_arr[:, 0] * cos_s - r_pos_arr[:, 1] * sin_s
+                    rot_y = r_pos_arr[:, 0] * sin_s + r_pos_arr[:, 1] * cos_s
+                    rot_z = r_pos_arr[:, 2]
+                    for idx_pt in range(len(r_pos_arr)):
+                        sym_pos.append([rot_x[idx_pt], rot_y[idx_pt] + 4.0, rot_z[idx_pt]])
+                        sym_col.append(r_col_arr[idx_pt])
+                        sym_size.append(r_size_arr[idx_pt])
+                pos_arr = np.concatenate([pos_arr, np.array(sym_pos, dtype=np.float32)], axis=0)
+                col_arr = np.concatenate([col_arr, np.array(sym_col, dtype=np.float32)], axis=0)
+                size_arr = np.concatenate([size_arr, np.array(sym_size, dtype=np.float32)], axis=0)
+                
+        return pos_arr, col_arr, size_arr, np.array(mandala_tri_pos, dtype=np.float32), np.array(mandala_tri_col, dtype=np.float32)
+
+    def trigger_climax_event(self, intensity=1.5, routine_name=""):
+        # Setup climax properties
+        self.climax_flash = intensity
+        self.active_routine_name = routine_name or "Climax Burst!"
+        self.routine_timer = 5.0
+        
+        # Boost visualizer envelopes aggressively
+        self.react_bass = min(1.8, self.react_bass + 1.2)
+        self.react_mid = min(1.8, self.react_mid + 1.2)
+        self.react_treble = min(1.8, self.react_treble + 1.2)
+        
+        if self.major_mode == "UNDERWATER Lava":
+            if routine_name == "Supernova":
+                # Giant white-hot supernova eruption from all vents!
+                for _ in range(240):
+                    idx = self.next_bubble_idx
+                    v_idx = random.randint(0, 2)
+                    v_loc = self.vent_locs[v_idx]
+                    self.bubble_pos[idx] = [v_loc[0], v_loc[1] + 1.75, v_loc[2]] + np.random.uniform([-0.5, 0.0, -0.5], [0.5, 0.25, 0.5])
+                    self.bubble_size[idx] = np.random.uniform(4.0, 8.0)
+                    self.bubble_vel[idx] = [np.random.uniform(-2.5, 2.5), np.random.uniform(4.0, 8.0), np.random.uniform(-2.5, 2.5)]
+                    self.bubble_col[idx] = [1.0, 0.95, 0.8, 1.0]
+                    self.bubble_active[idx] = True
+                    self.bubble_is_fragment[idx] = False
+                    self.next_bubble_idx = (self.next_bubble_idx + 1) % len(self.bubble_pos)
+                if self.active_rarity is not None and self.active_rarity['type'] == 'SQUID':
+                    self.squid_vel = self.squid_dir * 2.0 # slowed down to 1/4 from 8.0
+                    self.squid_phase = 0.0
+            elif routine_name == "Shooting Star":
+                # Underwater shooting stars: cyan bioluminescent trails streaking horizontally
+                for i in range(120):
+                    idx = self.next_bubble_idx
+                    self.bubble_pos[idx] = [-15.0 + i * 0.1, np.random.uniform(0.0, 8.0), np.random.uniform(0.0, 6.0)]
+                    self.bubble_vel[idx] = [np.random.uniform(8.0, 15.0), np.random.uniform(-0.4, 0.4), np.random.uniform(-0.4, 0.4)]
+                    self.bubble_size[idx] = np.random.uniform(2.0, 4.0)
+                    self.bubble_col[idx] = [0.1, 0.85, 1.0, 0.95]
+                    self.bubble_active[idx] = True
+                    self.bubble_is_fragment[idx] = False
+                    self.next_bubble_idx = (self.next_bubble_idx + 1) % len(self.bubble_pos)
+            else:
+                for _ in range(180):
+                    idx = self.next_bubble_idx
+                    v_idx = random.randint(0, 2)
+                    v_loc = self.vent_locs[v_idx]
+                    self.bubble_pos[idx] = [v_loc[0], v_loc[1] + 1.75, v_loc[2]] + np.random.uniform([-0.35, 0.0, -0.35], [0.35, 0.25, 0.35])
+                    self.bubble_size[idx] = np.random.uniform(2.5, 6.0)
+                    rise_speed = np.random.uniform(2.5, 5.5)
+                    self.bubble_vel[idx] = [np.random.uniform(-1.5, 1.5), rise_speed, np.random.uniform(-1.5, 1.5)]
+                    self.bubble_col[idx] = [random.choice([0.9, 0.1, 0.0]), random.choice([0.1, 0.9, 0.8]), random.choice([0.9, 0.1, 1.0]), np.random.uniform(0.7, 1.0)]
+                    self.bubble_active[idx] = True
+                    self.bubble_is_fragment[idx] = False
+                    self.next_bubble_idx = (self.next_bubble_idx + 1) % len(self.bubble_pos)
+                    
+            for i in range(self.num_jelly):
+                self.jelly_phase[i] = 0.0
+                self.jelly_vel[i] = self.jelly_dir[i] * 5.0
+                self.jelly_col[i, 3] = 1.0
+                
+        elif self.major_mode == "TUNNEL Wormhole":
+            get_bend_offsets = self.get_bend_offsets
+            if routine_name == "Lightning Flash":
+                self.lightning_active_timer = 0.4
+                self.active_lightning_bolts = []
+                for _ in range(2):
+                    bolt = []
+                    bx, by = get_bend_offsets(-55.0)
+                    bolt.append([np.random.uniform(-2.5, 2.5) + bx, np.random.uniform(-2.5, 2.5) + by + 4.0, -55.0])
+                    for z_coord in np.linspace(-50.0, 0.0, 15):
+                        bx, by = get_bend_offsets(z_coord)
+                        bolt.append([np.random.uniform(-2.5, 2.5) + bx, np.random.uniform(-2.5, 2.5) + by + 4.0, z_coord])
+                    self.active_lightning_bolts.append(bolt)
+            if routine_name == "Supernova":
+                self.wormhole_supernova_active = True
+                self.wormhole_supernova_age = 0.0
+                for k in range(120):
+                    idx = self.next_spark_idx
+                    self.spark_pos[idx] = [0.0, 0.0, -15.0]
+                    theta_v = np.random.uniform(0.0, 2.0 * np.pi)
+                    phi_v = np.random.uniform(-np.pi / 2.0, np.pi / 2.0)
+                    speed_v = np.random.uniform(10.0, 20.0)
+                    vx = speed_v * np.cos(phi_v) * np.cos(theta_v)
+                    vy = speed_v * np.cos(phi_v) * np.sin(theta_v)
+                    vz = speed_v * np.sin(phi_v)
+                    
+                    self.spark_vel[idx] = [vx, vy, vz]
+                    self.spark_col[idx] = [1.0, 0.9, 0.7, 1.0] if k % 2 == 0 else [0.2, 0.8, 1.0, 1.0]
+                    self.spark_size[idx] = np.random.uniform(9.0, 15.0)
+                    self.spark_age[idx] = 0.0
+                    self.spark_max_age[idx] = np.random.uniform(1.2, 2.0)
+                    self.spark_active[idx] = True
+                    self.next_spark_idx = (self.next_spark_idx + 1) % len(self.spark_pos)
+            elif routine_name == "Shooting Star":
+                self.wormhole_shooting_star_active = True
+                self.wormhole_shooting_star_z = -55.0
+                self.wormhole_shooting_star_x = np.random.uniform(-3.0, 3.0)
+                self.wormhole_shooting_star_y = np.random.uniform(-3.0, 3.0)
+                for ss in range(6):
+                    ss_x = np.random.uniform(-5.0, 5.0)
+                    ss_y = np.random.uniform(-5.0, 5.0)
+                    ss_z = -55.0
+                    for k in range(15):
+                        idx = self.next_spark_idx
+                        self.spark_pos[idx] = [ss_x, ss_y, ss_z - k * 0.8]
+                        self.spark_vel[idx] = [0.0, 0.0, 35.0]
+                        self.spark_col[idx] = [1.0, 0.95, 0.8, 1.0]
+                        self.spark_size[idx] = np.random.uniform(8.0, 12.0) - k * 0.4
+                        self.spark_age[idx] = 0.0
+                        self.spark_max_age[idx] = np.random.uniform(1.5, 2.2)
+                        self.spark_active[idx] = True
+                        self.next_spark_idx = (self.next_spark_idx + 1) % len(self.spark_pos)
+            else:
+                near_gems = np.where((self.gem_z < 0.0) & (self.gem_z > -50.0))[0]
+                if len(near_gems) > 0:
+                    for _ in range(25):
+                        g_idx = random.choice(near_gems)
+                        self.spawn_gem_sparks(g_idx)
+                        for s_offset in range(6):
+                            s_idx = (self.next_spark_idx - s_offset - 1) % len(self.spark_pos)
+                            if self.spark_active[s_idx]:
+                                self.spark_vel[s_idx] *= 1.8
+                                self.spark_size[s_idx] *= 1.6
+                                
+        elif self.major_mode == "MANDALA Sacred":
+            if routine_name == "Peace Symbol":
+                self.peace_symbol_timer = 5.0
+                for idx in range(len(self.mandala_base_pos)):
+                    self.mandala_base_pos[idx] = [0.0, 4.0, 0.0]
+                    angle = (idx / len(self.mandala_base_pos)) * 2.0 * np.pi
+                    speed = np.random.uniform(9.0, 14.0)
+                    self.mandala_base_vel[idx, 0] = speed * np.cos(angle)
+                    self.mandala_base_vel[idx, 1] = speed * np.sin(angle)
+                    self.mandala_base_vel[idx, 2] = np.random.uniform(-0.5, 0.5)
+                    self.mandala_base_ages[idx] = 0.0
+                    self.mandala_base_max_ages[idx] = np.random.uniform(2.0, 3.0)
+                    self.mandala_base_col[idx] = [1.0, 0.8, 0.1, 1.0] if idx % 2 == 0 else [1.0, 0.3, 0.2, 1.0]
+                    self.mandala_base_size[idx] = np.random.uniform(10.0, 16.0)
+            elif routine_name == "Halo Effect":
+                self.halo_timer = 5.0
+                for idx in range(len(self.mandala_base_pos)):
+                    self.mandala_base_pos[idx] = [0.0, 4.0, 0.0]
+                    angle = (idx / len(self.mandala_base_pos)) * 2.0 * np.pi
+                    speed = np.random.uniform(11.0, 17.0)
+                    self.mandala_base_vel[idx, 0] = speed * np.cos(angle)
+                    self.mandala_base_vel[idx, 1] = speed * np.sin(angle)
+                    self.mandala_base_vel[idx, 2] = np.random.uniform(-0.5, 0.5)
+                    self.mandala_base_ages[idx] = 0.0
+                    self.mandala_base_max_ages[idx] = np.random.uniform(2.2, 3.5)
+                    self.mandala_base_col[idx] = [0.15, 0.85, 1.0, 1.0] if idx % 2 == 0 else [0.9, 0.15, 0.5, 1.0]
+                    self.mandala_base_size[idx] = np.random.uniform(12.0, 20.0)
+            elif routine_name == "Supernova":
+                # Explode all mandala particles radially
+                for idx in range(len(self.mandala_base_pos)):
+                    self.mandala_base_pos[idx] = [0.0, 4.0, 0.0]
+                    angle = (idx / len(self.mandala_base_pos)) * 2.0 * np.pi
+                    speed = np.random.uniform(10.0, 15.0)
+                    self.mandala_base_vel[idx, 0] = speed * np.cos(angle)
+                    self.mandala_base_vel[idx, 1] = speed * np.sin(angle)
+                    self.mandala_base_vel[idx, 2] = np.random.uniform(-1.0, 1.0)
+                    self.mandala_base_ages[idx] = 0.0
+                    self.mandala_base_max_ages[idx] = np.random.uniform(2.2, 3.5)
+                    self.mandala_base_col[idx] = [1.0, 0.95, 0.8, 1.0] if idx % 2 == 0 else [0.95, 0.25, 0.85, 1.0]
+                    self.mandala_base_size[idx] = np.random.uniform(14.0, 22.0)
+            elif routine_name == "Shooting Star":
+                # Contracting cosmic shooting stars inwards
+                for idx in range(100):
+                    angle = np.random.uniform(0.0, 2 * np.pi)
+                    rad = 12.0
+                    self.mandala_base_pos[idx] = [rad * np.cos(angle), 4.0 + rad * np.sin(angle), np.random.uniform(-0.5, 0.5)]
+                    speed = -np.random.uniform(6.0, 10.0)
+                    self.mandala_base_vel[idx, 0] = speed * np.cos(angle)
+                    self.mandala_base_vel[idx, 1] = speed * np.sin(angle)
+                    self.mandala_base_vel[idx, 2] = np.random.uniform(-0.1, 0.1)
+                    self.mandala_base_ages[idx] = 0.0
+                    self.mandala_base_max_ages[idx] = np.random.uniform(1.8, 2.8)
+                    self.mandala_base_col[idx] = [0.1, 0.9, 1.0, 1.0]
+                    self.mandala_base_size[idx] = np.random.uniform(8.0, 14.0)
+        elif self.major_mode == "SYNAESTHESIA Classic":
+            self.trigger_syn_star_burst()
+        elif self.major_mode == "FIRE Plasma":
+            if routine_name == "Flame Flare":
+                for _ in range(160):
+                    self.spawn_differentiated_spark('FLARE')
+            elif routine_name == "Flame Wave":
+                for _ in range(180):
+                    self.spawn_differentiated_spark('WAVE')
+            elif routine_name == "Treble Spark Shower":
+                for _ in range(250):
+                    self.spawn_differentiated_spark('SHOWER')
+            elif routine_name == "Fire Eruption":
+                for _ in range(300):
+                    self.spawn_differentiated_spark('ERUPTION')
+            elif routine_name in ("Lotus Bloom", "Coral Pulse", "Plasma Burst"):
+                for _ in range(120):
+                    self.spawn_fire_spark("bass", 1.8)
+            elif routine_name in ("Cosmic Spin", "Geyser Eruption", "Gravity Surge"):
+                for _ in range(120):
+                    self.spawn_fire_spark("mid", 1.8)
+            elif routine_name in ("Infinite Pulse", "Plankton Surge", "Stardust Stream"):
+                for _ in range(120):
+                    self.spawn_fire_spark("treble", 1.8)
+            elif routine_name in ("Geometric Collapse", "Deep Vent Blast", "Event Horizon"):
+                for _ in range(200):
+                    band = random.choice(["bass", "mid", "treble"])
+                    self.spawn_fire_spark(band, 2.0)
+            elif routine_name == "Lightning Strike":
+                # Procedural lightning-strike trigger (Upgraded to 1-4 random bolts with dynamic branching intricacy!)
+                if not hasattr(self, 'fire_lightning_bolts'):
+                    self.fire_lightning_bolts = []
+                
+                num_bolts = np.random.randint(1, 5)
+                for _ in range(num_bolts):
+                    start_x = np.random.uniform(-0.85, 0.85)
+                    end_x = np.random.uniform(-0.35, 0.35) # Strike inside or near the hearth ring
+                    start_pt = [start_x, 1.0, 0.0]
+                    end_pt = [end_x, -0.82, 0.0]
+                    
+                    # Randomize intricacy and branching probability per bolt
+                    is_intricate = np.random.uniform(0.0, 1.0) < 0.45
+                    max_d = np.random.randint(4, 6) if is_intricate else np.random.randint(2, 4)
+                    b_prob = np.random.uniform(0.24, 0.34) if is_intricate else np.random.uniform(0.12, 0.18)
+                    
+                    segments = self.generate_lightning_bolt(start_pt, end_pt, max_depth=max_d, branch_prob=b_prob)
+                    
+                    # Randomize bolt lifetime slightly so they don't fade at the exact same millisecond
+                    b_life = np.random.uniform(0.18, 0.32)
+                    self.fire_lightning_bolts.append({
+                        'segments': segments,
+                        'life': b_life,
+                        'max_life': b_life
+                    })
+                
+                # Dynamic sky strobe flash
+                self.climax_flash = 1.0
+                
+                # Electric blue/white spark shower explosion at the striking points!
+                for _ in range(120):
+                    idx = self.next_fire_spark_idx
+                    self.next_fire_spark_idx = (self.next_fire_spark_idx + 1) % len(self.fire_spark_pos)
+                    strike_x = np.random.uniform(-0.35, 0.35)
+                    self.fire_spark_pos[idx] = [strike_x, -0.82, np.random.uniform(-0.05, 0.05)]
+                    theta = np.random.uniform(0.0, 2.0 * np.pi)
+                    phi = np.random.uniform(np.radians(10.0), np.radians(80.0))
+                    speed = np.random.uniform(1.2, 3.2)
+                    self.fire_spark_vel[idx] = [speed * np.sin(phi) * np.sin(theta), speed * np.cos(phi), speed * np.sin(phi) * np.cos(theta)]
+                    self.fire_spark_col[idx] = [0.85, 0.95, 1.0, 1.0] # Electric blueish-white!
+                    self.fire_spark_size[idx] = np.random.uniform(3.0, 7.0)
+                    max_life = np.random.uniform(0.6, 1.5)
+                    self.fire_spark_life[idx] = max_life
+                    self.fire_spark_max_life[idx] = max_life
+                    self.fire_spark_hue[idx] = 0.82 # Blueish hue range
+                    self.fire_spark_active[idx] = True
+            elif routine_name in ("Thermal Flare", "Astral Projection", "Bioluminescent Rainbow", "Lightning Flash"):
+                for _ in range(250):
+                    self.spawn_fire_spark("treble", 2.2)
+            elif routine_name == "Supernova":
+                for _ in range(250):
+                    idx = self.next_fire_spark_idx
+                    self.next_fire_spark_idx = (self.next_fire_spark_idx + 1) % len(self.fire_spark_pos)
+                    self.fire_spark_pos[idx] = [np.random.uniform(-2.0, 2.0), np.random.uniform(-1.0, 1.0), np.random.uniform(-1.0, 1.0)]
+                    angle = np.random.uniform(0.0, 2.0 * np.pi)
+                    speed = np.random.uniform(4.0, 10.0)
+                    self.fire_spark_vel[idx] = [speed * np.cos(angle), np.random.uniform(3.0, 10.0), speed * np.sin(angle)]
+                    self.fire_spark_col[idx] = [1.0, np.random.uniform(0.3, 0.9), np.random.uniform(0.0, 0.5), 1.0]
+                    self.fire_spark_size[idx] = np.random.uniform(6.0, 15.0)
+                    max_life = np.random.uniform(2.0, 4.0)
+                    self.fire_spark_life[idx] = max_life
+                    self.fire_spark_max_life[idx] = max_life
+                    self.fire_spark_active[idx] = True
+            elif routine_name == "Shooting Star":
+                for _ in range(15):
+                    idx = self.next_fire_spark_idx
+                    self.next_fire_spark_idx = (self.next_fire_spark_idx + 1) % len(self.fire_spark_pos)
+                    self.fire_spark_pos[idx] = [np.random.uniform(-6.0, 6.0), -1.0, np.random.uniform(-2.0, 2.0)]
+                    self.fire_spark_vel[idx] = [np.random.uniform(-1.0, 1.0), np.random.uniform(12.0, 18.0), np.random.uniform(-1.0, 1.0)]
+                    self.fire_spark_col[idx] = [1.0, np.random.uniform(0.8, 1.0), np.random.uniform(0.5, 0.8), 1.0]
+                    self.fire_spark_size[idx] = np.random.uniform(12.0, 20.0)
+                    max_life = np.random.uniform(3.0, 4.5)
+                    self.fire_spark_life[idx] = max_life
+                    self.fire_spark_max_life[idx] = max_life
+                    self.fire_spark_active[idx] = True
+
+    def spawn_rarity(self, r_type):
+        print(f"SPAWNING RARITY: {r_type}!")
+        if r_type == "SQUID":
+            pos = np.array([np.random.uniform(-4.0, 4.0), np.random.uniform(1.0, 2.5), np.random.uniform(0.0, 4.0)], dtype=np.float32)
+            # Restrict squid direction vector to within 30 degrees of camera-perpendicular X-Y plane
+            theta = np.random.uniform(0.0, 2.0 * np.pi)
+            dx = np.cos(theta)
+            dy = np.sin(theta)
+            dz = np.random.uniform(-0.45, 0.45)
+            direction = np.array([dx, dy, dz], dtype=np.float32)
+            direction /= np.linalg.norm(direction)
+            self.squid_pos = pos
+            self.squid_dir = direction
+            self.squid_vel = direction * 1.0 # slowed down to 1/4 from 4.0
+            self.squid_phase = 0.0
+            self.active_rarity = {
+                'type': 'SQUID',
+                'life': 30.0,
+                'max_life': 30.0
+            }
+        elif r_type == "MANTA":
+            # Expand spawn starting point to -24.0 for full screen boundary clearance
+            pos = np.array([-24.0, np.random.uniform(2.0, 7.0), np.random.uniform(0.0, 6.0)], dtype=np.float32)
+            direction = np.array([1.0, np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1)], dtype=np.float32)
+            direction /= np.linalg.norm(direction)
+            self.active_rarity = {
+                'type': 'MANTA',
+                'pos': pos,
+                'dir': direction,
+                'vel': direction * 1.75,
+                'phase': 0.0,
+                'life': 25.0,
+                'max_life': 25.0
+            }
+        elif r_type == "SEAHORSE":
+            # Spawn just below seabed (Y=-6.0) so it rises into view quickly
+            pos = np.array([np.random.uniform(-4.0, 4.0), -6.0, np.random.uniform(1.0, 5.0)], dtype=np.float32)
+            direction = np.array([np.random.uniform(-0.15, 0.15), 1.0, np.random.uniform(-0.15, 0.15)], dtype=np.float32)
+            direction /= np.linalg.norm(direction)
+            self.active_rarity = {
+                'type': 'SEAHORSE',
+                'pos': pos,
+                'dir': direction,
+                'vel': direction * 1.15, # majestic upward swim speed
+                'phase': 0.0,
+                'life': 30.0,
+                'max_life': 30.0
+            }
+        elif r_type == "LANTERN_FISH":
+            # Spawn at -24.0 horizontally and keep deep in background (Z in [-15.0, -13.0])
+            pos = np.array([-24.0, np.random.uniform(1.0, 7.0), np.random.uniform(-15.0, -13.0)], dtype=np.float32)
+            direction = np.array([1.0, np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1)], dtype=np.float32)
+            direction /= np.linalg.norm(direction)
+            offsets = [np.array([np.random.uniform(-1.5, 1.5), np.random.uniform(-1.2, 1.2), np.random.uniform(-1.0, 1.0)], dtype=np.float32) for _ in range(8)]
+            self.active_rarity = {
+                'type': 'LANTERN_FISH',
+                'pos': pos,
+                'dir': direction,
+                'vel': direction * 1.4, # slowed from 2.2 to 1.4
+                'offsets': offsets,
+                'life': 30.0,
+                'max_life': 30.0
+            }
+        elif r_type == "PLANET":
+            # Gas giant planet initialization
+            ang = np.random.uniform(0.0, 2 * np.pi)
+            r_dist = 13.0
+            pos = np.array([r_dist * np.cos(ang), r_dist * np.sin(ang), -55.0], dtype=np.float32)
+            style = "NEPTUNE"
+            self.active_rarity = {
+                'type': 'PLANET',
+                'pos': pos,
+                'vel': np.array([0.0, 0.0, 15.0], dtype=np.float32),
+                'phase': 0.0,
+                'style': style,
+                'life': 7.0,
+                'max_life': 7.0
+            }
+        elif r_type == "GALAXY":
+            # Move Galaxy farther away in background
+            ang = np.random.uniform(0.0, 2 * np.pi)
+            r_dist = 22.0
+            pos = np.array([r_dist * np.cos(ang), r_dist * np.sin(ang), -85.0], dtype=np.float32)
+            self.active_rarity = {
+                'type': 'GALAXY',
+                'pos': pos,
+                'vel': np.array([0.0, 0.0, 3.2], dtype=np.float32),
+                'phase': 0.0,
+                'life': 31.0,
+                'max_life': 31.0
+            }
+        elif r_type == "ASTEROIDS":
+            pos = np.array([0.0, 0.0, -55.0], dtype=np.float32)
+            offsets = [np.random.uniform(-15.0, 15.0, 3) for _ in range(10)]
+            for ao in offsets:
+                ao[2] = np.random.uniform(-8.0, 8.0)
+                ao[0] = np.sign(ao[0]) * max(11.0, abs(ao[0]))
+                ao[1] = np.sign(ao[1]) * max(11.0, abs(ao[1]))
+            self.active_rarity = {
+                'type': 'ASTEROIDS',
+                'pos': pos,
+                'vel': np.array([0.0, 0.0, 23.0], dtype=np.float32),
+                'offsets': offsets,
+                'rotations': [np.random.uniform(0.0, 2*np.pi) for _ in range(10)],
+                'rot_vels': [np.random.uniform(0.5, 2.5) for _ in range(10)],
+                'life': 5.0,
+                'max_life': 5.0
+            }
+
+        elif r_type == "CATHERINE_WHEEL":
+            # Move Catherine Wheel center up to align with screen bottom (Y = -4.5)
+            pos = np.array([np.random.uniform(-10.0, 10.0), -4.5, np.random.uniform(-5.0, -1.0)], dtype=np.float32)
+            self.active_rarity = {
+                'type': 'CATHERINE_WHEEL',
+                'pos': pos,
+                'phase': 0.0,
+                'spin_vel': 18.0,
+                'sparks_pos': [],
+                'sparks_vel': [],
+                'sparks_col': [],
+                'sparks_age': [],
+                'life': 10.0,
+                'max_life': 10.0
+            }
+        elif r_type == "BIRD":
+            self.active_rarity = {
+                'type': 'BIRD',
+                'pos': np.array([0.0, 4.0, 0.0], dtype=np.float32),
+                'ang': np.random.uniform(0.0, 2*np.pi),
+                'phase': 0.0,
+                'life': 12.0,
+                'max_life': 12.0
+            }
+        elif r_type == "SMOKE":
+            self.active_rarity = {
+                'type': 'SMOKE',
+                'particles_pos': [],
+                'particles_ang': [],
+                'particles_rad': [],
+                'life': 6.0,
+                'max_life': 6.0
+            }
+        elif r_type == "SUN_BURST":
+            self.active_rarity = {
+                'type': 'SUN_BURST',
+                'phase': 0.0,
+                'life': 3.5,
+                'max_life': 3.5
+            }
+        elif r_type == "BUTTERFLY":
+            self.active_rarity = {
+                'type': 'BUTTERFLY',
+                'pos': np.array([0.0, 4.0, 0.0], dtype=np.float32),
+                'ang': np.random.uniform(0.0, 2*np.pi),
+                'phase': 0.0,
+                'life': 15.0,
+                'max_life': 15.0
+            }
+        elif r_type == "SHOOTING_STAR":
+            fly_right = np.random.choice([True, False])
+            if fly_right:
+                # Spawn on left, fly right
+                start_x = np.random.uniform(-0.8, -0.2)
+                vel_x = np.random.uniform(0.15, 0.35)
+            else:
+                # Spawn on right, fly left
+                start_x = np.random.uniform(0.2, 0.8)
+                vel_x = np.random.uniform(-0.35, -0.15)
+                
+            start_pt = np.array([start_x, 1.0], dtype=np.float32)
+            # Randomized angle/vertical speed
+            vel_y = np.random.uniform(-0.3, -0.15)
+            vel = np.array([vel_x, vel_y], dtype=np.float32)
+            
+            self.active_rarity = {
+                'type': 'SHOOTING_STAR',
+                'pos': start_pt,
+                'vel': vel,
+                'trail': [start_pt.copy()],
+                'life': 18.0,
+                'max_life': 18.0
+            }
+        elif r_type == "BATS":
+            bats = []
+            num_bats = np.random.randint(6, 11)
+            for _ in range(num_bats):
+                ox = np.random.uniform(-0.18, 0.18)
+                oy = np.random.uniform(-0.15, 0.15)
+                b_pos = np.array([-1.2 + ox, 0.18 + oy], dtype=np.float32)
+                # Velocity is 1/5 of previous speed
+                b_vel = np.array([np.random.uniform(0.076, 0.096), np.random.uniform(0.016, 0.032)], dtype=np.float32)
+                bats.append({
+                    'pos': b_pos,
+                    'vel': b_vel,
+                    'phase': np.random.uniform(0.0, 2.0 * np.pi)
+                })
+            self.active_rarity = {
+                'type': 'BATS',
+                'bats': bats,
+                'life': 35.0, # Increased lifetime since they move 1/5 speed
+                'max_life': 35.0
+            }
+        elif r_type == "TUMBLEWEED":
+            spawn_left = np.random.choice([True, False])
+            x_start = -1.2 if spawn_left else 1.2
+            # Speed is halved again!
+            speed_val = np.random.uniform(0.04, 0.07)
+            vx = speed_val if spawn_left else -speed_val
+            
+            # Depth displacement (forward-back from current location)
+            depth_offset = np.random.uniform(-0.06, 0.06)
+            base_y = -0.58 + depth_offset
+            radius = 0.022 + depth_offset * 0.22 # Scale size with physical depth
+            
+            self.active_rarity = {
+                'type': 'TUMBLEWEED',
+                'x': x_start,
+                'base_y': base_y,
+                'y': base_y,
+                'vel_x': vx,
+                'radius': radius,
+                'rotation': 0.0,
+                'rot_vel': vx / radius,
+                'bounce_phase': 0.0,
+                'hop_y': 0.0,
+                'hop_vy': 0.0,
+                'life': 55.0,
+                'max_life': 55.0
+            }
+
+    def update_active_rarity(self, dt):
+        r = self.active_rarity
+        r['life'] -= dt
+        if r['life'] <= 0.0:
+            self.active_rarity = None
+            return
+        t_type = r['type']
+        if t_type == "SQUID":
+            # Squid is updated inside update_underwater_mode
+            pass
+        elif t_type == "MANTA":
+            r['pos'] += r['vel'] * dt
+            # Precisely match the wing flap to the music track's BPM (1 flap every 8 beats)
+            r['phase'] += dt * (self.script_bpm / 60.0) * 0.25 * np.pi
+            # Fully swims off the screen boundaries before deactivating
+            if r['pos'][0] > 24.0:
+                self.active_rarity = None
+        elif t_type == "SEAHORSE":
+            r['pos'] += r['vel'] * dt
+            # Bobbing phase synchronized with audio
+            r['phase'] += dt * (2.5 + self.react_bass * 5.0)
+            # Add horizontal/vertical bobbing physics synchronized with audio
+            bob_h = np.sin(r['phase'] * 1.2) * 0.8 * (1.0 + self.react_bass * 1.5)
+            bob_v = np.cos(r['phase'] * 0.8) * 0.65 * (1.0 + self.react_bass * 1.5)
+            r['pos'][0] += bob_h * dt
+            r['pos'][1] += bob_v * dt
+            # Fully bob/swim off screen boundaries before deactivating
+            if r['pos'][1] > 11.0:
+                self.active_rarity = None
+        elif t_type == "LANTERN_FISH":
+            r['pos'] += r['vel'] * dt
+            # Fully swims off screen boundaries before deactivating
+            if r['pos'][0] > 24.0:
+                self.active_rarity = None
+        elif t_type == "PLANET":
+            r['pos'] += r['vel'] * dt
+            r['phase'] += dt * 0.75
+            if r['pos'][2] > 18.0:
+                self.active_rarity = None
+        elif t_type == "GALAXY":
+            r['pos'] += r['vel'] * dt
+            r['phase'] += dt * 0.5
+            if r['pos'][2] > 18.0:
+                self.active_rarity = None
+        elif t_type == "ASTEROIDS":
+            r['pos'] += r['vel'] * dt
+            for i in range(len(r['rotations'])):
+                r['rotations'][i] += r['rot_vels'][i] * dt
+            if r['pos'][2] > 18.0:
+                self.active_rarity = None
+
+        elif t_type == "CATHERINE_WHEEL":
+            r['phase'] += r['spin_vel'] * dt
+            for i in range(4):
+                ang = r['phase'] + i * (np.pi / 2.0)
+                nozzle_pos = r['pos'] + np.array([np.cos(ang) * 0.5, np.sin(ang) * 0.5, 0.0], dtype=np.float32)
+                out_dir = np.array([np.cos(ang), np.sin(ang), np.random.uniform(-0.15, 0.15)], dtype=np.float32)
+                tangent_dir = np.array([-np.sin(ang), np.cos(ang), 0.0], dtype=np.float32)
+                spark_vel = out_dir * np.random.uniform(6.0, 12.0) + tangent_dir * 8.0
+                r['sparks_pos'].append(nozzle_pos)
+                r['sparks_vel'].append(spark_vel)
+                r['sparks_col'].append(random.choice([
+                    [1.0, 0.8, 0.1, 1.0],
+                    [0.9, 0.9, 0.95, 1.0],
+                    [1.0, 0.3, 0.1, 1.0]
+                ]))
+                r['sparks_age'].append(0.0)
+            rem_pos, rem_vel, rem_col, rem_age = [], [], [], []
+            for j in range(len(r['sparks_pos'])):
+                r['sparks_age'][j] += dt
+                if r['sparks_age'][j] < 0.8:
+                    r['sparks_vel'][j][1] -= 9.8 * dt # gravity
+                    next_pos = r['sparks_pos'][j] + r['sparks_vel'][j] * dt
+                    # Bounce or slide realistically on the floor plane Y = -12.0
+                    if next_pos[1] < -12.0:
+                        next_pos[1] = -12.0
+                        r['sparks_vel'][j][1] = -r['sparks_vel'][j][1] * 0.45 # bounce elasticity
+                        r['sparks_vel'][j][0] *= 0.85 # friction
+                        r['sparks_vel'][j][2] *= 0.85 # friction
+                    r['sparks_pos'][j] = next_pos
+                    r['sparks_col'][j][3] = 1.0 - (r['sparks_age'][j] / 0.8)
+                    rem_pos.append(r['sparks_pos'][j])
+                    rem_vel.append(r['sparks_vel'][j])
+                    rem_col.append(r['sparks_col'][j])
+                    rem_age.append(r['sparks_age'][j])
+            r['sparks_pos'] = rem_pos
+            r['sparks_vel'] = rem_vel
+            r['sparks_col'] = rem_col
+            r['sparks_age'] = rem_age
+        elif t_type == "BIRD":
+            r['phase'] += dt * 15.0
+            speed = 4.2 * (1.0 + self.react_mid * 0.5)
+            r['pos'][0] += np.cos(r['ang']) * speed * dt
+            r['pos'][1] += np.sin(r['ang']) * speed * dt
+            # Fully flies off screen boundaries before deactivating
+            if np.linalg.norm(r['pos'] - np.array([0.0, 4.0, 0.0])) > 24.0:
+                self.active_rarity = None
+        elif t_type == "SMOKE":
+            # Spawn 4 smoke particles per frame at slightly offset spiral progression angles
+            for step in range(4):
+                ang = (r['life'] * 3.5 + step * 0.15) % (2.0 * np.pi)
+                r['particles_pos'].append(np.array([0.0, 4.0, 0.0], dtype=np.float32))
+                r['particles_ang'].append(ang)
+                r['particles_rad'].append(0.0)
+            rem_pos, rem_ang, rem_rad = [], [], []
+            for j in range(len(r['particles_pos'])):
+                r['particles_rad'][j] += dt * 2.8 * (1.0 + self.react_mid * 0.4)
+                r['particles_ang'][j] += dt * 3.0
+                rad = r['particles_rad'][j]
+                theta = r['particles_ang'][j]
+                r['particles_pos'][j] = np.array([rad * np.cos(theta), 4.0 + rad * np.sin(theta), np.sin(theta * 2.0) * 0.15], dtype=np.float32)
+                if rad < 12.0:
+                    rem_pos.append(r['particles_pos'][j])
+                    rem_ang.append(r['particles_ang'][j])
+                    rem_rad.append(r['particles_rad'][j])
+            r['particles_pos'] = rem_pos
+            r['particles_ang'] = rem_ang
+            r['particles_rad'] = rem_rad
+        elif t_type == "SUN_BURST":
+            r['phase'] += dt * 0.4
+        elif t_type == "BUTTERFLY":
+            # Music-modulated wing flap rate
+            flap_rate = 24.0 + self.react_treble * 35.0
+            r['phase'] += dt * flap_rate
+            # Music-modulated turning angles/speeds
+            erratic_factor = 6.0 + self.react_bass * 12.0
+            r['ang'] += np.random.uniform(-1.8, 1.8) * dt * erratic_factor
+            # Music-modulated speed and bobbing amplitude
+            speed = 3.6 + self.react_mid * 5.0
+            bob_amp = 1.5 + self.react_bass * 4.0
+            r['pos'][0] += (np.cos(r['ang']) * speed + np.sin(r['phase'] * 3.0) * bob_amp) * dt
+            r['pos'][1] += (np.sin(r['ang']) * speed + np.cos(r['phase'] * 3.5) * bob_amp) * dt
+            # Fully flies off screen boundaries before deactivating
+            if np.linalg.norm(r['pos'] - np.array([0.0, 4.0, 0.0])) > 24.0:
+                self.active_rarity = None
+        elif t_type == "SHOOTING_STAR":
+            r['pos'] += r['vel'] * dt
+            r['trail'].append(r['pos'].copy())
+            if len(r['trail']) > 8:
+                r['trail'].pop(0)
+            if r['pos'][1] < -0.38:
+                self.active_rarity = None
+        elif t_type == "BATS":
+            all_off_screen = True
+            for b in r['bats']:
+                b['pos'] += b['vel'] * dt
+                if b['pos'][0] < 1.2:
+                    all_off_screen = False
+            if all_off_screen:
+                self.active_rarity = None
+        elif t_type == "TUMBLEWEED":
+            r['x'] += r['vel_x'] * dt
+            r['rotation'] += r['rot_vel'] * dt
+            
+            # Constant rolling rhythm bobbing
+            r['bounce_phase'] += dt * 6.0
+            base_bob = abs(np.sin(r['bounce_phase'])) * 0.003
+            
+            # Big beat detection (using self.react_bass > 0.54)
+            if self.react_bass > 0.54:
+                # Upward jump velocity scaled by bass power
+                r['hop_vy'] = max(r.get('hop_vy', 0.0), self.react_bass * 0.18)
+                
+            # Physics loop for the big hops
+            r['hop_y'] += r['hop_vy'] * dt
+            r['hop_vy'] -= 0.65 * dt # Gravity pulling downwards
+            
+            # Ground collision check
+            if r['hop_y'] <= 0.0:
+                r['hop_y'] = 0.0
+                if abs(r['hop_vy']) > 0.04:
+                    r['hop_vy'] = -r['hop_vy'] * 0.42 # Elastic bounce!
+                else:
+                    r['hop_vy'] = 0.0
+                    
+            r['y'] = r['base_y'] + base_bob + r['hop_y']
+            if (r['vel_x'] > 0 and r['x'] > 1.2) or (r['vel_x'] < 0 and r['x'] < -1.2):
+                self.active_rarity = None
+
+    def update_rarity_system(self, dt):
+        if self.active_rarity is None and self.rarity_queued_type is None:
+            self.rarity_cooldown += dt
+            if self.rarity_cooldown >= RARITY_INTERVAL:
+                if self.major_mode == "UNDERWATER Lava":
+                    self.rarity_queued_type = random.choice(["SQUID", "MANTA", "SEAHORSE", "LANTERN_FISH"])
+                elif self.major_mode == "TUNNEL Wormhole":
+                    self.rarity_queued_type = random.choice(["PLANET", "GALAXY", "ASTEROIDS"])
+                elif self.major_mode == "FIREWORKS":
+                    self.rarity_queued_type = "CATHERINE_WHEEL" 
+                elif self.major_mode == "MANDALA Sacred":
+                    self.rarity_queued_type = random.choice(["BIRD", "SMOKE", "SUN_BURST", "BUTTERFLY"])
+                elif self.major_mode == "FIRE Plasma":
+                    self.rarity_queued_type = random.choice(["SHOOTING_STAR", "BATS", "TUMBLEWEED"])
+                if self.rarity_queued_type is not None:
+                    print(f"Rarity queued: {self.rarity_queued_type}. Waiting for significant beat...")
+                    self.rarity_cooldown = 0.0
+        if self.rarity_queued_type is not None:
+            if self.react_bass > .54:
+                self.spawn_rarity(self.rarity_queued_type)
+                self.rarity_queued_type = None
+        if self.active_rarity is not None:
+            self.update_active_rarity(dt)
+
+    def trigger_routine(self, name, launch_func):
+        self.routine_queue.clear()
+        self.active_routine_name = name
+        self.routine_timer = 5.0
+        launch_func()
+
+    def launch_american_flag(self):
+        # Red stripes
+        for x in [-9.0, -3.0, 3.0, 9.0]:
+            self.routine_queue.append((0.0, Firework(fw_type=0, color=COLORS["strontium_red"], x_offset=x)))
+        # White stripes
+        for x in [-6.0, 0.0, 6.0]:
+            self.routine_queue.append((0.2, Firework(fw_type=1, color=COLORS["magnesium_white"], x_offset=x)))
+        # Blue canton stars
+        for x in [-11.0, -7.0]:
+            fw = Firework(fw_type=3, color=COLORS["copper_blue"], x_offset=x)
+            fw.launch_vel[1] += 3.0
+            self.routine_queue.append((0.4, fw))
+
+    def launch_liberty_bell(self):
+        # Top of the bell
+        top_crown = Firework(fw_type=12, color=COLORS["sodium_gold"], x_offset=0.0)
+        top_crown.launch_vel[1] += 4.0
+        self.routine_queue.append((0.0, top_crown))
+        
+        # Sides of the bell fanning down
+        left_waterfall = Firework(fw_type=5, color=COLORS["sodium_gold"], x_offset=-4.0)
+        left_waterfall.launch_vel[0] = -1.5
+        right_waterfall = Firework(fw_type=5, color=COLORS["sodium_gold"], x_offset=4.0)
+        right_waterfall.launch_vel[0] = 1.5
+        self.routine_queue.append((0.2, left_waterfall))
+        self.routine_queue.append((0.2, right_waterfall))
+        
+        # Clapper at bottom cracking/crackling
+        clapper = Firework(fw_type=15, color=COLORS["magnesium_white"], x_offset=0.0)
+        clapper.launch_vel[1] -= 2.0
+        self.routine_queue.append((0.5, clapper))
+
+    def launch_statue_of_liberty(self):
+        # Pedestal/Body (green waterfall)
+        body = Firework(fw_type=5, color=COLORS["barium_green"], x_offset=-2.0)
+        self.routine_queue.append((0.0, body))
+        
+        # Crown Rays (radiating green ghost rings)
+        for idx, (x, vx) in enumerate([(-6.0, -3.0), (-2.0, -1.0), (2.0, 1.0)]):
+            ray = Firework(fw_type=3, color=COLORS["barium_green"], x_offset=x)
+            ray.launch_vel[0] = vx
+            self.routine_queue.append((0.1 * idx, ray))
+            
+        # Golden Torch (high up on the right)
+        torch = Firework(fw_type=11, color=COLORS["sodium_gold"], x_offset=3.0)
+        torch.launch_vel[1] += 5.0
+        torch.launch_vel[0] = 1.5
+        self.routine_queue.append((0.4, torch))
+
+    def launch_flower_bouquet(self):
+        colors = [COLORS["strontium_red"], COLORS["barium_green"], COLORS["potassium_purple"], COLORS["calcium_orange"], COLORS["sodium_gold"]]
+        types = [0, 1, 11]
+        for idx, x in enumerate([-8.0, -4.0, 0.0, 4.0, 8.0]):
+            col = colors[idx % len(colors)]
+            t = types[idx % len(types)]
+            fw = Firework(fw_type=t, color=col, x_offset=x)
+            fw.launch_vel[0] = x * 0.4
+            self.routine_queue.append((0.0, fw))
+
+    def launch_the_dragon(self):
+        for i in range(12):
+            delay = i * 0.15
+            x = -12.0 + i * 2.0
+            col = COLORS["barium_green"] if i % 2 == 0 else COLORS["sodium_gold"]
+            t = 17 if i % 2 == 0 else 6
+            fw = Firework(fw_type=t, color=col, x_offset=x)
+            fw.launch_vel[0] = -1.0 + (i * 0.2)
+            self.routine_queue.append((delay, fw))
+            
+    def launch_supernova(self):
+        fw_center = Firework(fw_type=4, color=COLORS["magnesium_white"], x_offset=0.0)
+        fw_center.launch_vel = np.array([0.0, 26.0, 0.0], dtype=np.float32)
+        fw_center.star_size = 15.0
+        fw_center.secondary_color = COLORS["copper_blue"]
+        self.routine_queue.append((0.0, fw_center))
+        
+        for angle in np.linspace(0, 2 * np.pi, 6, endpoint=False):
+            x = 8.0 * np.cos(angle)
+            z = 6.0 * np.sin(angle)
+            fw_ring = Firework(fw_type=7, color=COLORS["sodium_gold"], x_offset=x)
+            fw_ring.launch_pos[2] = z
+            fw_ring.launch_vel = np.array([x * 0.15, 23.0, z * 0.15], dtype=np.float32)
+            fw_ring.secondary_color = COLORS["potassium_purple"]
+            self.routine_queue.append((0.4, fw_ring))
+            
+        for x in [-5.0, 5.0]:
+            fw_crack = Firework(fw_type=15, color=COLORS["magnesium_white"], x_offset=x)
+            fw_crack.launch_vel[1] = 24.0
+            self.routine_queue.append((1.2, fw_crack))
+            
+    def launch_shooting_star(self):
+        fw_left = Firework(fw_type=18, color=COLORS["magnesium_white"], x_offset=-14.0)
+        fw_left.launch_vel = np.array([12.0, 16.0, -2.0], dtype=np.float32)
+        fw_left.launch_fuse = 2.0
+        fw_left.star_size = 10.0
+        fw_left.secondary_color = COLORS["sodium_gold"]
+        self.routine_queue.append((0.0, fw_left))
+        
+        fw_right = Firework(fw_type=18, color=COLORS["magnesium_white"], x_offset=14.0)
+        fw_right.launch_vel = np.array([-12.0, 17.0, 2.0], dtype=np.float32)
+        fw_right.launch_fuse = 2.0
+        fw_right.star_size = 10.0
+        fw_right.secondary_color = COLORS["sodium_gold"]
+        self.routine_queue.append((0.3, fw_right))
+        
+        fw_mid = Firework(fw_type=10, color=COLORS["copper_blue"], x_offset=0.0)
+        fw_mid.launch_vel = np.array([0.0, 25.0, -1.0], dtype=np.float32)
+        fw_mid.secondary_color = COLORS["magnesium_white"]
+        self.routine_queue.append((0.6, fw_mid))
+
+    def on_realize(self, area):
+        area.make_current()
+        if area.get_error() is not None:
+            print("GLArea realize error:", area.get_error())
+            return
+             
+        gl.glClearColor(0.01, 0.01, 0.05, 1.0)
+        
+        gl.glEnable(gl.GL_DEPTH_TEST)
+        gl.glDepthFunc(gl.GL_LEQUAL)
+        
+        try:
+            gl.glEnable(gl.GL_PROGRAM_POINT_SIZE)
+        except Exception:
+            pass
+            
+        # Modern Shader Programs Compilation and Linking
+        try:
+            self.sky_program = create_program(SKY_VERTEX_SHADER, SKY_FRAGMENT_SHADER)
+            self.line_program = create_program(LINE_VERTEX_SHADER, LINE_FRAGMENT_SHADER)
+            self.particle_program = create_program(PARTICLE_VERTEX_SHADER, PARTICLE_FRAGMENT_SHADER)
+        except Exception as e:
+            print("Shader initialization failed:", e)
+            return
+        
+        # Compile sky fullscreen quad VBO
+        self.sky_vao = gl.glGenVertexArrays(1)
+        self.sky_vbo = gl.glGenBuffers(1)
+        sky_vertices = np.array([
+            -1.0, -1.0,
+             1.0, -1.0,
+             1.0,  1.0,
+            -1.0,  1.0
+        ], dtype=np.float32)
+        
+        gl.glBindVertexArray(self.sky_vao)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.sky_vbo)
+        gl.glBufferData(gl.GL_ARRAY_BUFFER, sky_vertices.nbytes, sky_vertices, gl.GL_STATIC_DRAW)
+        gl.glEnableVertexAttribArray(0)
+        gl.glVertexAttribPointer(0, 2, gl.GL_FLOAT, gl.GL_FALSE, 0, ctypes.c_void_p(0))
+        gl.glBindVertexArray(0)
+        
+        # Dynamic Line Buffers Setup
+        self.line_vao = gl.glGenVertexArrays(1)
+        self.line_pos_vbo, self.line_col_vbo = gl.glGenBuffers(2)
+        
+        gl.glBindVertexArray(self.line_vao)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.line_pos_vbo)
+        gl.glEnableVertexAttribArray(0)
+        gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 0, ctypes.c_void_p(0))
+        
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.line_col_vbo)
+        gl.glEnableVertexAttribArray(1)
+        gl.glVertexAttribPointer(1, 4, gl.GL_FLOAT, gl.GL_FALSE, 0, ctypes.c_void_p(0))
+        gl.glBindVertexArray(0)
+        
+        # Dynamic Jellyfish Hood Buffers Setup
+        self.hood_vao = gl.glGenVertexArrays(1)
+        self.hood_pos_vbo, self.hood_col_vbo = gl.glGenBuffers(2)
+        
+        gl.glBindVertexArray(self.hood_vao)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.hood_pos_vbo)
+        gl.glEnableVertexAttribArray(0)
+        gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 0, ctypes.c_void_p(0))
+        
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.hood_col_vbo)
+        gl.glEnableVertexAttribArray(1)
+        gl.glVertexAttribPointer(1, 4, gl.GL_FLOAT, gl.GL_FALSE, 0, ctypes.c_void_p(0))
+        gl.glBindVertexArray(0)
+        
+        # Dynamic Particle Buffers Setup
+        self.particle_vao = gl.glGenVertexArrays(1)
+        self.particle_pos_vbo, self.particle_col_vbo, self.particle_size_vbo = gl.glGenBuffers(3)
+        
+        gl.glBindVertexArray(self.particle_vao)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.particle_pos_vbo)
+        gl.glEnableVertexAttribArray(0)
+        gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 0, ctypes.c_void_p(0))
+        
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.particle_col_vbo)
+        gl.glEnableVertexAttribArray(1)
+        gl.glVertexAttribPointer(1, 4, gl.GL_FLOAT, gl.GL_FALSE, 0, ctypes.c_void_p(0))
+        
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.particle_size_vbo)
+        gl.glEnableVertexAttribArray(2)
+        gl.glVertexAttribPointer(2, 1, gl.GL_FLOAT, gl.GL_FALSE, 0, ctypes.c_void_p(0))
+        gl.glBindVertexArray(0)
+        
+        # Query program uniform locations
+        self.line_proj_loc = gl.glGetUniformLocation(self.line_program, "projection")
+        self.line_view_loc = gl.glGetUniformLocation(self.line_program, "view")
+        self.line_fire_mode_loc = gl.glGetUniformLocation(self.line_program, "uFireMode")
+        
+        self.part_proj_loc = gl.glGetUniformLocation(self.particle_program, "projection")
+        self.part_view_loc = gl.glGetUniformLocation(self.particle_program, "view")
+        self.part_star_shape_loc = gl.glGetUniformLocation(self.particle_program, "uStarShape")
+        self.part_fire_mode_loc = gl.glGetUniformLocation(self.particle_program, "uFireMode")
+        self.sky_time_loc = gl.glGetUniformLocation(self.sky_program, "uTime")
+        self.sky_ripple_loc = gl.glGetUniformLocation(self.sky_program, "uRipple")
+        self.sky_climax_flash_loc = gl.glGetUniformLocation(self.sky_program, "uClimaxFlash")
+        self.sky_bend_x_loc = gl.glGetUniformLocation(self.sky_program, "uWormholeBendX")
+        self.sky_bend_y_loc = gl.glGetUniformLocation(self.sky_program, "uWormholeBendY")
+        self.sky_phase_x_loc = gl.glGetUniformLocation(self.sky_program, "uWormholePhaseX")
+        self.sky_phase_y_loc = gl.glGetUniformLocation(self.sky_program, "uWormholePhaseY")
+        self.sky_react_bass_loc = gl.glGetUniformLocation(self.sky_program, "uReactBass")
+        self.sky_react_treble_loc = gl.glGetUniformLocation(self.sky_program, "uReactTreble")
+        self.sky_react_mid_loc = gl.glGetUniformLocation(self.sky_program, "uReactMid")
+        self.sky_stereo_panning_loc = gl.glGetUniformLocation(self.sky_program, "uStereoPanning")
+        self.sky_wormhole_speed_factor_loc = gl.glGetUniformLocation(self.sky_program, "uWormholeSpeedFactor")
+        self.sky_aspect_loc = gl.glGetUniformLocation(self.sky_program, "uAspect")
+        self.sky_inv_vp_loc = gl.glGetUniformLocation(self.sky_program, "uInvVP")
+        self.sky_moon_tex_loc = gl.glGetUniformLocation(self.sky_program, "uMoonTex")
+        self.sky_has_moon_tex_loc = gl.glGetUniformLocation(self.sky_program, "uHasMoonTex")
+        self.sky_wind_gust_loc = gl.glGetUniformLocation(self.sky_program, "uWindGust")
+        self.sky_moon_illumed_loc = gl.glGetUniformLocation(self.sky_program, "uMoonIllumed")
+        self.sky_moon_is_waning_loc = gl.glGetUniformLocation(self.sky_program, "uMoonIsWaning")
+        self.sky_color_mode_loc = gl.glGetUniformLocation(self.sky_program, "uColorMode")
+
+    def on_render(self, area, context):
+        get_bend_offsets = self.get_bend_offsets
+        if self.sky_program is None:
+            return False
+            
+        w = area.get_width()
+        h = area.get_height()
+        scale = area.get_scale_factor()
+        w_phys = w * scale
+        h_phys = h * scale
+        aspect = w_phys / h_phys if h_phys > 0 else 1.0
+        
+        # Compute CPU Projection and View Matrices early so the fullscreen background shader can perform world-space tracking
+        proj_matrix = perspective_matrix(50.0, aspect, 0.1, 150.0)
+        cx = self.camera_dist * np.cos(self.camera_phi) * np.sin(self.camera_theta)
+        cy = self.camera_dist * np.sin(self.camera_phi)
+        cz = self.camera_dist * np.cos(self.camera_phi) * np.cos(self.camera_theta)
+        view_matrix = look_at_matrix([cx, cy, cz], [0.0, 4.0, 0.0], [0.0, 1.0, 0.0])
+        
+        # Ensure active mode is initialized before rendering or binding uniforms
+        if self.major_mode == "TUNNEL Wormhole":
+            if not hasattr(self, 'gem_z'):
+                self.init_tunnel_mode()
+        elif self.major_mode == "UNDERWATER Lava":
+            if not hasattr(self, 'bubble_pos'):
+                self.init_underwater_mode()
+        elif self.major_mode == "MANDALA Sacred":
+            if not hasattr(self, 'mandala_base_pos'):
+                self.init_mandala_mode()
+        elif self.major_mode == "FIRE Plasma":
+            if not hasattr(self, 'fire_spark_pos'):
+                self.init_fire_mode()
+        
+        # Open recording process if first frame
+        if hasattr(self, 'is_recording') and self.is_recording and self.ffmpeg_process is None:
+            self.start_recording_process(w_phys, h_phys)
+            
+        # If we are recording, run the tick update first to compute the state at self.record_time
+        if hasattr(self, 'is_recording') and self.is_recording:
+            self.on_recording_tick()
+        
+        gl.glViewport(0, 0, w_phys, h_phys)
+        gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
+        
+        # 1. Draw Fullscreen Sky Gradient or Raymarched Plasma Wormhole (Depth Testing Off)
+        gl.glDisable(gl.GL_DEPTH_TEST)
+        gl.glUseProgram(self.sky_program)
+        if hasattr(self, 'sky_time_loc') and self.sky_time_loc != -1:
+            gl.glUniform1f(self.sky_time_loc, self.get_sim_time())
+            
+        if hasattr(self, 'sky_climax_flash_loc') and self.sky_climax_flash_loc != -1:
+            gl.glUniform1f(self.sky_climax_flash_loc, self.climax_flash)
+            
+        if hasattr(self, 'sky_ripple_loc') and self.sky_ripple_loc != -1:
+            if self.major_mode == "UNDERWATER Lava":
+                gl.glUniform1f(self.sky_ripple_loc, 1.0)
+            elif self.major_mode == "TUNNEL Wormhole":
+                gl.glUniform1f(self.sky_ripple_loc, 2.0)
+            elif self.major_mode == "FIRE Plasma":
+                gl.glUniform1f(self.sky_ripple_loc, 3.0)
+            else:
+                gl.glUniform1f(self.sky_ripple_loc, 0.0)
+                
+        # Send full coordinates and audio parameters for continuous GPU raymarching/effects
+        if self.major_mode in ("TUNNEL Wormhole", "FIRE Plasma"):
+            bpm = self.script_bpm if (hasattr(self, 'script_bpm') and self.script_bpm > 0.0) else 40.0
+            bpm = np.clip(bpm, 40.0, 240.0)
+            
+            # Pronounced non-linear scaling: floor of 0.15 at 40 BPM, nominal 1.0 at 120 BPM, and cap of 4.0 at 240 BPM
+            if bpm <= 120.0:
+                speed_factor = 0.15 + 0.85 * ((bpm - 40.0) / 80.0) ** 1.8
+            else:
+                speed_factor = 1.0 + 3.0 * ((bpm - 120.0) / 120.0) ** 1.5
+                
+            if hasattr(self, 'sky_wormhole_speed_factor_loc') and self.sky_wormhole_speed_factor_loc != -1:
+                gl.glUniform1f(self.sky_wormhole_speed_factor_loc, speed_factor)
+                
+            if hasattr(self, 'sky_bend_x_loc') and self.sky_bend_x_loc != -1:
+                gl.glUniform1f(self.sky_bend_x_loc, self.wormhole_bend_x if hasattr(self, 'wormhole_bend_x') else 0.0)
+            if hasattr(self, 'sky_bend_y_loc') and self.sky_bend_y_loc != -1:
+                gl.glUniform1f(self.sky_bend_y_loc, self.wormhole_bend_y if hasattr(self, 'wormhole_bend_y') else 0.0)
+            if hasattr(self, 'sky_phase_x_loc') and self.sky_phase_x_loc != -1:
+                gl.glUniform1f(self.sky_phase_x_loc, self.wormhole_phase_x if hasattr(self, 'wormhole_phase_x') else 0.0)
+            if hasattr(self, 'sky_phase_y_loc') and self.sky_phase_y_loc != -1:
+                gl.glUniform1f(self.sky_phase_y_loc, self.wormhole_phase_y if hasattr(self, 'wormhole_phase_y') else 0.0)
+            if hasattr(self, 'sky_react_bass_loc') and self.sky_react_bass_loc != -1:
+                gl.glUniform1f(self.sky_react_bass_loc, self.react_bass_smooth)
+            if hasattr(self, 'sky_react_treble_loc') and self.sky_react_treble_loc != -1:
+                gl.glUniform1f(self.sky_react_treble_loc, self.react_treble)
+            if hasattr(self, 'sky_react_mid_loc') and self.sky_react_mid_loc != -1:
+                gl.glUniform1f(self.sky_react_mid_loc, self.react_mid)
+            if hasattr(self, 'sky_stereo_panning_loc') and self.sky_stereo_panning_loc != -1:
+                gl.glUniform1f(self.sky_stereo_panning_loc, self.current_stereo_panning)
+            if hasattr(self, 'sky_aspect_loc') and self.sky_aspect_loc != -1:
+                gl.glUniform1f(self.sky_aspect_loc, aspect)
+            if hasattr(self, 'sky_inv_vp_loc') and self.sky_inv_vp_loc != -1:
+                vp = proj_matrix @ view_matrix
+                inv_vp = np.linalg.inv(vp)
+                gl.glUniformMatrix4fv(self.sky_inv_vp_loc, 1, gl.GL_TRUE, inv_vp)
+            if hasattr(self, 'sky_wind_gust_loc') and self.sky_wind_gust_loc != -1:
+                gl.glUniform1f(self.sky_wind_gust_loc, self.fire_wind_gust if hasattr(self, 'fire_wind_gust') else 0.0)
+            if hasattr(self, 'sky_moon_illumed_loc') and self.sky_moon_illumed_loc != -1:
+                gl.glUniform1f(self.sky_moon_illumed_loc, self.moon_illumed if hasattr(self, 'moon_illumed') else 0.5)
+            if hasattr(self, 'sky_moon_is_waning_loc') and self.sky_moon_is_waning_loc != -1:
+                gl.glUniform1f(self.sky_moon_is_waning_loc, 1.0 if (hasattr(self, 'moon_is_waning') and self.moon_is_waning) else 0.0)
+            if hasattr(self, 'sky_color_mode_loc') and self.sky_color_mode_loc != -1:
+                c_mode = 0
+                if hasattr(self, 'opt_color_mode'):
+                    if self.opt_color_mode == 'NEON': c_mode = 1
+                    elif self.opt_color_mode == 'TRANQUIL': c_mode = 2
+                    elif self.opt_color_mode == 'METAL': c_mode = 3
+                gl.glUniform1i(self.sky_color_mode_loc, c_mode)
+
+            # Ensure moon texture is loaded and bind it for Fire mode
+            if self.major_mode == "FIRE Plasma":
+                if not hasattr(self, 'moon_texture_id') or self.moon_texture_id is None:
+                    self.init_moon_texture()
+                if hasattr(self, 'moon_texture_id') and self.moon_texture_id is not None and self.moon_texture_id > 0:
+                    gl.glActiveTexture(gl.GL_TEXTURE0)
+                    gl.glBindTexture(gl.GL_TEXTURE_2D, self.moon_texture_id)
+                    if hasattr(self, 'sky_moon_tex_loc') and self.sky_moon_tex_loc != -1:
+                        gl.glUniform1i(self.sky_moon_tex_loc, 0)
+                    if hasattr(self, 'sky_has_moon_tex_loc') and self.sky_has_moon_tex_loc != -1:
+                        gl.glUniform1f(self.sky_has_moon_tex_loc, 1.0)
+                else:
+                    if hasattr(self, 'sky_has_moon_tex_loc') and self.sky_has_moon_tex_loc != -1:
+                        gl.glUniform1f(self.sky_has_moon_tex_loc, 0.0)
+            else:
+                if hasattr(self, 'sky_has_moon_tex_loc') and self.sky_has_moon_tex_loc != -1:
+                    gl.glUniform1f(self.sky_has_moon_tex_loc, 0.0)
+                
+        gl.glBindVertexArray(self.sky_vao)
+        gl.glDrawArrays(gl.GL_TRIANGLE_FAN, 0, 4)
+        gl.glBindVertexArray(0)
+        
+        # Enable Depth Testing and Blending for World Render (Standard alpha blending for high-fidelity silhouettes and lines)
+        gl.glEnable(gl.GL_DEPTH_TEST)
+        gl.glEnable(gl.GL_BLEND)
+        gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
+        
+        # 2. Gather, Buffer and Render All Line Geometries (Ground Grid & Rocket Trails)
+        line_pos = []
+        line_col = []
+        
+        # Draw Jagged Lightning Bolts down the Tunnel during Lightning Flash event
+        if self.major_mode == "TUNNEL Wormhole" and self.lightning_active_timer > 0.0:
+            # Jagged paths in line segments
+            for bolt in self.active_lightning_bolts:
+                if len(bolt) > 1:
+                    for idx in range(len(bolt) - 1):
+                        line_pos.append(bolt[idx])
+                        line_pos.append(bolt[idx + 1])
+                        # strobe color
+                        line_col.append([0.85, 0.95, 1.0, 1.0])
+                        line_col.append([0.85, 0.95, 1.0, 1.0])
+                        
+        # Draw Campfire Lightning Bolts in FIRE Plasma mode
+        if self.major_mode == "FIRE Plasma" and hasattr(self, 'fire_lightning_bolts'):
+            for bolt in self.fire_lightning_bolts:
+                frac = bolt['life'] / bolt['max_life']
+                # Stroboscopic lightning flickering intensity
+                strobe = 1.0 if (int(frac * 30.0) % 2 == 0) else 0.15
+                alpha = frac * strobe
+                
+                for pt0, pt1, depth in bolt['segments']:
+                    line_pos.append(pt0)
+                    line_pos.append(pt1)
+                    
+                    # Main trunk is thick white-blue, branches are thinner blueish
+                    if depth == 0:
+                        col = [0.92, 0.96, 1.0, alpha * 0.95]
+                    else:
+                        col = [0.35, 0.65, 1.0, alpha * 0.55 * (1.0 / (depth + 1))]
+                    line_col.append(col)
+                    line_col.append(col)
+                    
+        # Draw Scenic FIRE Plasma Mode Rarities (Shooting Star, Bats, Tumbleweed)
+        if self.major_mode == "FIRE Plasma" and self.active_rarity is not None:
+            r = self.active_rarity
+            if r['type'] == 'SHOOTING_STAR' and 'trail' in r:
+                for idx in range(len(r['trail']) - 1):
+                    pt0 = r['trail'][idx]
+                    pt1 = r['trail'][idx + 1]
+                    alpha = (idx + 1) / len(r['trail'])
+                    line_pos.append([pt0[0], pt0[1], 0.0])
+                    line_pos.append([pt1[0], pt1[1], 0.0])
+                    # Beautiful blazing white-gold trail
+                    line_col.append([1.0, 0.90, 0.65, alpha * 0.95])
+                    line_col.append([1.0, 0.90, 0.65, alpha * 0.95])
+            elif r['type'] == 'BATS' and 'bats' in r:
+                span = 0.024 # Wider wing span for striking silhouette visibility
+                t_val = self.get_sim_time()
+                for b in r['bats']:
+                    bp = b['pos']
+                    flap = np.sin(t_val * 24.0 + b['phase']) * 0.015
+                    col = [0.0, 0.0, 0.0, 0.98] # Solid black silhouette
+                    
+                    # Wing Left
+                    line_pos.append([bp[0], bp[1], 0.0])
+                    line_pos.append([bp[0] - span, bp[1] + flap, 0.0])
+                    # Wing Right
+                    line_pos.append([bp[0], bp[1], 0.0])
+                    line_pos.append([bp[0] + span, bp[1] + flap, 0.0])
+                    # Body/Head
+                    line_pos.append([bp[0], bp[1] + 0.006, 0.0])
+                    line_pos.append([bp[0], bp[1] - 0.008, 0.0])
+                    for _ in range(6):
+                        line_col.append(col)
+            elif r['type'] == 'TUMBLEWEED':
+                tx = r['x']
+                ty = r['y']
+                rad = r['radius']
+                rot = r['rotation']
+                col = [0.08, 0.05, 0.03, 0.90] # Twiggy dark brown branches
+                
+                # Render a highly detailed tangled branch ball
+                num_loops = 10
+                for i_loop in range(num_loops):
+                    # Rotate each loop plane
+                    loop_ang = i_loop * (np.pi / num_loops) + rot
+                    c_l, s_l = np.cos(loop_ang), np.sin(loop_ang)
+                    
+                    segments = 6
+                    # Vary radius slightly to create fuzzy/tangled twig density
+                    loop_rad = rad * (0.85 + 0.25 * np.sin(i_loop * 4.3))
+                    
+                    p_prev = None
+                    for j_seg in range(segments + 1):
+                        a0 = j_seg * (2.0 * np.pi / segments)
+                        # Add jagged offset to make the branches look twiggy and rough
+                        jag_r = loop_rad * (1.0 + 0.12 * np.sin(j_seg * 5.7 + i_loop))
+                        
+                        p_local = np.array([jag_r * np.cos(a0), jag_r * 0.5 * np.sin(a0)])
+                        p_rot = [p_local[0] * c_l - p_local[1] * s_l, p_local[0] * s_l + p_local[1] * c_l]
+                        
+                        if p_prev is not None:
+                            line_pos.append([tx + p_prev[0], ty + p_prev[1], 0.0])
+                            line_pos.append([tx + p_rot[0], ty + p_rot[1], 0.0])
+                            line_col.append(col)
+                            line_col.append(col)
+                        p_prev = p_rot
+                        
+                # Draw 8 cross-cutting core branches for a beautifully tangled inner ball center
+                for k in range(8):
+                    ang_c = k * 1.7 + rot
+                    pt0 = [tx + rad * 0.8 * np.cos(ang_c), ty + rad * 0.4 * np.sin(ang_c)]
+                    pt1 = [tx - rad * 0.8 * np.cos(ang_c), ty - rad * 0.4 * np.sin(ang_c)]
+                    line_pos.append([pt0[0], pt0[1], 0.0])
+                    line_pos.append([pt1[0], pt1[1], 0.0])
+                    line_col.append(col)
+                    line_col.append(col)
+                        
+        # Draw massive, central fly-by Shooting Star trail inside Wormhole
+        if self.major_mode == "TUNNEL Wormhole" and self.wormhole_shooting_star_active:
+            # Create dynamic segment lines representing a trail behind the star
+            head_z = self.wormhole_shooting_star_z
+            for t_seg in range(12):
+                z0 = head_z - t_seg * 1.5
+                z1 = head_z - (t_seg + 1) * 1.5
+                bx0, by0 = get_bend_offsets(z0)
+                bx1, by1 = get_bend_offsets(z1)
+                line_pos.append([self.wormhole_shooting_star_x + bx0, self.wormhole_shooting_star_y + by0 + 4.0, z0])
+                line_pos.append([self.wormhole_shooting_star_x + bx1, self.wormhole_shooting_star_y + by1 + 4.0, z1])
+                alpha = np.clip((1.0 - t_seg / 12.0) * ((z0 + 50.0)/50.0), 0.0, 1.0)
+                line_col.append([0.15, 0.85, 1.0, alpha])
+                line_col.append([0.15, 0.85, 1.0, alpha])
+        
+        # Draw Reference Ground Grid (unless in Underwater Mode)
+        if self.major_mode != "UNDERWATER Lava":
+            grid_y = -12.0
+            grid_range = 30.0
+            steps = 10
+            for i in range(steps + 1):
+                val = -grid_range + (2.0 * grid_range / steps) * i
+                grid_alpha = 0.08 + self.react_bass * 0.15
+                grid_col = (0.15, 0.15, 0.3 + self.react_bass * 0.4, grid_alpha)
+                
+                line_pos.append([val, grid_y, -grid_range])
+                line_pos.append([val, grid_y, grid_range])
+                line_col.append(grid_col)
+                line_col.append(grid_col)
+                
+                line_pos.append([-grid_range, grid_y, val])
+                line_pos.append([grid_range, grid_y, val])
+                line_col.append(grid_col)
+                line_col.append(grid_col)
+            
+        # Add Rocket Launch Trails to Line Buffer
+        if self.show_rockets and self.major_mode == "FIREWORKS":
+            for fw in self.fireworks:
+                if fw.state == 'LAUNCH' and len(fw.launch_trail) > 1:
+                    for idx in range(len(fw.launch_trail) - 1):
+                        pt0 = fw.launch_trail[idx]
+                        pt1 = fw.launch_trail[idx + 1]
+                        alpha0 = idx / len(fw.launch_trail)
+                        alpha1 = (idx + 1) / len(fw.launch_trail)
+                        
+                        line_pos.append(pt0)
+                        line_pos.append(pt1)
+                        line_col.append((1.0, 0.45, 0.1, alpha0 * 0.5))
+                        line_col.append((1.0, 0.45, 0.1, alpha1 * 0.5))
+                    
+        if len(line_pos) > 0:
+            line_pos_arr = np.array(line_pos, dtype=np.float32)
+            line_col_arr = np.array(line_col, dtype=np.float32)
+            
+            gl.glUseProgram(self.line_program)
+            gl.glUniformMatrix4fv(self.line_proj_loc, 1, gl.GL_TRUE, proj_matrix)
+            gl.glUniformMatrix4fv(self.line_view_loc, 1, gl.GL_TRUE, view_matrix)
+            if hasattr(self, 'line_fire_mode_loc') and self.line_fire_mode_loc != -1:
+                gl.glUniform1i(self.line_fire_mode_loc, 1 if self.major_mode == "FIRE Plasma" else 0)
+            
+            gl.glBindVertexArray(self.line_vao)
+            gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.line_pos_vbo)
+            gl.glBufferData(gl.GL_ARRAY_BUFFER, line_pos_arr.nbytes, line_pos_arr, gl.GL_DYNAMIC_DRAW)
+            
+            gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.line_col_vbo)
+            gl.glBufferData(gl.GL_ARRAY_BUFFER, line_col_arr.nbytes, line_col_arr, gl.GL_DYNAMIC_DRAW)
+            
+            gl.glLineWidth(1.0)
+            gl.glDrawArrays(gl.GL_LINES, 0, len(line_pos_arr))
+            gl.glBindVertexArray(0)
+            
+        # Restore additive blending for brilliant glowing particle stars and sparks!
+        gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE)
+        
+        # 3. Gather, Buffer and Render All Points (Launcher Heads, Sparks and Particle Trails)
+        part_pos = []
+        part_col = []
+        part_size = []
+        
+        if self.major_mode == "FIREWORKS":
+            for fw in self.fireworks:
+                if fw.state == 'LAUNCH':
+                    if self.show_rockets:
+                        part_pos.append(fw.launch_pos)
+                        part_col.append((1.0, 0.8, 0.5, 1.0))
+                        part_size.append(10.0)
+                elif fw.state == 'EXPLODE' and fw.positions is not None:
+                    num_pts = len(fw.positions)
+                    if num_pts == 0:
+                        continue
+                    # Primary bright exploding stars
+                    part_pos.append(fw.positions)
+                    part_col.append(fw.colors)
+                    part_size.append(np.full(num_pts, fw.star_size, dtype=np.float32))
+                    
+                    # Particle trails history step-down fading
+                    if fw.history_len > 1 and fw.history is not None:
+                        for h in range(fw.history_len):
+                            trail_factor = 1.0 - (h / fw.history_len)
+                            step_colors = fw.colors.copy()
+                            step_colors[:, 3] *= trail_factor * 0.45
+                            step_sizes = np.full(num_pts, max(1.0, (fw.star_size * 0.65) * trail_factor), dtype=np.float32)
+                            
+                            part_pos.append(fw.history[h])
+                            part_col.append(step_colors)
+                            part_size.append(step_sizes)
+                            
+
+            # Draw Catherine Wheel Nozzle sparks & Pinwheel
+            if self.active_rarity is not None and self.active_rarity['type'] == 'CATHERINE_WHEEL':
+                r = self.active_rarity
+                # Removed central star at the middle completely!
+                if len(r['sparks_pos']) > 0:
+                    part_pos.append(r['sparks_pos'])
+                    part_col.append(r['sparks_col'])
+                    part_size.append(np.full(len(r['sparks_pos']), 4.5, dtype=np.float32))
+        elif self.major_mode == "TUNNEL Wormhole":
+            if not hasattr(self, 'gem_z'):
+                self.init_tunnel_mode()
+            t_pos, t_col, t_size, h_pos, h_col = self.render_tunnel()
+            part_pos.append(t_pos)
+            part_col.append(t_col)
+            part_size.append(t_size)
+        elif self.major_mode == "UNDERWATER Lava":
+            if not hasattr(self, 'bubble_pos'):
+                self.init_underwater_mode()
+            u_pos, u_col, u_size, h_pos, h_col = self.render_underwater()
+            part_pos.append(u_pos)
+            part_col.append(u_col)
+            part_size.append(u_size)
+        elif self.major_mode == "MANDALA Sacred":
+            if not hasattr(self, 'mandala_base_pos'):
+                self.init_mandala_mode()
+            m_pos, m_col, m_size, h_pos, h_col = self.render_mandala()
+            part_pos.append(m_pos)
+            part_col.append(m_col)
+            part_size.append(m_size)
+        elif self.major_mode == "SYNAESTHESIA Classic":
+            if not hasattr(self, 'syn_stars'):
+                self.init_synaesthesia_mode()
+            s_pos, s_col, s_size, h_pos, h_col = self.render_synaesthesia()
+            part_pos.append(s_pos)
+            part_col.append(s_col)
+            part_size.append(s_size)
+        elif self.major_mode == "FIRE Plasma":
+            if not hasattr(self, 'fire_spark_pos'):
+                self.init_fire_mode()
+            f_pos, f_col, f_size, h_pos, h_col = self.render_fire()
+            part_pos.append(f_pos)
+            part_col.append(f_col)
+            part_size.append(f_size)
+        else:
+            h_pos = np.zeros((0, 3), dtype=np.float32)
+            h_col = np.zeros((0, 4), dtype=np.float32)
+                        
+        if len(part_pos) > 0:
+            try:
+                norm_pos = []
+                norm_col = []
+                norm_size = []
+                
+                for p in part_pos:
+                    p_arr = np.asarray(p, dtype=np.float32)
+                    norm_pos.append(p_arr if p_arr.ndim == 2 else p_arr[np.newaxis, :])
+                    
+                for c in part_col:
+                    c_arr = np.asarray(c, dtype=np.float32)
+                    norm_col.append(c_arr if c_arr.ndim == 2 else c_arr[np.newaxis, :])
+                    
+                for s in part_size:
+                    s_arr = np.asarray(s, dtype=np.float32)
+                    norm_size.append(s_arr if s_arr.ndim == 1 else s_arr[np.newaxis])
+                
+                pos_arr = np.concatenate(norm_pos, axis=0).astype(np.float32)
+                col_arr = np.concatenate(norm_col, axis=0).astype(np.float32)
+                size_arr = np.concatenate(norm_size, axis=0).astype(np.float32)
+                
+                gl.glUseProgram(self.particle_program)
+                gl.glUniformMatrix4fv(self.part_proj_loc, 1, gl.GL_TRUE, proj_matrix)
+                gl.glUniformMatrix4fv(self.part_view_loc, 1, gl.GL_TRUE, view_matrix)
+                gl.glUniform1i(self.part_star_shape_loc, self.opt_star_shape)
+                if hasattr(self, 'part_fire_mode_loc') and self.part_fire_mode_loc != -1:
+                    gl.glUniform1i(self.part_fire_mode_loc, 1 if self.major_mode == "FIRE Plasma" else 0)
+                
+                gl.glBindVertexArray(self.particle_vao)
+                gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.particle_pos_vbo)
+                gl.glBufferData(gl.GL_ARRAY_BUFFER, pos_arr.nbytes, pos_arr, gl.GL_DYNAMIC_DRAW)
+                
+                gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.particle_col_vbo)
+                gl.glBufferData(gl.GL_ARRAY_BUFFER, col_arr.nbytes, col_arr, gl.GL_DYNAMIC_DRAW)
+                
+                gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.particle_size_vbo)
+                gl.glBufferData(gl.GL_ARRAY_BUFFER, size_arr.nbytes, size_arr, gl.GL_DYNAMIC_DRAW)
+                
+                gl.glDrawArrays(gl.GL_POINTS, 0, len(pos_arr))
+                gl.glBindVertexArray(0)
+                
+                # Draw Solid/Translucent 3D Meshes across ALL major visualizer modes
+                if 'h_pos' in locals() and h_pos is not None and len(h_pos) > 0:
+                    gl.glUseProgram(self.line_program)
+                    gl.glUniformMatrix4fv(self.line_proj_loc, 1, gl.GL_TRUE, proj_matrix)
+                    gl.glUniformMatrix4fv(self.line_view_loc, 1, gl.GL_TRUE, view_matrix)
+                    
+                    gl.glBindVertexArray(self.hood_vao)
+                    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.hood_pos_vbo)
+                    gl.glBufferData(gl.GL_ARRAY_BUFFER, h_pos.nbytes, h_pos, gl.GL_DYNAMIC_DRAW)
+                    
+                    gl.glBindVertexArray(self.hood_vao)
+                    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.hood_col_vbo)
+                    gl.glBufferData(gl.GL_ARRAY_BUFFER, h_col.nbytes, h_col, gl.GL_DYNAMIC_DRAW)
+                    
+                    gl.glDisable(gl.GL_CULL_FACE)
+                    # Switch to matte standard alpha blending for solid meshes
+                    gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
+                    gl.glDrawArrays(gl.GL_TRIANGLES, 0, len(h_pos))
+                    # Restore back to additive blending
+                    gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE)
+                    gl.glBindVertexArray(0)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                
+        if hasattr(self, 'is_recording') and self.is_recording and self.ffmpeg_process:
+            self.capture_recording_frame(w_phys, h_phys)
+            # Pump the default GLib MainContext to process keyboard, mouse, and resize events during fast recording loop
+            while GLib.MainContext.default().iteration(False):
+                pass
+            # Schedule next frame draw with a tiny timeout to let GTK do layout/allocation
+            GLib.timeout_add(1, self.gl_area.queue_draw)
+                 
+        return True
+
+    def on_tick(self):
+        if hasattr(self, 'is_recording') and self.is_recording:
+            return True
+            
+        now = time.time()
+        dt = now - self.last_time
+        self.last_time = now
+        dt = min(dt, 0.1)
+        self.update_preset_random_timer(dt)
+        
+        # Recalculate moon phase every 12 hours (43200 seconds)
+        self.last_moon_update_time += dt
+        if self.last_moon_update_time >= 43200.0:
+            self.last_moon_update_time = 0.0
+            self.recalculate_moon_phase()
+        
+        # Decay envelopes
+        decay_rate = 5.0
+        self.react_bass = max(0.0, self.react_bass - decay_rate * dt)
+        self.react_mid = max(0.0, self.react_mid - decay_rate * dt)
+        self.react_treble = max(0.0, self.react_treble - decay_rate * dt)
+        self.react_bass_smooth += (self.react_bass - self.react_bass_smooth) * dt * 3.5
+        
+        # Smoothly decay current panning towards center over time
+        self.current_stereo_panning -= self.current_stereo_panning * dt * 1.5
+        
+        # Decay climax flash and advance tempo phase
+        self.climax_flash = max(0.0, self.climax_flash - 2.0 * dt)
+        self.tempo_phase += dt * (self.script_bpm / 60.0)
+        
+        # Update active timers and state variables
+        if self.lightning_active_timer > 0.0:
+            self.lightning_active_timer -= dt
+            if self.lightning_active_timer <= 0.0:
+                self.active_lightning_bolts = []
+        if self.peace_symbol_timer > 0.0:
+            self.peace_symbol_timer = max(0.0, self.peace_symbol_timer - dt)
+        if self.halo_timer > 0.0:
+            self.halo_timer = max(0.0, self.halo_timer - dt)
+        
+        # Check for implicit/proactive real-time climax peak (flash point)
+        if self.music_playing and self.major_mode != "FIREWORKS":
+            now_sec = time.time()
+            if self.react_bass > 1.35 and (now_sec - self.last_climax_trigger_time > 8.0):
+                self.last_climax_trigger_time = now_sec
+                self.trigger_climax_event(intensity=1.2, routine_name="Beat Flashpoint")
+        
+        # Playback sync event handler
+        elapsed = 0.0
+        if self.music_playing:
+            # Check if player has stopped or finished
+            if not self.audio_player.is_playing():
+                if self.playlist and len(self.playlist) > 0:
+                    self.play_next_track()
+                else:
+                    self.stop_sync_playback()
+            else:
+                elapsed = self.audio_player.get_elapsed_time()
+                if self.script_events and self.script_duration > 0 and elapsed >= self.script_duration:
+                    if self.playlist and len(self.playlist) > 0:
+                        self.play_next_track()
+                    else:
+                        self.stop_sync_playback()
+                else:
+                    while (self.next_event_idx < len(self.script_events) and 
+                           self.script_events[self.next_event_idx]["time"] <= elapsed):
+                        event = self.script_events[self.next_event_idx]
+                        self.trigger_script_event(event)
+                        self.next_event_idx += 1
+
+        # Update scheduled routine queue
+        if len(self.routine_queue) > 0:
+            remaining_queue = []
+            for delay, fw in self.routine_queue:
+                delay -= dt
+                if delay <= 0:
+                    self.fireworks.append(fw)
+                else:
+                    remaining_queue.append((delay, fw))
+            self.routine_queue = remaining_queue
+            
+        if self.active_routine_name:
+            self.routine_timer -= dt
+            if self.routine_timer <= 0:
+                self.active_routine_name = ""
+        
+        measured_fps = 1.0 / dt if dt > 0 else 60.0
+        self.fps = self.fps * self.fps_filter + measured_fps * (1.0 - self.fps_filter)
+        
+        if self.auto_rotate:
+            self.camera_theta += 0.15 * dt
+            if self.camera_theta > 2 * np.pi:
+                self.camera_theta -= 2 * np.pi
+                
+        if self.auto_launch or (self.music_playing and not getattr(self, 'script_events', None)):
+            self.launch_timer += dt
+            if self.launch_timer >= self.next_launch_interval:
+                self.launch_timer = 0.0
+                self.next_launch_interval = random.uniform(0.6, 1.3)
+                if self.major_mode == "FIREWORKS":
+                    self.fireworks.append(Firework())
+                else:
+                    # Trigger beat-synced artificial reactive envelopes
+                    r = random.random()
+                    if r < 0.33:
+                        self.react_bass = min(1.5, self.react_bass + 0.8)
+                    elif r < 0.66:
+                        self.react_mid = min(1.5, self.react_mid + 0.8)
+                    else:
+                        self.react_treble = min(1.5, self.react_treble + 0.8)
+                        
+        # Background pulse
+        self.procedural_beat_timer += dt
+        if self.procedural_beat_timer >= 60.0 / 120.0:
+            self.procedural_beat_timer = 0.0
+            if not self.music_playing:
+                self.react_bass = min(1.5, self.react_bass + 0.4)
+                
+        if self.major_mode == "FIREWORKS":
+            for fw in self.fireworks:
+                fw.update(dt)
+            self.fireworks = [fw for fw in self.fireworks if fw.state != 'DEAD']
+        elif self.major_mode == "TUNNEL Wormhole":
+            if not hasattr(self, 'gem_z'):
+                self.init_tunnel_mode()
+            self.update_tunnel(dt)
+            if self.wormhole_supernova_active:
+                self.wormhole_supernova_age += dt
+                if self.wormhole_supernova_age > 3.5:
+                    self.wormhole_supernova_active = False
+            if self.wormhole_shooting_star_active:
+                self.wormhole_shooting_star_z += dt * 45.0
+                if self.wormhole_shooting_star_z > 10.0:
+                    self.wormhole_shooting_star_active = False
+        elif self.major_mode == "UNDERWATER Lava":
+            if not hasattr(self, 'bubble_pos'):
+                self.init_underwater_mode()
+            self.update_underwater(dt)
+        elif self.major_mode == "MANDALA Sacred":
+            if not hasattr(self, 'mandala_base_pos'):
+                self.init_mandala_mode()
+            self.update_mandala(dt)
+        elif self.major_mode == "SYNAESTHESIA Classic":
+            if not hasattr(self, 'syn_stars'):
+                self.init_synaesthesia_mode()
+            self.update_synaesthesia(dt)
+        elif self.major_mode == "FIRE Plasma":
+            if not hasattr(self, 'fire_spark_pos'):
+                self.init_fire_mode()
+            self.update_fire(dt)
+            
+        self.update_rarity_system(dt)
+        
+        self.fps_lbl.set_text(f"FPS: {self.fps:.1f}")
+        self.update_hud_labels()
+        if self.active_routine_name:
+            self.routine_lbl.set_text(f"Routine: {self.active_routine_name}")
+        else:
+            self.routine_lbl.set_text("Routine: None")
+            
+        if self.music_playing:
+            if self.script_events:
+                self.music_track_lbl.set_text(f"Track: {self.loaded_script_name} ({self.script_bpm:.1f} BPM)")
+            else:
+                self.music_track_lbl.set_text(f"Track: {os.path.basename(self.audio_path)} (Analyzing...)")
+            m_sec = int(elapsed) % 60
+            m_min = int(elapsed) // 60
+            if self.script_duration > 0:
+                total_sec = int(self.script_duration) % 60
+                total_min = int(self.script_duration) // 60
+                self.music_time_lbl.set_text(f"Time: {m_min:02d}:{m_sec:02d} / {total_min:02d}:{total_sec:02d}")
+            else:
+                self.music_time_lbl.set_text(f"Time: {m_min:02d}:{m_sec:02d} / --:--")
+        else:
+            if len(self.script_events) > 0:
+                self.music_track_lbl.set_text(f"Track: {self.loaded_script_name} (Ready)")
+            else:
+                self.music_track_lbl.set_text("Track: None (Press M to generate)")
+            self.music_time_lbl.set_text("Time: 00:00 / 00:00")
+            
+        active_stars = 0
+        active_rockets = 0
+        if self.major_mode == "FIREWORKS":
+            active_stars = sum(len(fw.positions) for fw in self.fireworks if fw.positions is not None)
+            active_rockets = sum(1 for fw in self.fireworks if fw.state == 'LAUNCH')
+        elif self.major_mode == "TUNNEL Wormhole":
+            active_stars = len(self.gem_z) + 20 + np.sum(self.spark_active) if hasattr(self, 'gem_z') else 0
+        elif self.major_mode == "UNDERWATER Lava":
+            active_stars = ((np.sum(self.bubble_active) if hasattr(self, 'bubble_active') else 0) + 
+                            (len(self.algae_pos) if hasattr(self, 'algae_pos') else 0) + 
+                            (self.num_vent_pts if hasattr(self, 'num_vent_pts') else 0) + 
+                            (self.num_jelly * 46 if hasattr(self, 'num_jelly') else 0))
+        elif self.major_mode == "MANDALA Sacred":
+            active_stars = len(self.mandala_base_pos) * self.mandala_slices if hasattr(self, 'mandala_base_pos') else 0
+        elif self.major_mode == "SYNAESTHESIA Classic":
+            active_stars = len(self.syn_stars) * 20 + 300 if hasattr(self, 'syn_stars') else 0
+        elif self.major_mode == "FIRE Plasma":
+            active_stars = np.sum(self.fire_spark_active) if hasattr(self, 'fire_spark_active') else 0
+            
+        self.shell_lbl.set_text(f"Active Shells: {active_rockets}")
+        self.part_lbl.set_text(f"Simulated Particles: {active_stars:,}")
+        
+        self.gl_area.queue_draw()
+        return True
+
+    def on_key_pressed(self, controller, keyval, keycode, state):
+        is_control = (state & Gdk.ModifierType.CONTROL_MASK) != 0
+        if is_control:
+            if keyval in (Gdk.KEY_f, Gdk.KEY_F, Gdk.KEY_o, Gdk.KEY_O):
+                self.show_file_chooser()
+                return True
+            return False
+
+        unicode_val = Gdk.keyval_to_unicode(keyval)
+        key_char = chr(unicode_val) if unicode_val > 0 else ""
+        
+        if keyval in (Gdk.KEY_Escape, Gdk.KEY_q, Gdk.KEY_Q):
+            self.win.close()
+            return True
+        elif keyval in (Gdk.KEY_space, getattr(Gdk, 'KEY_AudioPlay', -1), getattr(Gdk, 'KEY_AudioPlayPause', -1)):
+            self.toggle_sync_playback()
+            return True
+        elif keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            self.fireworks.append(Firework())
+            return True
+        elif key_char == '1':
+            if self.major_mode == "FIREWORKS":
+                self.trigger_routine("American Flag", self.launch_american_flag)
+            elif self.major_mode == "SYNAESTHESIA Classic":
+                self.syn_points_are_diamonds = not self.syn_points_are_diamonds
+                self.opt_star_shape = 2 if self.syn_points_are_diamonds else 5
+                print(f"Synaesthesia Shape changed. Diamonds: {self.syn_points_are_diamonds}")
+                self.update_legend_labels()
+            elif self.major_mode == "FIRE Plasma":
+                self.trigger_climax_event(intensity=1.1, routine_name="Flame Flare")
+            else:
+                self.trigger_climax_event(intensity=1.1, routine_name="Coral Pulse" if self.major_mode == "UNDERWATER Lava" else "Lotus Bloom" if self.major_mode == "MANDALA Sacred" else "Plasma Burst")
+            return True
+        elif key_char == '2':
+            if self.major_mode == "FIREWORKS":
+                self.trigger_routine("Liberty Bell", self.launch_liberty_bell)
+            elif self.major_mode == "SYNAESTHESIA Classic":
+                sizes = [0.1, 0.25, 0.5, 0.75, 1.0]
+                idx = sizes.index(self.syn_star_size) if self.syn_star_size in sizes else 2
+                self.syn_star_size = sizes[(idx + 1) % len(sizes)]
+                print(f"Synaesthesia Star Size: {self.syn_star_size}")
+                self.update_legend_labels()
+            elif self.major_mode == "FIRE Plasma":
+                self.trigger_climax_event(intensity=1.2, routine_name="Flame Wave")
+            else:
+                self.trigger_climax_event(intensity=1.2, routine_name="Geyser Eruption" if self.major_mode == "UNDERWATER Lava" else "Cosmic Spin" if self.major_mode == "MANDALA Sacred" else "Gravity Surge")
+            return True
+        elif key_char == '3':
+            if self.major_mode == "FIREWORKS":
+                self.trigger_routine("Statue of Liberty", self.launch_statue_of_liberty)
+            elif self.major_mode == "SYNAESTHESIA Classic":
+                brights = [0.1, 0.25, 0.35, 0.5, 0.7, 1.0]
+                idx = brights.index(self.syn_brightness) if self.syn_brightness in brights else 2
+                self.syn_brightness = brights[(idx + 1) % len(brights)]
+                print(f"Synaesthesia Brightness: {self.syn_brightness}")
+                self.update_legend_labels()
+            elif self.major_mode == "FIRE Plasma":
+                self.trigger_climax_event(intensity=1.3, routine_name="Treble Spark Shower")
+            else:
+                self.trigger_climax_event(intensity=1.3, routine_name="Plankton Surge" if self.major_mode == "UNDERWATER Lava" else "Infinite Pulse" if self.major_mode == "MANDALA Sacred" else "Stardust Stream")
+            return True
+        elif key_char == '4':
+            if self.major_mode == "FIREWORKS":
+                self.trigger_routine("Flower Bouquet", self.launch_flower_bouquet)
+            elif self.major_mode == "SYNAESTHESIA Classic":
+                modes = ["Stars", "Wave", "Flame"]
+                idx = modes.index(self.syn_fade_mode) if self.syn_fade_mode in modes else 0
+                self.syn_fade_mode = modes[(idx + 1) % len(modes)]
+                print(f"Synaesthesia Fade Mode: {self.syn_fade_mode}")
+                self.update_legend_labels()
+            elif self.major_mode == "FIRE Plasma":
+                self.trigger_climax_event(intensity=1.4, routine_name="Fire Eruption")
+            else:
+                self.trigger_climax_event(intensity=1.4, routine_name="Deep Vent Blast" if self.major_mode == "UNDERWATER Lava" else "Geometric Collapse" if self.major_mode == "MANDALA Sacred" else "Event Horizon")
+            return True
+        elif key_char == '5':
+            if self.major_mode == "FIREWORKS":
+                self.trigger_routine("The Dragon", self.launch_the_dragon)
+            elif self.major_mode == "SYNAESTHESIA Classic":
+                self.trigger_syn_star_burst()
+                self.update_legend_labels()
+            elif self.major_mode == "FIRE Plasma":
+                self.trigger_climax_event(intensity=1.8, routine_name="Lightning Strike")
+            else:
+                self.trigger_climax_event(intensity=1.8, routine_name="Bioluminescent Rainbow" if self.major_mode == "UNDERWATER Lava" else "Astral Projection" if self.major_mode == "MANDALA Sacred" else "Lightning Flash")
+            return True
+        elif key_char == '6':
+            if self.major_mode == "FIREWORKS":
+                self.trigger_routine("Supernova", self.launch_supernova)
+            elif self.major_mode == "MANDALA Sacred":
+                self.trigger_climax_event(intensity=1.6, routine_name="Peace Symbol")
+            elif self.major_mode == "FIRE Plasma":
+                pass
+            else:
+                self.trigger_climax_event(intensity=2.0, routine_name="Supernova")
+            return True
+        elif key_char == '7':
+            if self.major_mode == "FIREWORKS":
+                self.trigger_routine("Shooting Star", self.launch_shooting_star)
+            elif self.major_mode == "MANDALA Sacred":
+                self.trigger_climax_event(intensity=1.8, routine_name="Halo Effect")
+            elif self.major_mode == "FIRE Plasma":
+                pass
+            else:
+                self.trigger_climax_event(intensity=1.6, routine_name="Shooting Star")
+            return True
+        elif keyval in (Gdk.KEY_v, Gdk.KEY_V):
+            next_idx = (self.preset_idx + 1) % len(self.active_presets)
+            self.apply_preset(next_idx)
+            return True
+        elif keyval in (Gdk.KEY_y, Gdk.KEY_Y):
+            self.opt_height_restrict = not self.opt_height_restrict
+            self.update_legend_labels()
+            return True
+        elif keyval in (Gdk.KEY_a, Gdk.KEY_A):
+            self.auto_launch = not self.auto_launch
+            self.update_legend_labels()
+            return True
+        elif keyval in (Gdk.KEY_r, Gdk.KEY_R):
+            self.auto_rotate = not self.auto_rotate
+            self.update_legend_labels()
+            return True
+        elif keyval in (Gdk.KEY_c, Gdk.KEY_C):
+            self.fireworks.clear()
+            return True
+        elif keyval in (Gdk.KEY_m, Gdk.KEY_M):
+            self.toggle_sync_playback()
+            return True
+        elif keyval in (Gdk.KEY_o, Gdk.KEY_O):
+            modes = ['REALISTIC', 'NEON', 'TRANQUIL', 'METAL']
+            idx = modes.index(self.opt_color_mode)
+            self.opt_color_mode = modes[(idx + 1) % len(modes)]
+            self.update_legend_labels()
+            return True
+        elif keyval in (Gdk.KEY_p, Gdk.KEY_P):
+            self.opt_star_shape = (self.opt_star_shape + 1) % 7
+            if self.major_mode == "SYNAESTHESIA Classic":
+                if self.opt_star_shape in (1, 2, 3):
+                    self.syn_points_are_diamonds = True
+                elif self.opt_star_shape in (4, 5, 6):
+                    self.syn_points_are_diamonds = False
+            self.update_legend_labels()
+            return True
+        elif keyval in (Gdk.KEY_g, Gdk.KEY_G):
+            gravs = [0.0, 0.5, 1.0, 2.0, 5.0, 10.0]
+            idx = gravs.index(self.opt_gravity) if self.opt_gravity in gravs else 2
+            self.opt_gravity = gravs[(idx + 1) % len(gravs)]
+            self.update_legend_labels()
+            return True
+        elif keyval in (Gdk.KEY_l, Gdk.KEY_L):
+            self.opt_trailers = (self.opt_trailers + 1) % 11
+            self.update_legend_labels()
+            return True
+        elif keyval in (Gdk.KEY_t, Gdk.KEY_T):
+            self.show_rockets = not self.show_rockets
+            self.update_legend_labels()
+            return True
+        elif keyval in (Gdk.KEY_s, Gdk.KEY_S):
+            slices_options = [3, 4, 5, 6, 8, 12, 18, 24]
+            idx = slices_options.index(self.mandala_slices) if self.mandala_slices in slices_options else 5
+            self.mandala_slices = slices_options[(idx + 1) % len(slices_options)]
+            print(f"Mandala Slices: {self.mandala_slices}")
+            self.update_legend_labels()
+            return True
+        elif keyval == Gdk.KEY_Left or keyval == getattr(Gdk, 'KEY_AudioPrev', -1):
+            self.play_previous_track()
+            return True
+        elif keyval == Gdk.KEY_Right or keyval == getattr(Gdk, 'KEY_AudioNext', -1):
+            self.play_next_track()
+            return True
+        elif keyval in (Gdk.KEY_h, Gdk.KEY_H):
+            self.show_legend = not self.show_legend
+            if hasattr(self, 'legend_box') and self.legend_box:
+                self.legend_box.set_visible(self.show_legend)
+            if hasattr(self, 'hud_box') and self.hud_box:
+                self.hud_box.set_visible(self.show_legend)
+            return True
+        elif keyval in (Gdk.KEY_f, Gdk.KEY_F):
+            if self.is_fullscreen:
+                self.win.unfullscreen()
+                self.is_fullscreen = False
+            else:
+                self.win.fullscreen()
+                self.is_fullscreen = True
+            return True
+        elif keyval in (Gdk.KEY_k, Gdk.KEY_K):
+            mode_rarities = {
+                "UNDERWATER Lava": ["SQUID", "MANTA", "SEAHORSE", "LANTERN_FISH"],
+                "TUNNEL Wormhole": ["PLANET", "GALAXY", "ASTEROIDS"],
+                "FIREWORKS": ["CATHERINE_WHEEL"],
+                "MANDALA Sacred": ["BIRD", "SMOKE", "SUN_BURST", "BUTTERFLY"],
+                "FIRE Plasma": ["SHOOTING_STAR", "BATS", "TUMBLEWEED"]
+            }
+            if self.major_mode in mode_rarities:
+                r_list = mode_rarities[self.major_mode]
+                if not hasattr(self, 'mode_rarity_indices'):
+                    self.mode_rarity_indices = {}
+                
+                # Retrieve last-spawned index for this major mode, defaulting to -1
+                curr_idx = self.mode_rarity_indices.get(self.major_mode, -1)
+                next_idx = (curr_idx + 1) % len(r_list)
+                self.mode_rarity_indices[self.major_mode] = next_idx
+                
+                next_type = r_list[next_idx]
+                print(f"Cycling current mode rarity to: {next_type} (index {next_idx})")
+                self.active_rarity = None
+                self.rarity_queued_type = None
+                self.spawn_rarity(next_type)
+                self.update_legend_labels()
+            return True
+        return False
+
+    def on_drag_begin(self, gesture, x, y):
+        self.drag_base_theta = self.camera_theta
+        self.drag_base_phi = self.camera_phi
+
+    def on_drag_update(self, gesture, offset_x, offset_y):
+        self.camera_theta = self.drag_base_theta - offset_x * 0.007
+        self.camera_phi = np.clip(self.drag_base_phi + offset_y * 0.007, 0.02, np.pi / 2.0 - 0.02)
+
+    def on_scroll(self, controller, dx, dy):
+        self.camera_dist = np.clip(self.camera_dist + dy * 1.5, 10.0, 80.0)
+        return True
+
+    def on_file_drop(self, target, value, x, y):
+        if isinstance(value, Gdk.FileList):
+            files = value.get_files()
+            paths = []
+            for f in files:
+                path = f.get_path()
+                if path:
+                    paths.append(path)
+            if paths:
+                print(f"Drag & Drop files received: {paths}")
+                self.playlist = self.load_playlist_files(paths)
+                self.playlist_idx = 0
+                if self.playlist:
+                    self.audio_path = self.playlist[self.playlist_idx]
+                    self.script_path = self.get_mangled_script_path(self.audio_path)
+                    self.load_and_play_track()
+                return True
+        return False
+
+    def show_file_chooser(self):
+        dialog = Gtk.FileChooserNative.new(
+            title="Open Audio File",
+            parent=self.win,
+            action=Gtk.FileChooserAction.OPEN,
+            accept_label="_Open",
+            cancel_label="_Cancel"
+        )
+        
+        filter_audio = Gtk.FileFilter()
+        filter_audio.set_name("Audio Files")
+        filter_audio.add_mime_type("audio/*")
+        for ext in ["mp3", "wav", "ogg", "opus", "flac", "m4a", "aac"]:
+            filter_audio.add_pattern(f"*.{ext}")
+            filter_audio.add_pattern(f"*.{ext.upper()}")
+        dialog.add_filter(filter_audio)
+        
+        filter_m3u = Gtk.FileFilter()
+        filter_m3u.set_name("Playlists (*.m3u)")
+        filter_m3u.add_pattern("*.m3u")
+        filter_m3u.add_pattern("*.M3U")
+        dialog.add_filter(filter_m3u)
+        
+        filter_all = Gtk.FileFilter()
+        filter_all.set_name("All Files")
+        filter_all.add_pattern("*")
+        dialog.add_filter(filter_all)
+        
+        def on_response(dialog, response_id):
+            if response_id == Gtk.ResponseType.ACCEPT:
+                file_obj = dialog.get_file()
+                if file_obj:
+                    path = file_obj.get_path()
+                    if path:
+                        print(f"File dialog selected: {path}")
+                        self.playlist = self.load_playlist_files([path])
+                        self.playlist_idx = 0
+                        if self.playlist:
+                            self.audio_path = self.playlist[self.playlist_idx]
+                            self.script_path = self.get_mangled_script_path(self.audio_path)
+                            self.load_and_play_track()
+            dialog.destroy()
+            
+        dialog.connect("response", on_response)
+        dialog.show()
+
+    def on_right_click(self, gesture, n_press, x, y):
+        # Create a Popover
+        popover = Gtk.Popover()
+        popover.set_parent(self.gl_area)
+        rect = Gdk.Rectangle()
+        rect.x = int(x)
+        rect.y = int(y)
+        rect.width = 1
+        rect.height = 1
+        popover.set_pointing_to(rect)
+        popover.set_has_arrow(False)
+        
+        # Build menu content
+        menu_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        menu_box.set_margin_start(8)
+        menu_box.set_margin_end(8)
+        menu_box.set_margin_top(8)
+        menu_box.set_margin_bottom(8)
+        menu_box.add_css_class("hud-legend")
+        
+        # Helper to create buttons
+        def make_menu_item(label, callback):
+            btn = Gtk.Button(label=label)
+            btn.set_has_frame(False)
+            btn.set_halign(Gtk.Align.FILL)
+            # Create a left-aligned label style inside the button
+            child = btn.get_child()
+            if isinstance(child, Gtk.Label):
+                child.set_xalign(0.0)
+            btn.connect("clicked", lambda b: (popover.popdown(), callback()))
+            return btn
+            
+        # File Open
+        menu_box.append(make_menu_item("📂 Open Audio...", self.show_file_chooser))
+        
+        # Play / Pause
+        play_label = "⏸ Pause Sync" if self.music_playing else "▶ Play Sync"
+        menu_box.append(make_menu_item(play_label, self.toggle_sync_playback))
+        
+        # Next / Prev Track
+        menu_box.append(make_menu_item("⏭ Next Track", self.play_next_track))
+        menu_box.append(make_menu_item("⏮ Previous Track", self.play_previous_track))
+        
+        # Separator
+        sep1 = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        sep1.set_margin_top(4)
+        sep1.set_margin_bottom(4)
+        menu_box.append(sep1)
+        
+        # Preset Mode list
+        modes_label = Gtk.Label(label="VISUALIZATION MODES:")
+        modes_label.add_css_class("hud-legend-title")
+        modes_label.set_halign(Gtk.Align.START)
+        modes_label.set_margin_start(4)
+        menu_box.append(modes_label)
+        
+        # Add preset buttons
+        for idx, preset in enumerate(self.active_presets):
+            name = preset["name"]
+            # Highlight current active preset
+            active_marker = "● " if (idx == self.preset_idx and not getattr(self, 'preset_random_mode', False)) else "  "
+            menu_box.append(make_menu_item(f"{active_marker}{name}", lambda i=idx: self.apply_preset(i)))
+            
+        # Random Mode button
+        random_marker = "● " if getattr(self, 'preset_random_mode', False) else "  "
+        menu_box.append(make_menu_item(f"{random_marker}Random Mode", lambda: self.apply_preset(len(self.active_presets) - 1)))
+        
+        # Separator
+        sep2 = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        sep2.set_margin_top(4)
+        sep2.set_margin_bottom(4)
+        menu_box.append(sep2)
+        
+        # Exit
+        menu_box.append(make_menu_item("❌ Exit Screensaver", self.win.close))
+        
+        popover.set_child(menu_box)
+        popover.popup()
+
+    def load_sync_script(self, filepath):
+        import audio_analyzer
+        if os.path.exists(filepath):
+            need_regenerate = False
+            try:
+                with open(filepath, 'r') as f:
+                    data = json.load(f)
+                ver = data.get("metadata", {}).get("analyzer_version", 0)
+                if ver < audio_analyzer.ANALYZER_VERSION:
+                    print(f"JSON file {filepath} is outdated (version {ver} < {audio_analyzer.ANALYZER_VERSION}). Deleting and re-analyzing...")
+                    need_regenerate = True
+            except Exception as e:
+                print(f"Error reading JSON file {filepath} for version check: {e}. Deleting and re-analyzing...")
+                need_regenerate = True
+                
+            if need_regenerate:
+                try:
+                    os.remove(filepath)
+                except Exception as e:
+                    print(f"Failed to remove outdated JSON {filepath}: {e}")
+                    
+                if os.path.exists(self.audio_path):
+                    print(f"Auto-regenerating up-to-date JSON for {self.audio_path}...")
+                    try:
+                        hints = getattr(self, 'color_hints', None) or ["strontium_red", "magnesium_white", "copper_blue"]
+                        script = audio_analyzer.analyze_audio(self.audio_path, hints)
+                        with open(filepath, 'w') as f:
+                            json.dump(script, f, indent=2)
+                        print(f"Regenerated {filepath} successfully.")
+                    except Exception as e:
+                        print(f"Failed to auto-generate JSON: {e}")
+                else:
+                    print(f"Cannot regenerate, audio file {self.audio_path} not found!")
+                    
+        try:
+            with open(filepath, 'r') as f:
+                script = json.load(f)
+            self.script_events = script.get("events", [])
+            
+            # Post-process to find climax events eligible for random mode changes.
+            # An eligible climax has no "section" event within 30 seconds after it.
+            # "Just before" means 0.05 seconds before the climax.
+            if self.script_events:
+                new_events = list(self.script_events)
+                climax_times = [ev["time"] for ev in self.script_events if ev.get("type") == "climax"]
+                section_times = [ev["time"] for ev in self.script_events if ev.get("type") == "section"]
+                
+                for c_time in climax_times:
+                    has_section_after = False
+                    for s_time in section_times:
+                        if c_time < s_time <= c_time + 30.0:
+                            has_section_after = True
+                            break
+                    if not has_section_after:
+                        trigger_time = max(0.0, c_time - 0.05)
+                        new_events.append({
+                            "time": trigger_time,
+                            "type": "climax_random_mode_change",
+                            "climax_time": c_time
+                        })
+                        print(f"[Random Mode Plan] Scheduled a random mode change at {trigger_time:.2f}s just before climax at {c_time:.2f}s (no section change within 30s after)")
+                
+                new_events.sort(key=lambda x: x.get("time", 0.0))
+                self.script_events = new_events
+
+            metadata = script.get("metadata", {})
+            self.loaded_script_name = os.path.basename(filepath)
+            self.script_duration = metadata.get("duration", 0.0)
+            self.script_bpm = metadata.get("bpm", 120.0)
+            self.current_key = "N/A"
+            self.current_section_name = "None"
+            self.current_section_category = "None"
+            self.update_hud_labels()
+            self.script_total_events = metadata.get("total_events", len(self.script_events))
+            self.color_hints = metadata.get("color_hints", [])
+            print(f"Loaded sync script {filepath} successfully. Events: {len(self.script_events)}")
+            self.update_legend_labels()
+            return True
+        except Exception as e:
+            print(f"Failed to load sync script {filepath}: {e}")
+            return False
+
+    def start_sync_playback(self):
+        if not self.script_events:
+            print("No synchronized script loaded!")
+            return
+            
+        self.stop_sync_playback()
+        
+        music_file = self.audio_path
+        if not os.path.exists(music_file):
+            print(f"Could not find music file: {music_file}")
+            return
+            
+        print(f"Starting synchronized playback for: {music_file}")
+        self.saved_auto_launch = self.auto_launch
+        self.auto_launch = False
+        self.update_legend_labels()
+        
+        self.fireworks.clear()
+        
+        try:
+            if self.audio_player.play(music_file):
+                self.music_playing = True
+                self.playback_start_time = time.time()
+                self.next_event_idx = 0
+                print("Audio player started successfully.")
+            else:
+                raise RuntimeError("UnifiedAudioPlayer failed to play track")
+        except Exception as e:
+            print(f"Failed to start audio playback: {e}")
+            self.auto_launch = self.saved_auto_launch
+            self.update_legend_labels()
+
+    def stop_sync_playback(self):
+        if self.music_playing:
+            self.music_playing = False
+            self.audio_player.stop()
+            self.music_process = None
+            
+            self.auto_launch = self.saved_auto_launch
+            self.update_legend_labels()
+            self.current_key = "N/A"
+            self.current_section_name = "None"
+            self.current_section_category = "None"
+            self.update_hud_labels()
+            if hasattr(self, 'music_section_lbl') and self.music_section_lbl:
+                self.music_section_lbl.set_text("Section: None")
+            print("Synchronized playback stopped.")
+
+    def toggle_sync_playback(self):
+        if self.music_playing:
+            self.stop_sync_playback()
+        else:
+            # If no script loaded, try auto-generating one
+            if not self.script_events:
+                print(f"No display script loaded. Attempting to auto-analyze {self.audio_path}...")
+                if os.path.exists(self.audio_path):
+                    try:
+                        import audio_analyzer
+                        script_data = audio_analyzer.analyze_audio(self.audio_path, ["strontium_red", "magnesium_white", "copper_blue"])
+                        with open(self.script_path, 'w') as f:
+                            json.dump(script_data, f, indent=2)
+                        self.load_sync_script(self.script_path)
+                    except Exception as e:
+                        print(f"Failed auto-analysis: {e}")
+                        return
+                else:
+                    print(f"Could not find {self.audio_path} in current directory!")
+                    return
+            self.start_sync_playback()
+
+    def trigger_script_event(self, event):
+        event_type = event.get("type")
+        if event_type == "firework":
+            fw_type = event.get("fw_type")
+            color_key = event.get("color")
+            sec_color_key = event.get("secondary_color")
+            x_offset = event.get("x_offset", 0.0)
+            self.current_stereo_panning = np.clip(x_offset / 6.0, -1.0, 1.0)
+            
+            color_rgb = COLORS.get(color_key, random.choice(COLOR_LIST))
+            sec_color_rgb = COLORS.get(sec_color_key, random.choice(COLOR_LIST))
+            
+            # Sync visualizer reactive spikes to music event types
+            if fw_type in [0, 2, 7, 8, 11, 12, 13]:
+                self.react_bass = min(1.5, self.react_bass + 0.6)
+            elif fw_type in [6, 14, 15, 17]:
+                self.react_treble = min(1.5, self.react_treble + 0.6)
+            else:
+                self.react_mid = min(1.5, self.react_mid + 0.6)
+            
+            fw = Firework(fw_type=fw_type, color=color_rgb, x_offset=x_offset)
+            fw.secondary_color = sec_color_rgb
+            self.fireworks.append(fw)
+            
+        elif event_type == "routine":
+            name = event.get("name")
+            supported = SUPPORTED_ROUTINES.get(self.major_mode, [])
+            if supported and name not in supported:
+                old_name = name
+                name = random.choice(supported)
+                print(f"[Fallback] Routine '{old_name}' not supported in {self.major_mode}. Selected random fallback: '{name}'")
+                
+            if self.major_mode == "FIREWORKS":
+                routines_map = {
+                    "American Flag": self.launch_american_flag,
+                    "Liberty Bell": self.launch_liberty_bell,
+                    "Statue of Liberty": self.launch_statue_of_liberty,
+                    "Flower Bouquet": self.launch_flower_bouquet,
+                    "The Dragon": self.launch_the_dragon,
+                    "Supernova": self.launch_supernova,
+                    "Shooting Star": self.launch_shooting_star
+                }
+                if name in routines_map:
+                    self.trigger_routine(name, routines_map[name])
+            else:
+                self.trigger_climax_event(intensity=1.5, routine_name=name)
+                
+        elif event_type == "climax":
+            intensity = event.get("intensity", 1.5)
+            if self.major_mode != "FIREWORKS":
+                self.trigger_climax_event(intensity=intensity, routine_name="Climax Burst!")
+                
+        elif event_type == "key_change":
+            key_name = event.get("key", "Unknown")
+            self.current_key = key_name
+            self.react_mid = min(1.5, self.react_mid + 0.6)
+            self.react_treble = min(1.5, self.react_treble + 0.5)
+            if hasattr(self, 'music_section_lbl') and self.music_section_lbl:
+                self.music_section_lbl.set_text(f"Key Shift: {key_name}")
+                
+        elif event_type == "dynamics":
+            direction = event.get("direction", "none")
+            if direction == "crescendo":
+                self.react_bass = min(1.4, self.react_bass + 0.3)
+                self.react_mid = min(1.4, self.react_mid + 0.3)
+                self.procedural_beat_timer = 0.0
+                
+        elif event_type == "section":
+            name = event.get("name", "Unknown")
+            category = event.get("category", "Unknown")
+            self.current_section_name = name
+            self.current_section_category = category
+            if hasattr(self, 'music_section_lbl') and self.music_section_lbl:
+                self.music_section_lbl.set_text(f"Section: {name}")
+            if getattr(self, 'preset_random_mode', False) and getattr(self, 'preset_random_timer', 0.0) >= 45.0:
+                print(f"[Random Mode] Triggering preset switch at start of section: {name}")
+                self.pick_random_preset()
+                
+        elif event_type == "climax_random_mode_change":
+            if getattr(self, 'preset_random_mode', False):
+                climax_time = event.get("climax_time", 0.0)
+                print(f"[Random Mode] Triggering preset switch just before climax at {climax_time:.2f}s (trigger time: {event.get('time', 0.0):.2f}s)")
+                self.pick_random_preset()
+
+    def start_recording_process(self, w, h):
+        if w % 2 != 0:
+            w = (w // 2) * 2
+        if h % 2 != 0:
+            h = (h // 2) * 2
+            
+        print(f"\nStarting offline H.264 recording of fireworks performance...")
+        print(f"Target file: {self.record_path}")
+        print(f"Resolution: {w}x{h} @ {self.record_fps} FPS")
+        
+        import audio_analyzer
+        ffmpeg_bin = audio_analyzer.find_ffmpeg_binary()
+        if not ffmpeg_bin:
+            print("ERROR: FFmpeg binary not found on this system. Recording is not supported on this platform without FFmpeg.")
+            self.is_recording = False
+            return
+            
+        cmd = [
+            ffmpeg_bin, '-y',
+            '-f', 'rawvideo', '-vcodec', 'rawvideo',
+            '-s', f'{w}x{h}', '-pix_fmt', 'rgba', '-r', str(self.record_fps),
+            '-i', '-',
+            '-vf', 'vflip',
+            '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-preset', 'ultrafast',
+            self.temp_video_path
+        ]
+        
+        try:
+            creationflags = 0x08000000 if sys.platform == 'win32' else 0
+            self.ffmpeg_process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=creationflags)
+            print("Successfully opened FFmpeg libx264 encoding process pipe.")
+            self.auto_launch = False
+            self.auto_rotate = False
+            self.playback_start_time = 0.0
+            self.record_time = 0.0
+            self.next_event_idx = 0
+            self.fireworks.clear()
+            self.routine_queue.clear()
+            
+            # Start real-time music audio playback for live monitoring during recording
+            music_file = self.audio_path
+            if os.path.exists(music_file):
+                try:
+                    if self.audio_player.play(music_file):
+                        self.music_playing = True
+                        print(f"Started real-time music audio playback ({music_file}) for live monitoring.")
+                    else:
+                        raise RuntimeError("UnifiedAudioPlayer failed to start playback")
+                except Exception as ex:
+                    print(f"Failed to start live audio playback: {ex}")
+        except Exception as e:
+            print(f"Failed to start recording FFmpeg process: {e}")
+            self.is_recording = False
+
+    def on_recording_tick(self):
+        dt = self.record_dt
+        self.update_preset_random_timer(dt)
+        elapsed = self.record_time
+        
+        # Decay envelopes in recording
+        decay_rate = 5.0
+        self.react_bass = max(0.0, self.react_bass - decay_rate * dt)
+        self.react_mid = max(0.0, self.react_mid - decay_rate * dt)
+        self.react_treble = max(0.0, self.react_treble - decay_rate * dt)
+        self.react_bass_smooth += (self.react_bass - self.react_bass_smooth) * dt * 3.5
+        
+        # Decay climax flash and advance tempo phase in recording
+        self.climax_flash = max(0.0, self.climax_flash - 2.0 * dt)
+        self.tempo_phase += dt * (self.script_bpm / 60.0)
+        
+        # Check for implicit/proactive climax in offline recording
+        if self.major_mode != "FIREWORKS":
+            if self.react_bass > 1.35 and (elapsed - self.last_climax_trigger_time > 8.0):
+                self.last_climax_trigger_time = elapsed
+                self.trigger_climax_event(intensity=1.2, routine_name="Beat Flashpoint")
+        
+        if elapsed >= self.script_duration:
+            self.finish_recording()
+            return
+            
+        while (self.next_event_idx < len(self.script_events) and 
+               self.script_events[self.next_event_idx]["time"] <= elapsed):
+            event = self.script_events[self.next_event_idx]
+            self.trigger_script_event(event)
+            self.next_event_idx += 1
+            
+        # Update scheduled routine queue
+        if len(self.routine_queue) > 0:
+            remaining_queue = []
+            for delay, fw in self.routine_queue:
+                delay -= dt
+                if delay <= 0:
+                    self.fireworks.append(fw)
+                else:
+                    remaining_queue.append((delay, fw))
+            self.routine_queue = remaining_queue
+            
+        if self.active_routine_name:
+            self.routine_timer -= dt
+            if self.routine_timer <= 0:
+                self.active_routine_name = ""
+
+        self.record_time += dt
+        
+        if self.auto_rotate:
+            self.camera_theta += 0.15 * dt
+            if self.camera_theta > 2 * np.pi:
+                self.camera_theta -= 2 * np.pi
+                
+        if self.major_mode == "FIREWORKS":
+            for fw in self.fireworks:
+                fw.update(dt)
+            self.fireworks = [fw for fw in self.fireworks if fw.state != 'DEAD']
+        elif self.major_mode == "TUNNEL Wormhole":
+            if not hasattr(self, 'gem_z'):
+                self.init_tunnel_mode()
+            self.update_tunnel(dt)
+        elif self.major_mode == "UNDERWATER Lava":
+            if not hasattr(self, 'bubble_pos'):
+                self.init_underwater_mode()
+            self.update_underwater(dt)
+        elif self.major_mode == "MANDALA Sacred":
+            if not hasattr(self, 'mandala_base_pos'):
+                self.init_mandala_mode()
+            self.update_mandala(dt)
+        elif self.major_mode == "SYNAESTHESIA Classic":
+            if not hasattr(self, 'syn_stars'):
+                self.init_synaesthesia_mode()
+            self.update_synaesthesia(dt)
+        elif self.major_mode == "FIRE Plasma":
+            if not hasattr(self, 'fire_spark_pos'):
+                self.init_fire_mode()
+            self.update_fire(dt)
+
+        self.fps_lbl.set_text(f"FPS: RECORDING ({self.record_fps} FPS)")
+        self.update_hud_labels()
+        if self.active_routine_name:
+            self.routine_lbl.set_text(f"Routine: {self.active_routine_name}")
+        else:
+            self.routine_lbl.set_text("Routine: None")
+            
+        self.music_track_lbl.set_text(f"Recording: {self.loaded_script_name}")
+        m_sec = int(elapsed) % 60
+        m_min = int(elapsed) // 60
+        total_sec = int(self.script_duration) % 60
+        total_min = int(self.script_duration) // 60
+        self.music_time_lbl.set_text(f"Time: {m_min:02d}:{m_sec:02d} / {total_min:02d}:{total_sec:02d}")
+        
+        if self.major_mode == "FIREWORKS":
+            active_stars = sum(len(fw.positions) for fw in self.fireworks if fw.positions is not None)
+            active_rockets = sum(1 for fw in self.fireworks if fw.state == 'LAUNCH')
+        elif self.major_mode == "TUNNEL Wormhole":
+            active_stars = len(self.gem_z) + 100 + np.sum(self.spark_active) if hasattr(self, 'gem_z') else 0
+            active_rockets = 0
+        elif self.major_mode == "UNDERWATER Lava":
+            active_stars = ((np.sum(self.bubble_active) if hasattr(self, 'bubble_active') else 0) + 
+                            (len(self.algae_pos) if hasattr(self, 'algae_pos') else 0) + 
+                            (self.num_vent_pts if hasattr(self, 'num_vent_pts') else 0) + 
+                            (self.num_jelly * 46 if hasattr(self, 'num_jelly') else 0))
+            active_rockets = 0
+        elif self.major_mode == "MANDALA Sacred":
+            active_stars = len(self.mandala_base_pos) * self.mandala_slices if hasattr(self, 'mandala_base_pos') else 0
+            active_rockets = 0
+        elif self.major_mode == "SYNAESTHESIA Classic":
+            active_stars = len(self.syn_stars) * 20 + 300 if hasattr(self, 'syn_stars') else 0
+            active_rockets = 0
+        elif self.major_mode == "FIRE Plasma":
+            active_stars = np.sum(self.fire_spark_active) if hasattr(self, 'fire_spark_active') else 0
+            active_rockets = 0
+            
+        self.shell_lbl.set_text(f"Active Shells: {active_rockets}")
+        self.part_lbl.set_text(f"Simulated Particles: {active_stars:,}")
+
+    def capture_recording_frame(self, w, h):
+        try:
+            # Query GTK's offscreen draw framebuffer and bind it as the active read target
+            fb = gl.glGetIntegerv(gl.GL_DRAW_FRAMEBUFFER_BINDING)
+            gl.glBindFramebuffer(gl.GL_READ_FRAMEBUFFER, fb)
+            
+            if fb > 0:
+                gl.glReadBuffer(gl.GL_COLOR_ATTACHMENT0)
+            else:
+                gl.glReadBuffer(gl.GL_BACK)
+                
+            gl.glPixelStorei(gl.GL_PACK_ALIGNMENT, 1)
+            pixels = gl.glReadPixels(0, 0, w, h, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE)
+            
+            self.ffmpeg_process.stdin.write(pixels)
+            
+            if int(self.record_time * self.record_fps) % (self.record_fps * 5) == 0:
+                print(f"Recorded frame: {self.record_time:.2f}s / {self.script_duration:.2f}s...")
+        except Exception as e:
+            print(f"Recording frame capture failed: {e}")
+            self.is_recording = False
+            if self.ffmpeg_process:
+                self.ffmpeg_process.stdin.close()
+                self.ffmpeg_process.wait()
+                self.ffmpeg_process = None
+
+    def finish_recording(self, close_window=True):
+        if not self.is_recording:
+            return
+            
+        self.is_recording = False
+        print("\nFireworks offline recording render complete!")
+        
+        if self.ffmpeg_process:
+            print("Closing video encoding pipe...")
+            self.ffmpeg_process.stdin.close()
+            self.ffmpeg_process.wait()
+            self.ffmpeg_process = None
+            
+        music_file = self.audio_path
+        if os.path.exists(music_file):
+            print(f"Multiplexing audio track '{music_file}' into output file '{self.record_path}' using copy/copy stream mapping...")
+            
+            import audio_analyzer
+            ffmpeg_bin = audio_analyzer.find_ffmpeg_binary() or "ffmpeg"
+            
+            cmd = [
+                ffmpeg_bin, '-y',
+                '-i', self.temp_video_path,
+                '-i', music_file,
+                '-c:v', 'copy',
+                '-c:a', 'aac',
+                '-map', '0:v:0',
+                '-map', '1:a:0',
+                '-shortest',
+                self.record_path
+            ]
+            
+            try:
+                creationflags = 0x08000000 if sys.platform == 'win32' else 0
+                p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=creationflags)
+                stdout, stderr = p.communicate()
+                if p.returncode == 0:
+                    print(f"\nSuccessfully generated finalized H.264 MP4 movie with audio at: {self.record_path}")
+                else:
+                    err = stderr.decode('utf-8', errors='ignore')[-300:]
+                    print(f"Error multiplexing audio: {err}")
+            except Exception as e:
+                print(f"Failed to run multiplexer subprocess: {e}")
+        else:
+            print(f"Warning: Audio file '{music_file}' not found. Leaving silent video at '{self.temp_video_path}'.")
+            os.rename(self.temp_video_path, self.record_path)
+            print(f"Renamed silent video to: {self.record_path}")
+            
+        if os.path.exists(self.temp_video_path):
+            try:
+                os.remove(self.temp_video_path)
+            except Exception:
+                pass
+                
+        if close_window:
+            self.win.close()
+
+    def on_close_request(self, win):
+        self.stop_sync_playback()
+        if self.is_recording:
+            self.finish_recording(close_window=False)
+            return True
+        return False
+
+    # =========================================================================
+    # MODE 5: SYNAESTHESIA CLASSIC (3D Real-time Spatial Music Visualizer)
+    # =========================================================================
+    def init_synaesthesia_mode(self):
+        if not hasattr(self, 'syn_points_are_diamonds'):
+            self.syn_points_are_diamonds = True
+        if not hasattr(self, 'syn_star_size'):
+            self.syn_star_size = 0.5
+        if not hasattr(self, 'syn_brightness'):
+            self.syn_brightness = 0.35
+        if not hasattr(self, 'syn_fade_mode'):
+            self.syn_fade_mode = "Stars"
+        if not hasattr(self, 'syn_fg_red_slider'):
+            self.syn_fg_red_slider = 0.0
+        if not hasattr(self, 'syn_fg_green_slider'):
+            self.syn_fg_green_slider = 0.5
+        if not hasattr(self, 'syn_bg_red_slider'):
+            self.syn_bg_red_slider = 0.75
+        if not hasattr(self, 'syn_bg_green_slider'):
+            self.syn_bg_green_slider = 0.4
+        self.syn_stars = []
+
+    def update_synaesthesia(self, dt):
+        # Move and filter active stars
+        active_stars = []
+        for star in self.syn_stars:
+            # Smoothly transition existing particles if user toggles fade mode in real-time
+            if self.syn_fade_mode == "Stars":
+                star['vel'] = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+            elif self.syn_fade_mode == "Flame":
+                if np.all(star['vel'] == 0.0) or star['vel'][1] <= 0.0:
+                    star['vel'] = np.array([np.random.uniform(-0.15, 0.15), np.random.uniform(1.2, 1.8), 0.0], dtype=np.float32)
+            elif self.syn_fade_mode == "Wave":
+                if np.all(star['vel'] == 0.0) or (star['vel'][0] == 0.0 and star['vel'][1] == 0.0):
+                    theta = np.random.uniform(0.0, 2.0 * np.pi)
+                    star['vel'] = np.array([np.cos(theta) * 1.5, np.sin(theta) * 1.5, 0.0], dtype=np.float32)
+            
+            star['pos'] += star['vel'] * dt
+            star['life'] -= dt
+            
+            # Record position history for trailers if enabled
+            if self.opt_trailers > 0:
+                if 'history' not in star or star['history'] is None:
+                    star['history'] = []
+                star['history'].append(star['pos'].copy())
+                # Limit history to match the trailers range
+                target_len = self.opt_trailers * 2 + 1
+                while len(star['history']) > target_len:
+                    star['history'].pop(0)
+            else:
+                if 'history' in star:
+                    star['history'] = None
+
+            if star['life'] > 0.0:
+                active_stars.append(star)
+        self.syn_stars = active_stars
+
+        # Spawn stars based on real-time frequency reactions
+        if self.react_bass > 0.15:
+            count = int(self.react_bass * 4)
+            for _ in range(count):
+                self.spawn_syn_star("bass", self.react_bass)
+
+        if self.react_mid > 0.15:
+            count = int(self.react_mid * 3)
+            for _ in range(count):
+                self.spawn_syn_star("mid", self.react_mid)
+
+        if self.react_treble > 0.15:
+            count = int(self.react_treble * 3)
+            for _ in range(count):
+                self.spawn_syn_star("treble", self.react_treble)
+
+        if self.active_rarity is not None:
+            self.update_active_rarity(dt)
+
+    def spawn_syn_star(self, band, reaction_val):
+        pan_x = self.current_stereo_panning * 8.0
+
+        if band == "bass":
+            y = np.random.uniform(0.5, 2.5)
+            f_intensity = np.random.uniform(180.0, 255.0) * min(2.0, reaction_val)
+            b_intensity = np.random.uniform(120.0, 255.0) * min(2.0, reaction_val)
+            size_coef = np.random.uniform(1.2, 1.8)
+        elif band == "mid":
+            y = np.random.uniform(2.5, 5.5)
+            f_intensity = np.random.uniform(150.0, 240.0) * min(2.0, reaction_val)
+            b_intensity = np.random.uniform(100.0, 220.0) * min(2.0, reaction_val)
+            size_coef = np.random.uniform(0.9, 1.3)
+        else:  # treble
+            y = np.random.uniform(5.5, 7.5)
+            f_intensity = np.random.uniform(120.0, 220.0) * min(2.0, reaction_val)
+            b_intensity = np.random.uniform(80.0, 180.0) * min(2.0, reaction_val)
+            size_coef = np.random.uniform(0.6, 1.0)
+
+        z = 0.0
+        x = pan_x + np.random.uniform(-1.5, 1.5)
+
+        if self.syn_fade_mode == "Flame":
+            vx = np.random.uniform(-0.15, 0.15)
+            vy = np.random.uniform(1.2, 1.8)
+        elif self.syn_fade_mode == "Wave":
+            theta = np.random.uniform(0.0, 2.0 * np.pi)
+            vx = np.cos(theta) * 1.5
+            vy = np.sin(theta) * 1.5
+        else:  # "Stars"
+            vx = 0.0
+            vy = 0.0
+        vz = 0.0
+
+        self.syn_stars.append({
+            'pos': np.array([x, y, z], dtype=np.float32),
+            'vel': np.array([vx, vy, vz], dtype=np.float32),
+            'f_intensity': f_intensity,
+            'b_intensity': b_intensity,
+            'life': np.random.uniform(2.2, 3.5),
+            'size_coef': size_coef
+        })
+
+    def trigger_syn_star_burst(self):
+        print("TRIGGERING SYNAESTHESIA STAR BURST!")
+        for _ in range(45):
+            angle = np.random.uniform(0.0, 2.0 * np.pi)
+            r_dist = np.random.uniform(0.0, 3.5)
+            x = r_dist * np.cos(angle)
+            y = 4.0 + r_dist * np.sin(angle)
+            z = 0.0
+
+            speed = np.random.uniform(1.5, 3.2)
+            vx = np.cos(angle) * speed
+            vy = np.sin(angle) * speed
+            vz = 0.0
+
+            self.syn_stars.append({
+                'pos': np.array([x, y, z], dtype=np.float32),
+                'vel': np.array([vx, vy, vz], dtype=np.float32),
+                'f_intensity': np.random.uniform(220.0, 255.0),
+                'b_intensity': np.random.uniform(180.0, 255.0),
+                'life': np.random.uniform(2.5, 4.0),
+                'size_coef': np.random.uniform(1.3, 2.2)
+            })
+
+    def render_synaesthesia(self):
+        pts = []
+        cols = []
+        sizes = []
+
+        fade_fudge = 0.78
+        if self.syn_fade_mode == "Wave":
+            fade_fudge = 0.4
+        elif self.syn_fade_mode == "Flame":
+            fade_fudge = 0.6
+
+        size = self.syn_star_size
+        if self.opt_trailers > 0:
+            decay_scale = 1.0 - min(0.9, self.opt_trailers * 0.08)
+            factor = 256.0 - (256.0 - (min(255.0, np.exp(np.log(fade_fudge) / (size * 8.0)) * 255.0) if size > 0.0 else 0.0)) * decay_scale
+        else:
+            factor = min(255.0, np.exp(np.log(fade_fudge) / (size * 8.0)) * 255.0) if size > 0.0 else 0.0
+
+        fgRed = self.syn_fg_red_slider
+        fgGreen = self.syn_fg_green_slider
+        if self.opt_color_mode != 'REALISTIC':
+            pal = get_palette_colors(self.opt_color_mode)
+            c1, c2 = pal[0], pal[1 % len(pal)]
+            fgRed, fgGreen, fgBlue = c1[0], c1[1], c1[2]
+            bgRed, bgGreen, bgBlue = c2[0], c2[1], c2[2]
+            fg_s = fgRed + fgGreen + fgBlue
+            if fg_s > 0.0:
+                fgRed, fgGreen, fgBlue = (fgRed/fg_s)*2.0, (fgGreen/fg_s)*2.0, (fgBlue/fg_s)*2.0
+            bg_s = bgRed + bgGreen + bgBlue
+            if bg_s > 0.0:
+                bgRed, bgGreen, bgBlue = (bgRed/bg_s)*2.0, (bgGreen/bg_s)*2.0, (bgBlue/bg_s)*2.0
+        else:
+            fgBlue = 1.0 - max(fgRed, fgGreen)
+            bgRed = self.syn_bg_red_slider
+            bgGreen = self.syn_bg_green_slider
+            bgBlue = 1.0 - max(bgRed, bgGreen)
+        
+        fg_scale = (fgRed + fgGreen + fgBlue) / 2.0
+        if fg_scale > 0.0:
+            fgRed /= fg_scale
+            fgGreen /= fg_scale
+            fgBlue /= fg_scale
+        bg_scale = (bgRed + bgGreen + bgBlue) / 2.0
+        if bg_scale > 0.0:
+            bgRed /= bg_scale
+            bgGreen /= bg_scale
+            bgBlue /= bg_scale
+
+        def map_color(f, b):
+            red = b * bgRed + f * fgRed
+            green = b * bgGreen + f * fgGreen
+            blue = b * bgBlue + f * fgBlue
+
+            excess = 0.0
+            for _ in range(5):
+                red += excess / 3.0
+                green += excess / 3.0
+                blue += excess / 3.0
+                excess = 0.0
+                if red > 255.0:
+                    excess += (red - 255.0)
+                    red = 255.0
+                if green > 255.0:
+                    excess += (green - 255.0)
+                    green = 255.0
+                if blue > 255.0:
+                    excess += (blue - 255.0)
+                    blue = 255.0
+
+            scale_col = (0.5 + (red + green + blue) / 768.0) / 1.5
+            red *= scale_col
+            green *= scale_col
+            blue *= scale_col
+
+            return [
+                min(1.0, max(0.0, red / 255.0)),
+                min(1.0, max(0.0, green / 255.0)),
+                min(1.0, max(0.0, blue / 255.0)),
+                1.0
+            ]
+
+        for star in self.syn_stars:
+            cx, cy, cz = star['pos']
+            f = star['f_intensity']
+            b = star['b_intensity']
+
+            pts.append([cx, cy, cz])
+            cols.append(map_color(f, b))
+            sizes.append(5.0 * self.syn_brightness * star.get('size_coef', 1.0))
+
+            curr_f = f
+            curr_b = b
+            step_size = 0.09 * self.syn_star_size * star.get('size_coef', 1.0)
+
+            # Draw base star with constant trail range (9) so size remains constant
+            trail_range = 9
+            for j in range(1, trail_range):
+                curr_f = curr_f * factor / 256.0
+                curr_b = curr_b * factor / 256.0
+                if curr_f < 3.0 and curr_b < 3.0:
+                    break
+
+                color = map_color(curr_f, curr_b)
+                life_frac = star['life'] / 3.5
+                color[3] = min(1.0, max(0.0, life_frac))
+
+                if self.syn_points_are_diamonds:
+                    for k in range(j):
+                        pts.append([cx + (-j + k) * step_size, cy - k * step_size, cz])
+                        pts.append([cx + k * step_size, cy - (j - k) * step_size, cz])
+                        pts.append([cx + (j - k) * step_size, cy + k * step_size, cz])
+                        pts.append([cx - k * step_size, cy + (j - k) * step_size, cz])
+                        for _ in range(4):
+                            cols.append(color)
+                            sizes.append(4.0 * self.syn_brightness * star.get('size_coef', 1.0))
+                else:
+                    pts.append([cx + j * step_size, cy, cz])
+                    pts.append([cx, cy + j * step_size, cz])
+                    pts.append([cx - j * step_size, cy, cz])
+                    pts.append([cx, cy - j * step_size, cz])
+                    for _ in range(4):
+                        cols.append(color)
+                        sizes.append(4.0 * self.syn_brightness * star.get('size_coef', 1.0))
+
+            # Draw trailers along movement history if enabled
+            if self.opt_trailers > 0 and 'history' in star and star['history']:
+                history_list = star['history']
+                num_trailers = self.opt_trailers
+                for i in range(1, num_trailers + 1):
+                    # We space them out backward (e.g. 2 steps per trailer level)
+                    idx = -1 - i * 2
+                    if abs(idx) <= len(history_list):
+                        tcx, tcy, tcz = history_list[idx]
+                        
+                        # Decay factor for this trailer level
+                        trail_decay = (1.0 - (i / (num_trailers + 1.0)))
+                        tf = f * trail_decay
+                        tb = b * trail_decay
+                        
+                        # Draw center of the trailer point
+                        t_color = map_color(tf, tb)
+                        life_frac = star['life'] / 3.5
+                        t_color[3] = min(1.0, max(0.0, life_frac)) * trail_decay
+                        pts.append([tcx, tcy, tcz])
+                        cols.append(t_color)
+                        sizes.append(4.0 * self.syn_brightness * star.get('size_coef', 1.0) * trail_decay)
+                        
+                        # Draw a smaller cross/diamond around the trailer point for a smooth glow
+                        t_step_size = 0.09 * self.syn_star_size * star.get('size_coef', 1.0) * trail_decay
+                        for tj in range(1, 3):
+                            t_curr_f = tf * (0.6 ** tj)
+                            t_curr_b = tb * (0.6 ** tj)
+                            t_color_j = map_color(t_curr_f, t_curr_b)
+                            t_color_j[3] = min(1.0, max(0.0, life_frac)) * trail_decay
+                            
+                            if self.syn_points_are_diamonds:
+                                for tk in range(tj):
+                                    pts.append([tcx + (-tj + tk) * t_step_size, tcy - tk * t_step_size, tcz])
+                                    pts.append([tcx + tk * t_step_size, tcy - (tj - tk) * t_step_size, tcz])
+                                    pts.append([tcx + (tj - tk) * t_step_size, tcy + tk * t_step_size, tcz])
+                                    pts.append([tcx - tk * t_step_size, tcy + (tj - tk) * t_step_size, tcz])
+                                    for _ in range(4):
+                                        cols.append(t_color_j)
+                                        sizes.append(3.0 * self.syn_brightness * star.get('size_coef', 1.0) * trail_decay)
+                            else:
+                                pts.append([tcx + tj * t_step_size, tcy, tcz])
+                                pts.append([tcx, tcy + tj * t_step_size, tcz])
+                                pts.append([tcx - tj * t_step_size, tcy, tcz])
+                                pts.append([tcx, tcy - tj * t_step_size, tcz])
+                                for _ in range(4):
+                                    cols.append(t_color_j)
+                                    sizes.append(3.0 * self.syn_brightness * star.get('size_coef', 1.0) * trail_decay)
+
+        if not hasattr(self, 'syn_bg_particles'):
+            self.syn_bg_particles = []
+            for _ in range(300):
+                self.syn_bg_particles.append({
+                    'pos': np.array([np.random.uniform(-25.0, 25.0), np.random.uniform(-10.0, 18.0), -5.0], dtype=np.float32),
+                    'col': [np.random.uniform(0.0, 0.25), np.random.uniform(0.1, 0.35), np.random.uniform(0.2, 0.6), np.random.uniform(0.25, 0.55)],
+                    'size': np.random.uniform(1.5, 3.5),
+                    'phase': np.random.uniform(0.0, 2.0 * np.pi),
+                    'speed': np.random.uniform(1.0, 3.5)
+                })
+
+        for p in self.syn_bg_particles:
+            # Twinkle individually over time
+            p['phase'] += 0.016 * p['speed']
+            if p['phase'] > 2.0 * np.pi:
+                p['phase'] -= 2.0 * np.pi
+
+            pts.append(p['pos'])
+            col = p['col'].copy()
+            twinkle = 0.5 + 0.5 * np.sin(p['phase'])
+            col[3] *= (0.3 + 0.7 * twinkle) * (0.4 + self.react_mid * 0.6)
+            if self.opt_color_mode != 'REALISTIC':
+                pal = get_palette_colors(self.opt_color_mode)
+                c_bg = pal[2 % len(pal)]
+                col[:3] = c_bg[:3]
+            cols.append(col)
+            sizes.append(p['size'])
+
+        h_pos = np.zeros((0, 3), dtype=np.float32)
+        h_col = np.zeros((0, 4), dtype=np.float32)
+        return pts, cols, sizes, h_pos, h_col
+
+    def init_moon_texture(self):
+        try:
+            from PIL import Image
+            import os
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            # Paths to search for moon.png: 1) CWD, 2) Script directory, 3) relative path
+            paths_to_try = [
+                os.path.join(os.getcwd(), "moon.png"),
+                os.path.join(base_dir, "moon.png"),
+                "moon.png"
+            ]
+            
+            moon_path = None
+            for p in paths_to_try:
+                if os.path.exists(p):
+                    moon_path = p
+                    break
+                    
+            if moon_path is not None:
+                img = Image.open(moon_path).convert("RGBA")
+                img = img.transpose(Image.FLIP_TOP_BOTTOM)
+                w, h = img.size
+                pixels = img.tobytes("raw", "RGBA")
+                
+                self.moon_texture_id = gl.glGenTextures(1)
+                gl.glBindTexture(gl.GL_TEXTURE_2D, self.moon_texture_id)
+                gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
+                gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
+                gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE)
+                gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_EDGE)
+                
+                gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
+                gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, w, h, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, pixels)
+                gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
+                print(f"SUCCESS: Loaded moon texture using Pillow from {moon_path} ({w}x{h})")
+            else:
+                print(f"Warning: moon.png not found in search paths: {paths_to_try}")
+                self.moon_texture_id = 0
+        except Exception as e:
+            print(f"Error loading moon.png with Pillow: {e}")
+            self.moon_texture_id = 0
+
+    # =========================================================================
+    # MODE 6: FIRE PLASMA (Procedural flames with persistent reactive sparks)
+    # =========================================================================
+    def init_fire_mode(self):
+        N_sparks = 1500
+        self.fire_spark_pos = np.zeros((N_sparks, 3), dtype=np.float32)
+        self.fire_spark_vel = np.zeros((N_sparks, 3), dtype=np.float32)
+        self.fire_spark_col = np.zeros((N_sparks, 4), dtype=np.float32)
+        self.fire_spark_size = np.zeros(N_sparks, dtype=np.float32)
+        self.fire_spark_life = np.zeros(N_sparks, dtype=np.float32)
+        self.fire_spark_max_life = np.zeros(N_sparks, dtype=np.float32)
+        self.fire_spark_active = np.zeros(N_sparks, dtype=np.bool_)
+        self.fire_spark_hue = np.zeros(N_sparks, dtype=np.float32) # For beautiful individual color variations
+        self.fire_spark_plume = np.zeros(N_sparks, dtype=np.int32) # Tracks which of the 3 independent flames a particle belongs to
+        self.next_fire_spark_idx = 0
+        
+        # 3 independent wind gust variables (for Left, Center, Right flames)
+        self.fire_wind_gusts = [0.0, 0.0, 0.0]
+        self.fire_wind_timers = [0.0, 0.0, 0.0]
+        self.fire_wind_targets = [0.0, 0.0, 0.0]
+        
+        # Wind gust simulation parameters
+    def spawn_differentiated_spark(self, s_type):
+        idx = self.next_fire_spark_idx
+        self.next_fire_spark_idx = (self.next_fire_spark_idx + 1) % len(self.fire_spark_pos)
+        
+        if s_type == 'FLARE':
+            # Flame Flare: Massive white-hot sparks rising straight up
+            x = np.random.uniform(-0.12, 0.12)
+            y = np.random.uniform(-0.84, -0.78)
+            z = np.random.uniform(-0.15, 0.15)
+            self.fire_spark_pos[idx] = [x, y, z]
+            
+            vx = np.random.uniform(-0.06, 0.06)
+            vy = np.random.uniform(0.75, 1.3)
+            vz = np.random.uniform(-0.06, 0.06)
+            self.fire_spark_vel[idx] = [vx, vy, vz]
+            
+            is_smoke = np.random.uniform(0.0, 1.0) < 0.25
+            if is_smoke:
+                self.fire_spark_size[idx] = -np.random.uniform(12.0, 26.0)
+                # Orange-tinted glowing smoke
+                self.fire_spark_col[idx] = [0.42, 0.22, 0.08, np.random.uniform(0.12, 0.28)]
+                self.fire_spark_hue[idx] = -1.0
+                max_life = np.random.uniform(2.8, 4.5)
+            else:
+                self.fire_spark_size[idx] = np.random.uniform(7.5, 15.0)
+                self.fire_spark_col[idx] = [1.0, 0.98, 0.82, np.random.uniform(0.85, 1.0)]
+                self.fire_spark_hue[idx] = np.random.uniform(0.1, 0.2)
+                max_life = np.random.uniform(2.2, 3.8)
+                
+        elif s_type == 'WAVE':
+            # Flame Wave: Rolling sweeping sideways embers
+            sweep_dir = np.random.choice([-1.0, 1.0])
+            # Spawn on the opposite side to sweep across
+            x = -0.38 if sweep_dir > 0 else 0.38
+            y = np.random.uniform(-0.84, -0.74)
+            z = np.random.uniform(-0.25, 0.25)
+            self.fire_spark_pos[idx] = [x, y, z]
+            
+            vx = sweep_dir * np.random.uniform(0.65, 1.15)
+            vy = np.random.uniform(0.16, 0.36)
+            vz = np.random.uniform(-0.1, 0.1)
+            self.fire_spark_vel[idx] = [vx, vy, vz]
+            
+            self.fire_spark_size[idx] = np.random.uniform(4.0, 7.5)
+            # Vibrant neon orange/red embers
+            self.fire_spark_col[idx] = [1.0, np.random.uniform(0.15, 0.42), 0.0, np.random.uniform(0.8, 1.0)]
+            self.fire_spark_hue[idx] = np.random.uniform(0.02, 0.1)
+            max_life = np.random.uniform(1.8, 3.4)
+            
+        elif s_type == 'SHOWER':
+            # Treble Spark Shower: Tiny gold embers drifting down from upper sky
+            x = np.random.uniform(-0.95, 0.95)
+            y = np.random.uniform(0.35, 0.92)
+            z = np.random.uniform(-0.15, 0.15)
+            self.fire_spark_pos[idx] = [x, y, z]
+            
+            vx = np.random.uniform(-0.12, 0.12)
+            vy = -np.random.uniform(0.08, 0.22)
+            vz = np.random.uniform(-0.06, 0.06)
+            self.fire_spark_vel[idx] = [vx, vy, vz]
+            
+            self.fire_spark_size[idx] = np.random.uniform(1.0, 2.2)
+            # Twinkling golden yellow colors
+            self.fire_spark_col[idx] = [1.0, np.random.uniform(0.78, 0.98), 0.15, np.random.uniform(0.75, 1.0)]
+            self.fire_spark_hue[idx] = np.random.uniform(0.12, 0.22)
+            max_life = np.random.uniform(3.2, 5.8)
+            
+        elif s_type == 'ERUPTION':
+            # Fire Eruption: Outward radial volcanic explosion
+            self.fire_spark_pos[idx] = [0.0, -0.84, np.random.uniform(-0.1, 0.1)]
+            
+            theta = np.random.uniform(0.0, 2.0 * np.pi)
+            phi = np.random.uniform(np.radians(12.0), np.radians(82.0))
+            speed = np.random.uniform(0.68, 1.68)
+            
+            vx = speed * np.sin(phi) * np.sin(theta)
+            vy = speed * np.cos(phi)
+            vz = speed * np.sin(phi) * np.cos(theta)
+            self.fire_spark_vel[idx] = [vx, vy, vz]
+            
+            self.fire_spark_size[idx] = np.random.uniform(2.8, 8.8)
+            # Multicolored fiery sparks (white, gold, magenta-red)
+            c_type = np.random.choice([0, 1, 2])
+            if c_type == 0:
+                self.fire_spark_col[idx] = [1.0, 0.95, 0.72, 1.0] # White-hot
+                self.fire_spark_hue[idx] = 0.16
+            elif c_type == 1:
+                self.fire_spark_col[idx] = [1.0, 0.55, 0.05, 1.0] # Golden-orange
+                self.fire_spark_hue[idx] = 0.08
+            else:
+                self.fire_spark_col[idx] = [1.0, 0.05, 0.22, 1.0] # Fiery red-pink
+                self.fire_spark_hue[idx] = 0.95
+                
+            max_life = np.random.uniform(1.3, 2.8)
+            
+        self.fire_spark_life[idx] = max_life
+        self.fire_spark_max_life[idx] = max_life
+        self.fire_spark_active[idx] = True
+
+    def spawn_fire_spark(self, band, reaction_val):
+        idx = self.next_fire_spark_idx
+        self.next_fire_spark_idx = (self.next_fire_spark_idx + 1) % len(self.fire_spark_pos)
+        
+        # Position: Distributed throughout the screen-space base of the campfire
+        y = np.random.uniform(-0.84, -0.74) # Spawn strictly at the base of the fire
+        
+        # Divide the campfire into 3 independent flames for dynamic realism!
+        # Compacted centers (radius < 0.12) to keep them strictly inside the stone ring (radius < 0.18)
+        flame_centers = [
+            (-0.11, -0.04),  # Left flame plume (index 0)
+            (0.0, 0.04),     # Center flame plume (index 1)
+            (0.11, -0.04)    # Right flame plume (index 2)
+        ]
+        plume_idx = random.choice([0, 1, 2])
+        fx, fz = flame_centers[plume_idx]
+        self.fire_spark_plume[idx] = plume_idx
+        
+        # Spawn with a tight horizontal spread around the chosen plume center (radius <= 0.15 max)
+        x = fx + np.random.uniform(-0.035, 0.035)
+        z = fz + np.random.uniform(-0.035, 0.035)
+        self.fire_spark_pos[idx] = [x, y, z]
+        
+        # Velocity: Wide-angle pop trajectory, scaled down for screen-space coordinate system
+        theta = np.random.uniform(0.0, 2.0 * np.pi)
+        phi = np.random.uniform(np.radians(15.0), np.radians(80.0))
+        
+        sin_phi = np.sin(phi)
+        cos_phi = np.cos(phi)
+        
+        # Speed scaled down for screen-space (0.12 to 0.45 screen units per second)
+        speed = np.random.uniform(0.12, 0.45) * (1.0 + reaction_val * 0.4)
+        
+        vx = speed * sin_phi * np.sin(theta)
+        vy = speed * cos_phi
+        vz = speed * sin_phi * np.cos(theta)
+        self.fire_spark_vel[idx] = [vx, vy, vz]
+        
+        # Determine whether to spawn a Spark (65% chance) or a delicate Smoke Puff (35% chance)
+        is_smoke = np.random.uniform(0.0, 1.0) < 0.35
+        
+        if is_smoke:
+            is_column = np.random.uniform(0.0, 1.0) < 0.40 # 40% chance of a brief columnar plume
+            if is_column:
+                # Gaseous Smoke Column/Plume (Narrow, fast-rising, longer life)
+                self.fire_spark_size[idx] = -np.random.uniform(7.0, 15.0) * (1.0 + reaction_val * 0.2)
+                self.fire_spark_col[idx] = [0.23, 0.24, 0.26, np.random.uniform(0.12, 0.30)]
+                max_life = np.random.uniform(3.5, 5.5) # Rises higher
+                self.fire_spark_hue[idx] = -2.0 # Hue -2.0 is columnar smoke
+                
+                # Straight upward velocity profile
+                self.fire_spark_vel[idx, 0] = np.random.uniform(-0.02, 0.02)
+                self.fire_spark_vel[idx, 1] = np.random.uniform(0.65, 0.95) * (1.0 + reaction_val * 0.3)
+                self.fire_spark_vel[idx, 2] = np.random.uniform(-0.02, 0.02)
+            else:
+                # Gaseous Smoke Puff (Negative size represents gaseous style in particle shader!)
+                self.fire_spark_size[idx] = -np.random.uniform(8.0, 24.0) * (1.0 + reaction_val * 0.3)
+                # Translucent wispy charcoal smoke color
+                self.fire_spark_col[idx] = [0.26, 0.27, 0.30, np.random.uniform(0.10, 0.25)]
+                max_life = np.random.uniform(2.5, 4.8) # Smoke lives slightly longer and rises higher
+                self.fire_spark_hue[idx] = -1.0 # Hue <= -0.5 is reserved for Smoke in update loop
+        else:
+            # Bright Spark/Ember (Positive size)
+            self.fire_spark_size[idx] = np.random.uniform(1.8, 4.5) * (1.0 + reaction_val * 0.25)
+            # Initial color is white-hot/yellow-orange
+            self.fire_spark_col[idx] = [1.0, 0.95, 0.65, np.random.uniform(0.75, 1.0)]
+            max_life = np.random.uniform(1.8, 3.8)
+            self.fire_spark_hue[idx] = np.random.uniform(0.0, 1.0)
+            
+        self.fire_spark_life[idx] = max_life
+        self.fire_spark_max_life[idx] = max_life
+        self.fire_spark_active[idx] = True
+
+    def update_fire(self, dt):
+        if not hasattr(self, 'fire_wind_timer'):
+            self.fire_wind_gust = 0.0
+            self.fire_wind_timer = 0.0
+            self.fire_wind_target = 0.0
+            
+        # Update lightning bolts
+        if not hasattr(self, 'fire_lightning_bolts'):
+            self.fire_lightning_bolts = []
+        active_bolts = []
+        for bolt in self.fire_lightning_bolts:
+            bolt['life'] -= dt
+            if bolt['life'] > 0.0:
+                active_bolts.append(bolt)
+        self.fire_lightning_bolts = active_bolts
+
+        # Update 3 independent wind gust variables for Left, Center, and Right plumes!
+        if not hasattr(self, 'fire_wind_gusts'):
+            self.fire_wind_gusts = [0.0, 0.0, 0.0]
+            self.fire_wind_timers = [0.0, 0.0, 0.0]
+            self.fire_wind_targets = [0.0, 0.0, 0.0]
+            
+        for p in range(3):
+            self.fire_wind_timers[p] += dt
+            # Randomly trigger separate winds for each plume every 4-8 seconds
+            if self.fire_wind_timers[p] > np.random.uniform(4.0, 8.0):
+                self.fire_wind_timers[p] = 0.0
+                self.fire_wind_targets[p] = np.random.choice([-1.0, 1.0]) * np.random.uniform(0.6, 1.2)
+                
+            # Interpolate wind gusts individually towards targets
+            if abs(self.fire_wind_targets[p]) > 0.01:
+                self.fire_wind_gusts[p] += (self.fire_wind_targets[p] - self.fire_wind_gusts[p]) * 2.8 * dt
+                if abs(self.fire_wind_gusts[p] - self.fire_wind_targets[p]) < 0.1:
+                    self.fire_wind_targets[p] = 0.0
+            else:
+                self.fire_wind_gusts[p] += (0.0 - self.fire_wind_gusts[p]) * 0.85 * dt
+
+        active_mask = self.fire_spark_active
+        if np.any(active_mask):
+            # Apply velocity translation
+            self.fire_spark_pos[active_mask] += self.fire_spark_vel[active_mask] * dt
+            
+            # PHYSICAL BOUNDARY CONTAINMENT: Keep ash and embers strictly contained within the inner edge of the stones (radius < 0.18) while near the ground
+            y_pos_all = self.fire_spark_pos[active_mask, 1]
+            x_pos_all = self.fire_spark_pos[active_mask, 0]
+            z_pos_all = self.fire_spark_pos[active_mask, 2]
+            
+            near_ground = y_pos_all < -0.55
+            if np.any(near_ground):
+                active_indices = np.where(active_mask)[0]
+                ground_sub_indices = np.where(near_ground)[0]
+                for g_idx in ground_sub_indices:
+                    real_idx = active_indices[g_idx]
+                    gx = self.fire_spark_pos[real_idx, 0]
+                    gz = self.fire_spark_pos[real_idx, 2]
+                    gr2 = gx*gx + gz*gz
+                    if gr2 > 0.0324: # 0.18 squared (strictly inside the stones!)
+                        # Scale back inside the stones
+                        scale = np.sqrt(0.0324 / gr2)
+                        self.fire_spark_pos[real_idx, 0] *= scale
+                        self.fire_spark_pos[real_idx, 2] *= scale
+                        # Bounce velocity inwards slightly
+                        self.fire_spark_vel[real_idx, 0] *= -0.2
+                        self.fire_spark_vel[real_idx, 2] *= -0.2
+            
+            # --- PHYSICAL AIR RESISTANCE & DRAFT FLUID DRAG ---
+            self.fire_spark_vel[active_mask, 0] *= np.exp(-1.4 * dt)
+            self.fire_spark_vel[active_mask, 1] *= np.exp(-1.0 * dt)
+            self.fire_spark_vel[active_mask, 2] *= np.exp(-1.4 * dt)
+            
+            # --- CONVECTIVE DRIFT & SWIRLING EDDIES (ASHES BEHAVIOR) ---
+            time_val = self.get_sim_time()
+            y_pos = self.fire_spark_pos[active_mask, 1]
+            x_pos = self.fire_spark_pos[active_mask, 0]
+            z_pos = self.fire_spark_pos[active_mask, 2]
+            
+            # Distance from the 3 independent flame centers for separate rising convective plumes
+            r2_left = (x_pos + 0.18)**2 + (z_pos + 0.05)**2
+            r2_center = (x_pos)**2 + (z_pos - 0.05)**2
+            r2_right = (x_pos - 0.18)**2 + (z_pos + 0.05)**2
+            
+            # 1. Thermal Heat Loft: Compute combined thermal loft columns
+            plume_factor = np.exp(-r2_left / 0.015) + np.exp(-r2_center / 0.015) + np.exp(-r2_right / 0.015)
+            heat_loft = plume_factor * (0.24 + 0.12 * self.react_bass)
+            self.fire_spark_pos[active_mask, 1] += heat_loft * dt
+            
+            # 2. Sideways Draft & Wind Sway: Gentle swaying crosswinds (scaled for screen-space)
+            crosswind = np.sin(time_val * 1.4 + y_pos * 1.2) * 0.045
+            self.fire_spark_pos[active_mask, 0] += crosswind * dt
+            
+            # 3. Turbulent Swirling Eddies: 3D corkscrew currents that make the ashes curl and float (scaled for screen-space)
+            vortex_x = np.sin(time_val * 3.2 + y_pos * 2.5 + z_pos * 1.5) * 0.055
+            vortex_z = np.cos(time_val * 2.8 + y_pos * 2.2 + x_pos * 1.5) * 0.055
+            
+            self.fire_spark_pos[active_mask, 0] += vortex_x * dt
+            self.fire_spark_pos[active_mask, 2] += vortex_z * dt
+            
+            # --- 4. REAL-TIME WIND GUST FORCES ---
+            # Blows sparks and smoke sideways depending on altitude (zero push at fire base)
+            height_factor = np.clip(y_pos - (-0.84), 0.0, 2.0)
+            
+            # Map each active particle's plume index to its corresponding plume wind gust!
+            p_indices = self.fire_spark_plume[active_mask]
+            p_gusts = np.array([self.fire_wind_gusts[p] for p in p_indices], dtype=np.float32)
+            
+            # Basic wind force push for all particles
+            wind_push = p_gusts * 0.42 * height_factor * dt
+            self.fire_spark_pos[active_mask, 0] += wind_push
+            
+            # Smoke particles have more surface area and are lighter, so they get pushed extra sideways!
+            is_smoke_mask = self.fire_spark_size[active_mask] < 0.0
+            smoke_extra_push = is_smoke_mask.astype(np.float32) * p_gusts * 0.18 * height_factor * dt
+            self.fire_spark_pos[active_mask, 0] += smoke_extra_push
+            
+            # Decrease life
+            self.fire_spark_life[active_mask] -= dt
+            
+            expired = self.fire_spark_life <= 0.0
+            self.fire_spark_active[expired] = False
+            
+            # Thermochromatic cooling and micro-shimmering for still active sparks
+            still_active = np.where(self.fire_spark_active)[0]
+            if len(still_active) > 0:
+                color_mode = getattr(self, 'opt_color_mode', 'REALISTIC')
+                for idx in still_active:
+                    frac = self.fire_spark_life[idx] / self.fire_spark_max_life[idx]
+                    hue = self.fire_spark_hue[idx]
+                    
+                    if hue < -0.5:
+                        # 4. Gaseous Smoke Puff (Expands and fades out smoothly to translucent charcoal grey)
+                        self.fire_spark_size[idx] -= np.random.uniform(5.5, 11.0) * dt # Expands diameter
+                        r, g, b = 0.22, 0.23, 0.25 # Wispy soot grey
+                        
+                        # Soft alpha fade as life expires
+                        shimmer = 0.85 + 0.15 * np.sin(time_val * np.random.uniform(5.0, 15.0) + idx)
+                        alpha = frac * shimmer * 0.22
+                    else:
+                        # Dynamic multi-class cooling based on color mode
+                        if color_mode == 'NEON':
+                            if hue < 0.30:
+                                # Neon Pink cooling to Purple
+                                r = 1.0 * frac
+                                g = 0.0
+                                b = 0.5 + 0.5 * (1.0 - frac)
+                            elif hue > 0.75:
+                                # Neon Cyan cooling to Deep Blue
+                                r = 0.0
+                                g = 1.0 * frac
+                                b = 1.0
+                            else:
+                                # Purple cooling to Dark Blue
+                                r = 0.5 * frac
+                                g = 0.0
+                                b = 1.0
+                        elif color_mode == 'TRANQUIL':
+                            if hue < 0.30:
+                                # Deep Blue cooling to Teal
+                                r = 0.0
+                                g = 0.6 * (1.0 - frac)
+                                b = 0.8
+                            elif hue > 0.75:
+                                # Lavender cooling to Dark Purple
+                                r = 0.5 * frac
+                                g = 0.2 * frac
+                                b = 0.7
+                            else:
+                                # Soft Emerald cooling to Dark Blue
+                                r = 0.1 * frac
+                                g = 0.7 * frac
+                                b = 0.4 + 0.4 * (1.0 - frac)
+                        elif color_mode == 'METAL':
+                            if hue < 0.30:
+                                # Warm Bronze cooling to Dark Red
+                                r = 0.8 * frac
+                                g = 0.5 * frac * frac
+                                b = 0.2 * frac * frac
+                            elif hue > 0.75:
+                                # Radiant Gold cooling to Amber
+                                r = 1.0
+                                g = 0.8 * frac + 0.2
+                                b = 0.2 * frac
+                            else:
+                                # Bright Silver cooling to Slate Grey
+                                r = 0.9 * frac + 0.1
+                                g = 0.9 * frac + 0.1
+                                b = 0.95 * frac + 0.1
+                        else: # REALISTIC
+                            # Individualized Multi-Class Thermochromatic Cooling Curves (Real Campfire Color Temperature)
+                            if hue < 0.30:
+                                # 1. Deep Crimson / Burgundy Glowing Coals (Ruby-red cooling to dark charcoal)
+                                r = 0.88 * frac
+                                g = 0.14 * frac * frac
+                                b = 0.02 * frac * frac * frac
+                            elif hue > 0.75:
+                                # 2. Hot Blazing Gold / Amber Embers (White-gold cooling to beautiful copper yellow)
+                                if frac > 0.75:
+                                    r, g, b = 1.0, 0.90, 0.50
+                                else:
+                                    t = frac / 0.75
+                                    r = 1.0
+                                    g = 0.40 * t + 0.50 * t * t
+                                    b = 0.04 * t
+                            else:
+                                # 3. Sizzling Copper Orange Sparks (White-hot orange to fiery copper and warm brick red)
+                                if frac > 0.80:
+                                    r, g, b = 1.0, 0.75, 0.35
+                                elif frac > 0.35:
+                                    t = (frac - 0.35) / 0.45
+                                    r = 0.98
+                                    g = 0.28 + 0.47 * t
+                                    b = 0.02 + 0.33 * t
+                                else:
+                                    t = frac / 0.35
+                                    r = 0.35 + 0.63 * t
+                                    g = 0.03 * t
+                                    b = 0.01 * t
+                                    
+                        # Dynamic music-reactive coloring:
+                        # 1. Dark red with bass (reduce green and blue, enhance red slightly)
+                        # 2. Orange with treble (add green/yellow to red)
+                        bass_factor = self.react_bass
+                        treble_factor = self.react_mid * 0.4 + self.react_treble * 0.6
+                        
+                        r_shaded = r * (1.0 + treble_factor * 0.2) + bass_factor * 0.1
+                        g_shaded = g * (1.0 - bass_factor * 0.6) + treble_factor * 0.3
+                        b_shaded = b * (1.0 - bass_factor * 0.8)
+                        
+                        r = np.clip(r_shaded, 0.0, 1.0)
+                        g = np.clip(g_shaded, 0.0, 1.0)
+                        b = np.clip(b_shaded, 0.0, 1.0)
+                        
+                        # Dynamic multi-color variation: Mix a tiny bit of individual hue color shift
+                        # to ensure embers are multi-colored and never a solid flat color!
+                        col_hue = (hue + time_val * 0.2) % 1.0
+                        if col_hue < 0.33:
+                            # Shift towards deeper crimson
+                            r = np.clip(r * 1.0, 0.0, 1.0)
+                            g = np.clip(g * 0.8, 0.0, 1.0)
+                            b = np.clip(b * 0.7, 0.0, 1.0)
+                        elif col_hue > 0.66:
+                            # Shift towards warmer amber/orange
+                            r = np.clip(r * 1.0, 0.0, 1.0)
+                            g = np.clip(g * 1.1, 0.0, 1.0)
+                            b = np.clip(b * 0.6, 0.0, 1.0)
+                            
+                        # Realistic rapid micro-shimmering pulsing with the music!
+                        shimmer = 0.50 + 0.50 * np.sin(time_val * np.random.uniform(25.0, 45.0) + idx)
+                        # The alpha glow pulses dynamically with the music beats
+                        music_pulse = 0.7 + self.react_bass * 0.4 + self.react_treble * 0.2
+                        alpha = np.clip(frac * shimmer * music_pulse, 0.0, 1.0)
+                    
+                    self.fire_spark_col[idx] = [r, g, b, alpha]
+                    
+                    # Respect opt_trailers on sparks! (Short-lived sparks do not generate trails to prevent runaway feedback)
+                    opt_tr = getattr(self, 'opt_trailers', 0)
+                    if opt_tr > 0 and hue >= 0.0 and self.fire_spark_max_life[idx] > 0.5:
+                        if np.random.uniform(0.0, 10.0) < opt_tr:
+                            t_idx = self.next_fire_spark_idx
+                            self.next_fire_spark_idx = (self.next_fire_spark_idx + 1) % len(self.fire_spark_pos)
+                            
+                            self.fire_spark_pos[t_idx] = self.fire_spark_pos[idx].copy()
+                            self.fire_spark_vel[t_idx] = list(np.array(self.fire_spark_vel[idx]) * 0.15)
+                            self.fire_spark_size[t_idx] = self.fire_spark_size[idx] * 0.52
+                            
+                            trail_life = np.random.uniform(0.12, 0.42)
+                            self.fire_spark_life[t_idx] = trail_life
+                            self.fire_spark_max_life[t_idx] = trail_life
+                            self.fire_spark_col[t_idx] = [r, g, b, alpha * 0.35]
+                            self.fire_spark_hue[t_idx] = hue
+                            self.fire_spark_active[t_idx] = True
+
+        # Spawn sparks based on real-time frequency reactions
+        if self.react_bass > 0.4:
+            count = int(self.react_bass * 8)
+            for _ in range(count):
+                self.spawn_fire_spark("bass", self.react_bass)
+                
+        if self.react_mid > 0.4:
+            count = int(self.react_mid * 6)
+            for _ in range(count):
+                self.spawn_fire_spark("mid", self.react_mid)
+                
+        if self.react_treble > 0.4:
+            count = int(self.react_treble * 6)
+            for _ in range(count):
+                self.spawn_fire_spark("treble", self.react_treble)
+                
+        if self.active_rarity is not None:
+            self.update_active_rarity(dt)
+
+    def render_fire(self):
+        act_mask = self.fire_spark_active
+        if np.any(act_mask):
+            pos_combined = self.fire_spark_pos[act_mask]
+            col_combined = self.fire_spark_col[act_mask]
+            size_combined = self.fire_spark_size[act_mask]
+        else:
+            pos_combined = np.zeros((0, 3), dtype=np.float32)
+            col_combined = np.zeros((0, 4), dtype=np.float32)
+            size_combined = np.zeros(0, dtype=np.float32)
+            
+        return pos_combined, col_combined, size_combined, np.zeros((0, 3), dtype=np.float32), np.zeros((0, 4), dtype=np.float32)
