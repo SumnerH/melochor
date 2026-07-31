@@ -18,27 +18,23 @@ COLORS_KEYS = [
 
 ANALYZER_VERSION = 3
 
-def get_panning(t_sec, fs, y_left, y_right, window_duration=0.1):
-    """Calculates local stereo panning index from -1.0 (hard left) to 1.0 (hard right)."""
+def get_panning_vectorized(t_sec_arr, fs, y_left, y_right, window_duration=0.1):
+    """Vectorized panning calculation for multiple time points."""
     half_len = int(window_duration * fs / 2)
-    center_idx = int(t_sec * fs)
-    start_idx = max(0, center_idx - half_len)
-    end_idx = min(len(y_left), center_idx + half_len)
-    
-    if start_idx >= end_idx:
-        return 0.0
-        
-    l_chunk = y_left[start_idx:end_idx]
-    r_chunk = y_right[start_idx:end_idx]
-    
-    l_sum = np.sum(l_chunk**2)
-    r_sum = np.sum(r_chunk**2)
-    
-    denom = l_sum + r_sum
-    if denom < 1e-5:
-        return 0.0
-        
-    return (r_sum - l_sum) / denom
+    panning = np.zeros_like(t_sec_arr)
+    for i, t_sec in enumerate(t_sec_arr):
+        center_idx = int(t_sec * fs)
+        start_idx = max(0, center_idx - half_len)
+        end_idx = min(len(y_left), center_idx + half_len)
+        if start_idx < end_idx:
+            l_chunk = y_left[start_idx:end_idx]
+            r_chunk = y_right[start_idx:end_idx]
+            l_sum = np.sum(l_chunk**2)
+            r_sum = np.sum(r_chunk**2)
+            denom = l_sum + r_sum
+            if denom > 1e-5:
+                panning[i] = (r_sum - l_sum) / denom
+    return panning
 
 def get_spectrum_color(t_sec, t, mag, bass_bins, mid_bins, high_bins, palette_override=None):
     """Uses localized spectrum energy balances to map colors (bass=blue/purple, treble=red/orange/white)."""
@@ -251,7 +247,7 @@ def analyze_audio(mp3_path, color_hints=None):
     rms = rms[:min_len]
     mag = mag[:, :min_len]
     
-    # Normalize envelopes
+    # Normalize envelopes (precompute once)
     def norm(env):
         mx = np.max(env)
         return env / mx if mx > 0 else env
@@ -260,6 +256,15 @@ def analyze_audio(mp3_path, color_hints=None):
     mid_norm = norm(mid_env)
     high_norm = norm(high_env)
     rms_norm = norm(rms)
+    
+    # Precompute panning array
+    panning_arr = get_panning_vectorized(t, fs, y_left, y_right)
+    
+    # Precompute climax proximity array
+    is_near_climax_arr = np.zeros(len(t), dtype=bool)
+    for ct in climax_times:
+        mask = (t >= ct-2) & (t <= ct+2)
+        is_near_climax_arr[mask] = True
     
     # 5. Beat / Tempo Detection (BPM estimation)
     onset_strength = np.diff(mid_norm)
@@ -408,16 +413,18 @@ def analyze_audio(mp3_path, color_hints=None):
                 return True
         return False
         
-    # Add shells from Bass, Mid, and High bands based on local active section characteristics
+    # Add shells from Bass, Mid, and High bands using precomputed values
     # Bass peaks -> Heavy ground breakers and large shells
     for bp in bass_peaks:
+        if bp >= len(t): continue
         t_sec = float(t[bp])
-        if t_sec > safety_cutoff or is_near_climax(t_sec):
+        if t_sec > safety_cutoff or is_near_climax_arr[bp]:
             continue
         if any(abs(t_sec - ev["time"]) < 0.12 for ev in events):
             continue
             
         sect_cat = smoothed_classes[bp]
+        panning = panning_arr[bp]
         if sect_cat == "QUIET":
             shell_types = [2, 5]  # Willow, Waterfall (delicate/quiet)
             palette = q_palette
@@ -435,9 +442,8 @@ def analyze_audio(mp3_path, color_hints=None):
         rand_x = np.random.uniform(-max_x, max_x)
         x_offset = 0.8 * panned_x + 0.2 * rand_x
         
-        # Use spectrum analysis to inform colors
-        color = get_spectrum_color(t_sec, t, mag, bass_bins, mid_bins, high_bins, palette_override=palette)
-        sec_color = get_spectrum_color(t_sec, t, mag, bass_bins, mid_bins, high_bins, palette_override=palette)
+        # Get both colors in one call
+        color, sec_color = get_spectrum_color(t_sec, t, mag, bass_bins, mid_bins, high_bins, palette_override=palette)
         
         events.append({
             "time": round(t_sec, 3),
@@ -536,8 +542,7 @@ def analyze_audio(mp3_path, color_hints=None):
         chromagram = np.zeros((12, len(t)))
         for c_bin in range(12):
             mask = (pitch_classes == c_bin) & (f >= 100) & (f <= 2000)
-            if np.any(mask):
-                chromagram[c_bin, :] = np.sum(mag[mask, :], axis=0)
+            chromagram[c_bin, :] = np.sum(mag[mask, :], axis=0)
                 
         chroma_norm = np.zeros_like(chromagram)
         for col in range(chromagram.shape[1]):
