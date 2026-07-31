@@ -260,11 +260,9 @@ def analyze_audio(mp3_path, color_hints=None):
     # Precompute panning array
     panning_arr = get_panning_vectorized(t, fs, y_left, y_right)
     
-    # Precompute climax proximity array
+    # Initialize empty climax times array
+    climax_times = []
     is_near_climax_arr = np.zeros(len(t), dtype=bool)
-    for ct in climax_times:
-        mask = (t >= ct-2) & (t <= ct+2)
-        is_near_climax_arr[mask] = True
     
     # 5. Beat / Tempo Detection (BPM estimation)
     onset_strength = np.diff(mid_norm)
@@ -436,7 +434,7 @@ def analyze_audio(mp3_path, color_hints=None):
             palette = l_palette
             
         # Use stereo imaging for horizontal placement (x_offset)
-        panning = get_panning(t_sec, fs, y_left, y_right)
+        panning = panning_arr[bp] if bp < len(panning_arr) else 0.0
         max_x = 9.0
         panned_x = panning * max_x
         rand_x = np.random.uniform(-max_x, max_x)
@@ -474,7 +472,7 @@ def analyze_audio(mp3_path, color_hints=None):
             palette = l_palette
             
         # Use stereo imaging for horizontal placement (x_offset)
-        panning = get_panning(t_sec, fs, y_left, y_right)
+        panning = panning_arr[hp] if hp < len(panning_arr) else 0.0
         max_x = 11.0
         panned_x = panning * max_x
         rand_x = np.random.uniform(-max_x, max_x)
@@ -513,7 +511,7 @@ def analyze_audio(mp3_path, color_hints=None):
             palette = l_palette
             
         # Use stereo imaging for horizontal placement (x_offset)
-        panning = get_panning(t_sec, fs, y_left, y_right)
+        panning = panning_arr[mp] if mp < len(panning_arr) else 0.0
         max_x = 10.0
         panned_x = panning * max_x
         rand_x = np.random.uniform(-max_x, max_x)
