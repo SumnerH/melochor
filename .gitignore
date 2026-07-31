@@ -21,3 +21,4 @@ my_test_cache/
 # PyInstaller build files
 build/
 dist/
+.aider*

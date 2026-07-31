@@ -3624,6 +3624,8 @@ class FireworksApp:
                     print(f"Playlist file {p} not found!")
             else:
                 resolved.append(p)
+        if args.shuffle:
+            resolved = random.shuffle(resolved)
         return resolved
 
     def load_and_play_track(self):
@@ -9090,6 +9092,7 @@ if __name__ == "__main__":
     import sys
     parser = argparse.ArgumentParser(description="Melochor: 3D OpenGL Audio Visualizer & Screensaver")
     parser.add_argument("--random", action="store_true", default=False, help="Start in random mode immediately")
+    parser.add_argument("--shuffle", action="store_true", default=False, help="Start in shuffle mode immediately")
     parser.add_argument("--record", type=str, default=None, help="Output file path to record the MP4 to")
     parser.add_argument("--audio", type=str, default=None, help="Audio file to run against")
     parser.add_argument("--tmpdir", type=str, default=None, help="Optional custom temporary directory for display scripts")
