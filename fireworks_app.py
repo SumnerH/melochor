@@ -68,6 +68,9 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         import tempfile
         self.tmp_dir = tmp_dir if tmp_dir else tempfile.gettempdir()
         self.audio_player = UnifiedAudioPlayer()
+        # Default flame algorithm names (may be overridden by init_fire_mode when FIRE Plasma initializes)
+        self.fire_flame_algorithm = 0
+        self.fire_flame_names = ["Current", "Candle", "Bonfire", "Gas Jet"]
         Firework.app = self
         self.shuffle_mode = shuffle_mode
         self.opt_trailers = 0        # 0: off, 1..10 range
@@ -782,6 +785,11 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         self.lbl_opt_height.set_halign(Gtk.Align.START)
         self.legend_box.append(self.lbl_opt_height)
         
+        # Flame algorithm label (U to cycle)
+        self.lbl_flame_algo = Gtk.Label()
+        self.lbl_flame_algo.set_halign(Gtk.Align.START)
+        self.legend_box.append(self.lbl_flame_algo)
+        
         self.lbl_mandala_slices = Gtk.Label()
         self.lbl_mandala_slices.set_halign(Gtk.Align.START)
         self.legend_box.append(self.lbl_mandala_slices)
@@ -924,6 +932,9 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         if hasattr(self, 'lbl_opt_height') and self.lbl_opt_height:
             height_desc = "ON" if self.opt_height_restrict else "OFF"
             self.lbl_opt_height.set_text(f"[Y]      - Height Restriction: {height_desc}")
+        if hasattr(self, 'lbl_flame_algo') and self.lbl_flame_algo:
+            algo_name = self.fire_flame_names[self.fire_flame_algorithm] if hasattr(self, 'fire_flame_names') else "Current"
+            self.lbl_flame_algo.set_text(f"[U]      - Flame Algorithm: {algo_name}")
         if hasattr(self, 'lbl_mandala_slices') and self.lbl_mandala_slices:
             self.lbl_mandala_slices.set_text(f"[S]      - Mandala Slices: {self.mandala_slices}")
 
@@ -1973,6 +1984,21 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         self.sky_moon_illumed_loc = gl.glGetUniformLocation(self.sky_program, "uMoonIllumed")
         self.sky_moon_is_waning_loc = gl.glGetUniformLocation(self.sky_program, "uMoonIsWaning")
         self.sky_color_mode_loc = gl.glGetUniformLocation(self.sky_program, "uColorMode")
+        self.sky_flame_algo_loc = gl.glGetUniformLocation(self.sky_program, "uFlameAlgorithm")
+
+        # Clarification note:
+        # If you encountered the term "dff" in discussion, it's almost certainly a typo
+        # for "diff". There's no special "dff" concept here.
+        # The relevant new addition is the shader uniform 'uFlameAlgorithm' above.
+        # That uniform selects which procedural flame the fragment shader draws:
+        #   0 = Current (original shader flame)
+        #   1 = Gas Jet (narrow blue/white jet)
+        #   2 = Bonfire (wide chaotic red/orange)
+        #   3 = Candle (tall, narrow yellow core)
+        #
+        # The application-side value is provided by FireModeMixin.fire_flame_algorithm,
+        # which is cycled by FireModeMixin.cycle_flame_algorithm() when you press 'U'.
+        # So pressing 'U' should visibly change the sky/fire shader rendering.
 
     def on_render(self, area, context):
         get_bend_offsets = self.get_bend_offsets
@@ -2086,6 +2112,8 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
                     elif self.opt_color_mode == 'TRANQUIL': c_mode = 2
                     elif self.opt_color_mode == 'METAL': c_mode = 3
                 gl.glUniform1i(self.sky_color_mode_loc, c_mode)
+                if hasattr(self, 'sky_flame_algo_loc') and self.sky_flame_algo_loc != -1:
+                    gl.glUniform1f(self.sky_flame_algo_loc, float(self.fire_flame_algorithm))
 
             # Ensure moon texture is loaded and bind it for Fire mode
             if self.major_mode == "FIRE Plasma":
@@ -2826,6 +2854,15 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             self.mandala_slices = slices_options[(idx + 1) % len(slices_options)]
             print(f"Mandala Slices: {self.mandala_slices}")
             self.update_legend_labels()
+            return True
+        elif keyval in (Gdk.KEY_u, Gdk.KEY_U):
+            # Cycle flame algorithm when FIRE Plasma mode is active (method is supplied by FireModeMixin)
+            if hasattr(self, 'cycle_flame_algorithm'):
+                try:
+                    self.cycle_flame_algorithm()
+                except Exception as e:
+                    print(f"Error cycling flame algorithm: {e}")
+                self.update_legend_labels()
             return True
         elif keyval == Gdk.KEY_Left or keyval == getattr(Gdk, 'KEY_AudioPrev', -1):
             self.play_previous_track()

@@ -16,6 +16,7 @@ out vec4 FragColor;
 uniform float uTime;
 uniform float uRipple; // 0.0 = normal, 1.0 = Underwater, 2.0 = Tunnel
 uniform float uClimaxFlash; // Climax event flash intensity
+uniform float uFlameAlgorithm; // 0=Current, 1=Gas Jet, 2=Bonfire, 3=Candle, 4=Vortex, 5=Game, 6=Multi
 
 // Fullscreen rendering uniforms for Tunnel Mode
 uniform float uWormholeBendX;
@@ -499,206 +500,754 @@ void main() {
             }
         }
         
-        // B. HIGH-FIDELITY FLICKERING BONFIRE (Sitting inside the ring)
-        float container_mask = smoothstep(0.31, 0.22, abs(vPos.x));
-        
-        // Procedural Behind-the-fire Smoke Layer (rises from base, drifts behind bright flames)
-        if (vPos.y >= ground_height) {
-            float s_height = vPos.y - ground_height;
-            float smoke_width = 0.20 + 0.38 * s_height;
+        // B. CORE FLAME RENDERING (6 algorithms)
+        if (uFlameAlgorithm < 0.5) {
+            // --- ALGORITHM 0: Current (original 3-plume noise-based campfire) ---
+            float container_mask = smoothstep(0.31, 0.22, abs(vPos.x));
             
-            // Smoke responds strongly to time, panning, and real-time wind gusts
-            float smoke_sway = sin(uTime * 1.3) * 0.16 + uStereoPanning * 0.40 + uWindGust * 0.65;
-            float smoke_x = vPos.x - smoke_sway * s_height * 0.60;
+            // Procedural Behind-the-fire Smoke Layer (rises from base, drifts behind bright flames)
+            if (vPos.y >= ground_height) {
+                float s_height = vPos.y - ground_height;
+                float smoke_width = 0.20 + 0.38 * s_height;
+                float smoke_sway = sin(uTime * 1.3) * 0.16 + uStereoPanning * 0.40 + uWindGust * 0.65;
+                float smoke_x = vPos.x - smoke_sway * s_height * 0.60;
+                vec2 smoke_uv = vec2(smoke_x * 2.5, s_height * 0.40 - uTime * 0.55);
+                float smoke_noise = fbm(smoke_uv * 3.5 + vec2(0.0, -uTime * 0.25));
+                smoke_noise += fbm(smoke_uv * 7.5) * 0.35;
+                float smoke_shape = exp(- (smoke_x * smoke_x) / (2.0 * smoke_width * smoke_width));
+                float smoke_density = smoke_shape * (0.08 + 0.22 * smoke_noise) * smoothstep(1.0, 0.15, vPos.y);
+                vec3 smoke_color = vec3(0.24, 0.25, 0.28) * (0.8 + 0.3 * fbm(vPos * 4.0));
+                base_color = mix(base_color, smoke_color, smoke_density * 0.45);
+            }
             
-            vec2 smoke_uv = vec2(smoke_x * 2.5, s_height * 0.40 - uTime * 0.55);
-            float smoke_noise = fbm(smoke_uv * 3.5 + vec2(0.0, -uTime * 0.25));
-            smoke_noise += fbm(smoke_uv * 7.5) * 0.35;
+            float flame_height = 0.30 + 0.35 * bass + 0.12 * mid;
+            float flame_width = 0.16 + 0.08 * bass;
+            flame_height = max(0.1, flame_height);
+            float y_scaled = (vPos.y - ground_height) / flame_height;
             
-            float smoke_shape = exp(- (smoke_x * smoke_x) / (2.0 * smoke_width * smoke_width));
-            float smoke_density = smoke_shape * (0.08 + 0.22 * smoke_noise) * smoothstep(1.0, 0.15, vPos.y);
+            // Glowing coals bed
+            float dist_to_coals = length(vec2(vPos.x * 3.0, (vPos.y - ground_height) * 5.0));
+            float coals_glow = exp(-dist_to_coals * 3.5) * (0.8 + 0.5 * bass) * container_mask;
+            vec3 coals_color = vec3(0.98, 0.18, 0.01) * coals_glow;
+            base_color += coals_color * 1.5;
             
-            vec3 smoke_color = vec3(0.24, 0.25, 0.28) * (0.8 + 0.3 * fbm(vPos * 4.0));
-            base_color = mix(base_color, smoke_color, smoke_density * 0.45);
-        }
-        
-        float flame_height = 0.30 + 0.35 * bass + 0.12 * mid;
-        float flame_width = 0.16 + 0.08 * bass;
-        
-        flame_height = max(0.1, flame_height);
-        float y_scaled = (vPos.y - ground_height) / flame_height;
-        
-        // Render a glowing coals bed at the bottom center (inside the fireplace)
-        float dist_to_coals = length(vec2(vPos.x * 3.0, (vPos.y - ground_height) * 5.0));
-        float coals_glow = exp(-dist_to_coals * 3.5) * (0.8 + 0.5 * bass) * container_mask;
-        vec3 coals_color = vec3(0.98, 0.18, 0.01) * coals_glow;
-        base_color += coals_color * 1.5;
-        
-        float total_temp = 0.0;
-        float total_opacity = 0.0;
-        float total_bg_glow = 0.0;
-        float total_blue_mask = 0.0;
-        
-        float fx[3];
-        fx[0] = -0.11; fx[1] = 0.0; fx[2] = 0.11;
-        
-        float x_factor = 2.5;
-        float p_val[3];
-        p_val[0] = (bass * x_factor + mid + treble) / (x_factor + 2.0);
-        p_val[1] = (bass + mid * x_factor + treble) / (x_factor + 2.0);
-        p_val[2] = (bass + mid + treble * x_factor) / (x_factor + 2.0);
-        
-        float f_height[3];
-        f_height[0] = 0.20 + 0.30 * p_val[0];
-        f_height[1] = 0.23 + 0.33 * p_val[1];
-        f_height[2] = 0.20 + 0.30 * p_val[2];
-        
-        float f_width[3];
-        f_width[0] = 0.09 + 0.04 * p_val[0];
-        f_width[1] = 0.10 + 0.04 * p_val[1];
-        f_width[2] = 0.09 + 0.04 * p_val[2];
-        
-        float f_sway[3];
-        f_sway[0] = sin(uTime * 1.6 + 0.0) * 0.08 + uStereoPanning * 0.35 + uWindGust * 0.50;
-        f_sway[1] = sin(uTime * 1.9 + 2.1) * 0.11 + uStereoPanning * 0.42 + uWindGust * 0.65;
-        f_sway[2] = sin(uTime * 2.2 + 4.3) * 0.08 + uStereoPanning * 0.35 + uWindGust * 0.50;
-        
-        for (int p = 0; p < 3; p++) {
-            float p_height = max(0.08, f_height[p]);
-            float y_scaled = (vPos.y - ground_height) / p_height;
+            float total_temp = 0.0;
+            float total_opacity = 0.0;
+            float total_bg_glow = 0.0;
+            float total_blue_mask = 0.0;
             
-            if (vPos.y >= ground_height && y_scaled < 1.35) {
-                float height_fade = smoothstep(1.35, 0.75, y_scaled);
-                float taper = 1.05 - y_scaled * 0.85;
-                float profile_width = f_width[p] * max(0.1, taper);
+            float fx[3];
+            fx[0] = -0.11; fx[1] = 0.0; fx[2] = 0.11;
+            
+            float x_factor = 2.5;
+            float p_val[3];
+            p_val[0] = (bass * x_factor + mid + treble) / (x_factor + 2.0);
+            p_val[1] = (bass + mid * x_factor + treble) / (x_factor + 2.0);
+            p_val[2] = (bass + mid + treble * x_factor) / (x_factor + 2.0);
+            
+            float f_height[3];
+            f_height[0] = 0.20 + 0.30 * p_val[0];
+            f_height[1] = 0.23 + 0.33 * p_val[1];
+            f_height[2] = 0.20 + 0.30 * p_val[2];
+            
+            float f_width[3];
+            f_width[0] = 0.09 + 0.04 * p_val[0];
+            f_width[1] = 0.10 + 0.04 * p_val[1];
+            f_width[2] = 0.09 + 0.04 * p_val[2];
+            
+            float f_sway[3];
+            f_sway[0] = sin(uTime * 1.6 + 0.0) * 0.08 + uStereoPanning * 0.35 + uWindGust * 0.50;
+            f_sway[1] = sin(uTime * 1.9 + 2.1) * 0.11 + uStereoPanning * 0.42 + uWindGust * 0.65;
+            f_sway[2] = sin(uTime * 2.2 + 4.3) * 0.08 + uStereoPanning * 0.35 + uWindGust * 0.50;
+            
+            for (int p = 0; p < 3; p++) {
+                float p_height = max(0.08, f_height[p]);
+                float y_scaled = (vPos.y - ground_height) / p_height;
                 
-                float px = vPos.x - fx[p];
-                px -= f_sway[p] * y_scaled * 0.45;
+                if (vPos.y >= ground_height && y_scaled < 1.35) {
+                    float height_fade = smoothstep(1.35, 0.75, y_scaled);
+                    float taper = 1.05 - y_scaled * 0.85;
+                    float profile_width = f_width[p] * max(0.1, taper);
+                    
+                    float px = vPos.x - fx[p];
+                    px -= f_sway[p] * y_scaled * 0.45;
+                    
+                    float shape_mask = exp(- (px * px) / (2.0 * profile_width * profile_width)) * container_mask;
+                    
+                    vec2 noise_uv = vec2(px * 2.5, y_scaled);
+                    vec2 disp1 = vec2(uTime * 0.30 + float(p) * 1.5, -uTime * 2.2 - bass * 1.0);
+                    vec2 disp2 = vec2(-uTime * 0.20 - float(p) * 1.5, -uTime * 3.4 - treble * 0.4);
+                    
+                    vec2 warp1 = vec2(
+                        fbm(noise_uv * 1.8 + disp1),
+                        fbm(noise_uv * 2.2 + disp2)
+                    );
+                    vec2 warp2 = vec2(
+                        fbm(noise_uv * 3.8 + warp1 * 1.4 - disp1 * 0.4),
+                        fbm(noise_uv * 4.6 - warp1 * 1.1 + disp2 * 0.4)
+                    );
+                    vec2 final_uv = noise_uv + warp2 * 0.45;
+                    float licks = fbm(final_uv * 4.8 - vec2(0.0, uTime * (2.4 + float(p) * 0.4)));
+                    
+                    float flame_field = (exp(-y_scaled * 2.4) * 0.38 + licks * 0.82) * shape_mask - y_scaled * 0.54;
+                    
+                    float solid_base = smoothstep(0.12, 0.0, y_scaled);
+                    flame_field = mix(flame_field, 0.80, solid_base * shape_mask);
+                    
+                    float p_temp = smoothstep(0.08, 0.38, flame_field) * height_fade;
+                    p_temp = clamp(p_temp, 0.0, 1.0);
+                    
+                    if (p_temp > total_temp) {
+                        total_temp = p_temp;
+                    }
+                    
+                    // Accumulate local blue mask for gas base
+                    float p_blue = smoothstep(0.06, 0.0, y_scaled) * smoothstep(f_width[p] * 0.35, 0.0, abs(px));
+                    if (p_blue > total_blue_mask) {
+                        total_blue_mask = p_blue;
+                    }
+                    
+                    // Add background glow for each plume
+                    float glow_width = f_width[p] * 1.4;
+                    float glow_shape = exp(- (px * px) / (2.0 * glow_width * glow_width)) * container_mask;
+                    float glow_decay = exp(-y_scaled * 2.0);
+                    total_bg_glow += glow_shape * glow_decay * (0.04 + 0.12 * bass);
+                }
+            }
+            
+            vec3 flame_color = vec3(0.0);
+            float opacity = 0.0;
+            
+            if (total_temp > 0.005) {
+                vec3 col_blue = vec3(0.01, 0.05, 0.65) * (0.8 + bass * 0.4);
+                vec3 col_red, col_orange, col_yellow, col_white;
                 
+                if (uColorMode == 1) { // NEON
+                    col_red = vec3(1.0, 0.0, 0.5) * (0.8 + bass * 0.35);
+                    col_orange = vec3(0.5, 0.0, 1.0) * (0.8 + treble * 0.35);
+                    col_yellow = vec3(0.0, 1.0, 1.0) * (0.8 + treble * 0.35);
+                    col_white = vec3(0.0, 1.0, 0.0) * (0.8 + mid * 0.35);
+                } else if (uColorMode == 2) { // TRANQUIL
+                    col_red = vec3(0.0, 0.3, 0.8) * (0.8 + bass * 0.3);
+                    col_orange = vec3(0.0, 0.6, 0.5) * (0.8 + treble * 0.3);
+                    col_yellow = vec3(0.5, 0.2, 0.7) * (0.8 + treble * 0.3);
+                    col_white = vec3(0.1, 0.7, 0.4) * (0.8 + mid * 0.3);
+                } else if (uColorMode == 3) { // METAL
+                    col_red = vec3(0.8, 0.5, 0.2) * (0.8 + bass * 0.35);
+                    col_orange = vec3(1.0, 0.8, 0.2) * (0.8 + treble * 0.35);
+                    col_yellow = vec3(0.9, 0.9, 0.95) * (0.8 + treble * 0.35);
+                    col_white = vec3(1.0, 1.0, 1.0) * (0.8 + mid * 0.35);
+                } else { // REALISTIC
+                    col_red = vec3(0.85 + 0.15 * bass, 0.015 * (1.0 - bass), 0.005) * (1.25 + bass * 0.45);
+                    col_orange = vec3(0.98, 0.28 + 0.22 * treble, 0.01);
+                    col_yellow = vec3(1.0, 0.88 + 0.12 * treble, 0.10 + 0.25 * treble);
+                    col_white = vec3(1.0, 1.0, 0.72 + 0.28 * mid);
+                }
+                
+                float red_thresh = 0.04 + 0.06 * (1.0 - bass);
+                float orange_thresh = 0.18 - 0.06 * bass;
+                float yellow_thresh = 0.52 - 0.18 * treble;
+                float white_thresh = 0.80 - 0.15 * treble;
+                
+                orange_thresh = max(red_thresh + 0.02, orange_thresh);
+                yellow_thresh = max(orange_thresh + 0.02, yellow_thresh);
+                white_thresh = max(yellow_thresh + 0.02, white_thresh);
+                
+                if (total_temp < red_thresh) {
+                    float t = total_temp / red_thresh;
+                    flame_color = mix(vec3(0.0), col_red, t);
+                } else if (total_temp < orange_thresh) {
+                    float t = (total_temp - red_thresh) / (orange_thresh - red_thresh);
+                    flame_color = mix(col_red, col_orange, t);
+                } else if (total_temp < yellow_thresh) {
+                    float t = (total_temp - orange_thresh) / (yellow_thresh - orange_thresh);
+                    flame_color = mix(col_orange, col_yellow, t);
+                } else if (total_temp < white_thresh) {
+                    float t = (total_temp - yellow_thresh) / (white_thresh - yellow_thresh);
+                    flame_color = mix(col_yellow, col_white, t);
+                } else {
+                    float t = clamp((total_temp - white_thresh) / (1.0 - white_thresh), 0.0, 1.0);
+                    flame_color = mix(col_white, vec3(1.0, 1.0, 1.0), t);
+                }
+                
+                // Only mix in standard blue gas base if we are in realistic mode!
+                if (uColorMode == 0) {
+                    flame_color = mix(flame_color, vec3(0.01, 0.05, 0.65) * (0.8 + bass * 0.4), total_blue_mask * 0.75);
+                }
+                
+                float target_density = total_temp * (3.8 + bass * 2.2);
+                opacity = 1.0 - exp(-target_density);
+                opacity = clamp(opacity, 0.0, 0.94);
+            }
+            
+            float bg_glow = clamp(total_bg_glow, 0.0, 0.5);
+            
+            vec3 glow_tint;
+            if (uColorMode == 1) {
+                glow_tint = vec3(0.85, 0.0, 0.5);
+            } else if (uColorMode == 2) {
+                glow_tint = vec3(0.0, 0.3, 0.8);
+            } else if (uColorMode == 3) {
+                glow_tint = vec3(0.8, 0.5, 0.2);
+            } else {
+                glow_tint = vec3(0.85, 0.14, 0.01);
+            }
+            vec3 glow_color = glow_tint * bg_glow;
+            base_color += glow_color;
+            base_color = mix(base_color, flame_color * (1.1 + bass * 0.35), opacity);
+            
+        } else if (uFlameAlgorithm < 1.5) {
+            // --- ALGORITHM 1: Gas Jet (intense, focused, blue-white core campfire) ---
+            float container_mask = smoothstep(0.31, 0.22, abs(vPos.x));
+            
+            // Simple smoke
+            if (vPos.y >= ground_height) {
+                float s_height = vPos.y - ground_height;
+                float smoke_width = 0.15 + 0.30 * s_height;
+                float smoke_sway = sin(uTime * 1.3) * 0.12 + uWindGust * 0.5;
+                float smoke_x = vPos.x - smoke_sway * s_height * 0.50;
+                vec2 smoke_uv = vec2(smoke_x * 2.5, s_height * 0.40 - uTime * 0.55);
+                float smoke_noise = fbm(smoke_uv * 3.5 + vec2(0.0, -uTime * 0.25));
+                smoke_noise += fbm(smoke_uv * 7.5) * 0.35;
+                float smoke_shape = exp(- (smoke_x * smoke_x) / (2.0 * smoke_width * smoke_width));
+                float smoke_density = smoke_shape * (0.05 + 0.15 * smoke_noise) * smoothstep(1.0, 0.15, vPos.y);
+                vec3 smoke_color = vec3(0.2, 0.2, 0.25);
+                base_color = mix(base_color, smoke_color, smoke_density * 0.3);
+            }
+            
+            // Coals bed
+            float dist_to_coals = length(vec2(vPos.x * 3.0, (vPos.y - ground_height) * 5.0));
+            float coals_glow = exp(-dist_to_coals * 3.5) * (0.8 + 0.5 * bass) * container_mask;
+            base_color += vec3(0.98, 0.18, 0.01) * coals_glow * 1.5;
+            
+            // Single tall narrow plume with strong blue-white core
+            float flame_height = 0.35 + 0.40 * bass + 0.15 * mid;
+            flame_height = max(0.1, flame_height);
+            float y_scaled = (vPos.y - ground_height) / flame_height;
+            
+            float total_temp = 0.0;
+            float total_bg_glow = 0.0;
+            
+            if (vPos.y >= ground_height && y_scaled < 1.4) {
+                float height_fade = smoothstep(1.4, 0.6, y_scaled);
+                float taper = 1.1 - y_scaled * 0.9;
+                float profile_width = 0.06 * max(0.1, taper);
+                float px = vPos.x - 0.0;
+                px -= sin(uTime * 2.0) * 0.03 * y_scaled;
                 float shape_mask = exp(- (px * px) / (2.0 * profile_width * profile_width)) * container_mask;
                 
-                vec2 noise_uv = vec2(px * 2.5, y_scaled);
-                vec2 disp1 = vec2(uTime * 0.30 + float(p) * 1.5, -uTime * 2.2 - bass * 1.0);
-                vec2 disp2 = vec2(-uTime * 0.20 - float(p) * 1.5, -uTime * 3.4 - treble * 0.4);
+                vec2 noise_uv = vec2(px * 3.0, y_scaled * 2.0);
+                vec2 disp = vec2(uTime * 0.3, -uTime * 2.5 - bass * 1.0);
+                vec2 warp1 = vec2(fbm(noise_uv * 1.5 + disp), fbm(noise_uv * 2.0 - disp));
+                vec2 final_uv = noise_uv + warp1 * 0.3;
+                float licks = fbm(final_uv * 3.5 - vec2(0.0, uTime * 2.0));
                 
-                vec2 warp1 = vec2(
-                    fbm(noise_uv * 1.8 + disp1),
-                    fbm(noise_uv * 2.2 + disp2)
-                );
-                vec2 warp2 = vec2(
-                    fbm(noise_uv * 3.8 + warp1 * 1.4 - disp1 * 0.4),
-                    fbm(noise_uv * 4.6 - warp1 * 1.1 + disp2 * 0.4)
-                );
-                vec2 final_uv = noise_uv + warp2 * 0.45;
-                float licks = fbm(final_uv * 4.8 - vec2(0.0, uTime * (2.4 + float(p) * 0.4)));
-                
-                float flame_field = (exp(-y_scaled * 2.4) * 0.38 + licks * 0.82) * shape_mask - y_scaled * 0.54;
-                
-                float solid_base = smoothstep(0.12, 0.0, y_scaled);
-                flame_field = mix(flame_field, 0.80, solid_base * shape_mask);
-                
-                float p_temp = smoothstep(0.08, 0.38, flame_field) * height_fade;
+                float flame_field = (exp(-y_scaled * 2.0) * 0.4 + licks * 0.7) * shape_mask - y_scaled * 0.5;
+                float p_temp = smoothstep(0.05, 0.35, flame_field) * height_fade;
                 p_temp = clamp(p_temp, 0.0, 1.0);
+                total_temp = p_temp;
                 
-                if (p_temp > total_temp) {
-                    total_temp = p_temp;
-                }
-                
-                // Accumulate local blue mask for gas base
-                float p_blue = smoothstep(0.06, 0.0, y_scaled) * smoothstep(f_width[p] * 0.35, 0.0, abs(px));
-                if (p_blue > total_blue_mask) {
-                    total_blue_mask = p_blue;
-                }
-                
-                // Add background glow for each plume
-                float glow_width = f_width[p] * 1.4;
+                float glow_width = profile_width * 1.5;
                 float glow_shape = exp(- (px * px) / (2.0 * glow_width * glow_width)) * container_mask;
-                float glow_decay = exp(-y_scaled * 2.0);
-                total_bg_glow += glow_shape * glow_decay * (0.04 + 0.12 * bass);
-            }
-        }
-        
-        vec3 flame_color = vec3(0.0);
-        float opacity = 0.0;
-        
-        if (total_temp > 0.005) {
-            vec3 col_blue = vec3(0.01, 0.05, 0.65) * (0.8 + bass * 0.4);
-            vec3 col_red, col_orange, col_yellow, col_white;
-            
-            if (uColorMode == 1) { // NEON
-                col_red = vec3(1.0, 0.0, 0.5) * (0.8 + bass * 0.35);   // Neon Pink
-                col_orange = vec3(0.5, 0.0, 1.0) * (0.8 + treble * 0.35); // Neon Purple
-                col_yellow = vec3(0.0, 1.0, 1.0) * (0.8 + treble * 0.35); // Neon Cyan
-                col_white = vec3(0.0, 1.0, 0.0) * (0.8 + mid * 0.35);  // Neon Green
-            } else if (uColorMode == 2) { // TRANQUIL
-                col_red = vec3(0.0, 0.3, 0.8) * (0.8 + bass * 0.3);    // Deep Blue
-                col_orange = vec3(0.0, 0.6, 0.5) * (0.8 + treble * 0.3);  // Calming Teal
-                col_yellow = vec3(0.5, 0.2, 0.7) * (0.8 + treble * 0.3);  // Lavender
-                col_white = vec3(0.1, 0.7, 0.4) * (0.8 + mid * 0.3);   // Soft Emerald
-            } else if (uColorMode == 3) { // METAL
-                col_red = vec3(0.8, 0.5, 0.2) * (0.8 + bass * 0.35);     // Warm Bronze
-                col_orange = vec3(1.0, 0.8, 0.2) * (0.8 + treble * 0.35);  // Radiant Gold
-                col_yellow = vec3(0.9, 0.9, 0.95) * (0.8 + treble * 0.35); // Bright Silver
-                col_white = vec3(1.0, 1.0, 1.0) * (0.8 + mid * 0.35);   // White
-            } else { // REALISTIC
-                col_red = vec3(0.85 + 0.15 * bass, 0.015 * (1.0 - bass), 0.005) * (1.25 + bass * 0.45);
-                col_orange = vec3(0.98, 0.28 + 0.22 * treble, 0.01);
-                col_yellow = vec3(1.0, 0.88 + 0.12 * treble, 0.10 + 0.25 * treble);
-                col_white = vec3(1.0, 1.0, 0.72 + 0.28 * mid);
+                total_bg_glow = glow_shape * exp(-y_scaled * 2.0) * (0.05 + 0.15 * bass);
             }
             
-            float red_thresh = 0.04 + 0.06 * (1.0 - bass);
-            float orange_thresh = 0.18 - 0.06 * bass;
-            float yellow_thresh = 0.52 - 0.18 * treble;
-            float white_thresh = 0.80 - 0.15 * treble;
+            if (total_temp > 0.005) {
+                // Intense blue-white core, transitioning to yellow at tips
+                vec3 col_blue = vec3(0.2, 0.4, 1.0) * (0.8 + bass * 0.4);
+                vec3 col_white = vec3(1.0, 1.0, 1.0) * (0.8 + bass * 0.3);
+                vec3 col_yellow = vec3(1.0, 0.9, 0.3);
+                vec3 flame_color;
+                if (total_temp < 0.3) {
+                    flame_color = mix(col_blue, col_white, total_temp / 0.3);
+                } else if (total_temp < 0.7) {
+                    flame_color = mix(col_white, col_yellow, (total_temp - 0.3) / 0.4);
+                } else {
+                    flame_color = mix(col_yellow, vec3(1.0, 0.6, 0.1), (total_temp - 0.7) / 0.3);
+                }
+                float target_density = total_temp * (4.0 + bass * 2.5);
+                float opacity = 1.0 - exp(-target_density);
+                opacity = clamp(opacity, 0.0, 0.95);
+                base_color = mix(base_color, flame_color * (1.1 + bass * 0.4), opacity);
+            }
+            base_color += vec3(0.85, 0.14, 0.01) * clamp(total_bg_glow, 0.0, 0.5);
             
-            orange_thresh = max(red_thresh + 0.02, orange_thresh);
-            yellow_thresh = max(orange_thresh + 0.02, yellow_thresh);
-            white_thresh = max(yellow_thresh + 0.02, white_thresh);
+        } else if (uFlameAlgorithm < 2.5) {
+            // --- ALGORITHM 2: Bonfire (wide, roaring, lots of embers, red/orange dominant) ---
+            float container_mask = smoothstep(0.35, 0.25, abs(vPos.x));
             
-            if (total_temp < red_thresh) {
-                float t = total_temp / red_thresh;
-                flame_color = mix(vec3(0.0), col_red, t);
-            } else if (total_temp < orange_thresh) {
-                float t = (total_temp - red_thresh) / (orange_thresh - red_thresh);
-                flame_color = mix(col_red, col_orange, t);
-            } else if (total_temp < yellow_thresh) {
-                float t = (total_temp - orange_thresh) / (yellow_thresh - orange_thresh);
-                flame_color = mix(col_orange, col_yellow, t);
-            } else if (total_temp < white_thresh) {
-                float t = (total_temp - yellow_thresh) / (white_thresh - yellow_thresh);
-                flame_color = mix(col_yellow, col_white, t);
-            } else {
-                float t = clamp((total_temp - white_thresh) / (1.0 - white_thresh), 0.0, 1.0);
-                flame_color = mix(col_white, vec3(1.0, 1.0, 1.0), t);
+            // More smoke
+            if (vPos.y >= ground_height) {
+                float s_height = vPos.y - ground_height;
+                float smoke_width = 0.25 + 0.45 * s_height;
+                float smoke_sway = sin(uTime * 1.0) * 0.20 + uWindGust * 0.7;
+                float smoke_x = vPos.x - smoke_sway * s_height * 0.65;
+                vec2 smoke_uv = vec2(smoke_x * 2.0, s_height * 0.35 - uTime * 0.5);
+                float smoke_noise = fbm(smoke_uv * 3.0) * 0.5 + fbm(smoke_uv * 6.0) * 0.25;
+                float smoke_shape = exp(- (smoke_x * smoke_x) / (2.0 * smoke_width * smoke_width));
+                float smoke_density = smoke_shape * (0.1 + 0.25 * smoke_noise) * smoothstep(1.0, 0.2, vPos.y);
+                vec3 smoke_color = vec3(0.28, 0.28, 0.32);
+                base_color = mix(base_color, smoke_color, smoke_density * 0.5);
             }
             
-            // Only mix in standard blue gas base if we are in realistic mode!
-            if (uColorMode == 0) {
-                flame_color = mix(flame_color, col_blue, total_blue_mask * 0.75);
+            // Coals bed
+            float dist_to_coals = length(vec2(vPos.x * 3.0, (vPos.y - ground_height) * 5.0));
+            float coals_glow = exp(-dist_to_coals * 3.5) * (0.9 + 0.6 * bass) * container_mask;
+            base_color += vec3(0.98, 0.18, 0.01) * coals_glow * 1.8;
+            
+            // 3 wide plumes with extra width
+            float flame_height = 0.30 + 0.35 * bass + 0.10 * mid;
+            flame_height = max(0.1, flame_height);
+            
+            float total_temp = 0.0;
+            float total_bg_glow = 0.0;
+            
+            float fx[3];
+            fx[0] = -0.14; fx[1] = 0.0; fx[2] = 0.14;
+            
+            for (int p = 0; p < 3; p++) {
+                float p_height = max(0.08, flame_height * (0.9 + 0.1 * float(p)));
+                float y_scaled = (vPos.y - ground_height) / p_height;
+                if (vPos.y >= ground_height && y_scaled < 1.3) {
+                    float height_fade = smoothstep(1.3, 0.6, y_scaled);
+                    float taper = 1.1 - y_scaled * 0.85;
+                    float profile_width = (0.12 + 0.04 * float(p)) * max(0.1, taper);
+                    float px = vPos.x - fx[p];
+                    px -= sin(uTime * 1.5 + float(p) * 2.0) * 0.06 * y_scaled;
+                    float shape_mask = exp(- (px * px) / (2.0 * profile_width * profile_width)) * container_mask;
+                    
+                    vec2 noise_uv = vec2(px * 2.0, y_scaled * 1.5);
+                    vec2 disp = vec2(uTime * 0.3 + float(p) * 1.0, -uTime * 2.0 - bass * 0.8);
+                    vec2 warp1 = vec2(fbm(noise_uv * 1.8 + disp), fbm(noise_uv * 2.2 - disp));
+                    vec2 final_uv = noise_uv + warp1 * 0.4;
+                    float licks = fbm(final_uv * 4.0 - vec2(0.0, uTime * (1.8 + float(p) * 0.3)));
+                    
+                    float flame_field = (exp(-y_scaled * 2.2) * 0.35 + licks * 0.75) * shape_mask - y_scaled * 0.5;
+                    float p_temp = smoothstep(0.06, 0.40, flame_field) * height_fade;
+                    p_temp = clamp(p_temp, 0.0, 1.0);
+                    if (p_temp > total_temp) total_temp = p_temp;
+                    
+                    float glow_width = profile_width * 1.6;
+                    float glow_shape = exp(- (px * px) / (2.0 * glow_width * glow_width)) * container_mask;
+                    total_bg_glow += glow_shape * exp(-y_scaled * 2.0) * (0.05 + 0.15 * bass);
+                }
             }
             
-            float target_density = total_temp * (3.8 + bass * 2.2);
-            opacity = 1.0 - exp(-target_density);
-            opacity = clamp(opacity, 0.0, 0.94);
-        }
-        
-        float bg_glow = clamp(total_bg_glow, 0.0, 0.5);
-        
-        vec3 glow_tint;
-        if (uColorMode == 1) {
-            glow_tint = vec3(0.85, 0.0, 0.5);
-        } else if (uColorMode == 2) {
-            glow_tint = vec3(0.0, 0.3, 0.8);
-        } else if (uColorMode == 3) {
-            glow_tint = vec3(0.8, 0.5, 0.2);
+            if (total_temp > 0.005) {
+                // Red/orange dominant, less yellow/white
+                vec3 col_red = vec3(0.95, 0.05, 0.0);
+                vec3 col_orange = vec3(1.0, 0.35, 0.0);
+                vec3 col_yellow = vec3(1.0, 0.7, 0.1);
+                vec3 flame_color;
+                if (total_temp < 0.2) {
+                    flame_color = mix(col_red, col_orange, total_temp / 0.2);
+                } else if (total_temp < 0.5) {
+                    flame_color = mix(col_orange, col_yellow, (total_temp - 0.2) / 0.3);
+                } else {
+                    flame_color = mix(col_yellow, vec3(1.0, 0.9, 0.5), (total_temp - 0.5) / 0.5);
+                }
+                float target_density = total_temp * (3.0 + bass * 2.0);
+                float opacity = 1.0 - exp(-target_density);
+                opacity = clamp(opacity, 0.0, 0.92);
+                base_color = mix(base_color, flame_color * (1.0 + bass * 0.5), opacity);
+            }
+            base_color += vec3(0.85, 0.14, 0.01) * clamp(total_bg_glow, 0.0, 0.5);
+            
+        } else if (uFlameAlgorithm < 3.5) {
+            // --- ALGORITHM 3: Candle (steady, tall, narrow, warm yellow) ---
+            float container_mask = smoothstep(0.31, 0.22, abs(vPos.x));
+            
+            // Very little smoke
+            if (vPos.y >= ground_height) {
+                float s_height = vPos.y - ground_height;
+                float smoke_width = 0.08 + 0.15 * s_height;
+                float smoke_sway = sin(uTime * 0.8) * 0.05;
+                float smoke_x = vPos.x - smoke_sway * s_height * 0.3;
+                vec2 smoke_uv = vec2(smoke_x * 3.0, s_height * 0.3 - uTime * 0.4);
+                float smoke_noise = fbm(smoke_uv * 3.0) * 0.3;
+                float smoke_shape = exp(- (smoke_x * smoke_x) / (2.0 * smoke_width * smoke_width));
+                float smoke_density = smoke_shape * (0.03 + 0.08 * smoke_noise) * smoothstep(1.0, 0.3, vPos.y);
+                base_color = mix(base_color, vec3(0.2, 0.2, 0.22), smoke_density * 0.2);
+            }
+            
+            // Coals bed
+            float dist_to_coals = length(vec2(vPos.x * 3.0, (vPos.y - ground_height) * 5.0));
+            float coals_glow = exp(-dist_to_coals * 3.5) * (0.7 + 0.4 * bass) * container_mask;
+            base_color += vec3(0.98, 0.18, 0.01) * coals_glow * 1.2;
+            
+            // Single very tall, narrow plume
+            float flame_height = 0.45 + 0.20 * bass + 0.08 * mid;
+            flame_height = max(0.1, flame_height);
+            float y_scaled = (vPos.y - ground_height) / flame_height;
+            
+            float total_temp = 0.0;
+            float total_bg_glow = 0.0;
+            
+            if (vPos.y >= ground_height && y_scaled < 1.3) {
+                float height_fade = smoothstep(1.3, 0.7, y_scaled);
+                float taper = 1.05 - y_scaled * 0.8;
+                float profile_width = 0.035 * max(0.1, taper);
+                float px = vPos.x - 0.0;
+                px -= sin(uTime * 1.2) * 0.02 * y_scaled;
+                float shape_mask = exp(- (px * px) / (2.0 * profile_width * profile_width)) * container_mask;
+                
+                vec2 noise_uv = vec2(px * 5.0, y_scaled * 3.0);
+                vec2 disp = vec2(uTime * 0.2, -uTime * 1.5);
+                vec2 warp1 = vec2(fbm(noise_uv * 1.5 + disp), fbm(noise_uv * 2.0 - disp));
+                vec2 final_uv = noise_uv + warp1 * 0.2;
+                float licks = fbm(final_uv * 4.0 - vec2(0.0, uTime * 1.2));
+                
+                float flame_field = (exp(-y_scaled * 2.5) * 0.5 + licks * 0.6) * shape_mask - y_scaled * 0.5;
+                float p_temp = smoothstep(0.04, 0.35, flame_field) * height_fade;
+                p_temp = clamp(p_temp, 0.0, 1.0);
+                total_temp = p_temp;
+                
+                float glow_width = profile_width * 1.5;
+                float glow_shape = exp(- (px * px) / (2.0 * glow_width * glow_width)) * container_mask;
+                total_bg_glow = glow_shape * exp(-y_scaled * 2.0) * (0.03 + 0.10 * bass);
+            }
+            
+            if (total_temp > 0.005) {
+                // Warm yellow, small blue base
+                vec3 col_blue = vec3(0.1, 0.2, 0.7);
+                vec3 col_yellow = vec3(1.0, 0.9, 0.3);
+                vec3 col_white = vec3(1.0, 1.0, 0.8);
+                vec3 flame_color;
+                if (total_temp < 0.1) {
+                    flame_color = mix(col_blue, col_yellow, total_temp / 0.1);
+                } else if (total_temp < 0.6) {
+                    flame_color = mix(col_yellow, col_white, (total_temp - 0.1) / 0.5);
+                } else {
+                    flame_color = mix(col_white, vec3(1.0, 0.8, 0.4), (total_temp - 0.6) / 0.4);
+                }
+                float target_density = total_temp * (4.5 + bass * 1.5);
+                float opacity = 1.0 - exp(-target_density);
+                opacity = clamp(opacity, 0.0, 0.95);
+                base_color = mix(base_color, flame_color * (1.1 + bass * 0.3), opacity);
+            }
+            base_color += vec3(0.85, 0.14, 0.01) * clamp(total_bg_glow, 0.0, 0.4);
+            
+        } else if (uFlameAlgorithm < 4.5) {
+            // --- ALGORITHM 4: Vortex (swirling, tornado-like flame with helical motion) ---
+            float container_mask = smoothstep(0.35, 0.25, abs(vPos.x));
+            
+            // Smoke
+            if (vPos.y >= ground_height) {
+                float s_height = vPos.y - ground_height;
+                float smoke_width = 0.20 + 0.35 * s_height;
+                float smoke_sway = sin(uTime * 0.9) * 0.15 + uWindGust * 0.6;
+                float smoke_x = vPos.x - smoke_sway * s_height * 0.55;
+                vec2 smoke_uv = vec2(smoke_x * 2.5, s_height * 0.35 - uTime * 0.5);
+                float smoke_noise = fbm(smoke_uv * 3.0) * 0.4;
+                float smoke_shape = exp(- (smoke_x * smoke_x) / (2.0 * smoke_width * smoke_width));
+                float smoke_density = smoke_shape * (0.06 + 0.18 * smoke_noise) * smoothstep(1.0, 0.2, vPos.y);
+                base_color = mix(base_color, vec3(0.25, 0.25, 0.30), smoke_density * 0.4);
+            }
+            
+            // Coals
+            float dist_to_coals = length(vec2(vPos.x * 3.0, (vPos.y - ground_height) * 5.0));
+            float coals_glow = exp(-dist_to_coals * 3.5) * (0.8 + 0.5 * bass) * container_mask;
+            base_color += vec3(0.98, 0.18, 0.01) * coals_glow * 1.5;
+            
+            // Core flame with helical twist
+            float flame_height = 0.35 + 0.35 * bass + 0.10 * mid;
+            flame_height = max(0.1, flame_height);
+            float y_scaled = (vPos.y - ground_height) / flame_height;
+            
+            float total_temp = 0.0;
+            float total_bg_glow = 0.0;
+            
+            if (vPos.y >= ground_height && y_scaled < 1.35) {
+                float height_fade = smoothstep(1.35, 0.6, y_scaled);
+                float taper = 1.1 - y_scaled * 0.85;
+                float profile_width = 0.10 * max(0.1, taper);
+                
+                // Helical displacement
+                float helix_angle = uTime * 2.0 + y_scaled * 8.0;
+                float helix_x = sin(helix_angle) * 0.04 * y_scaled;
+                float px = vPos.x - 0.0 - helix_x;
+                float shape_mask = exp(- (px * px) / (2.0 * profile_width * profile_width)) * container_mask;
+                
+                vec2 noise_uv = vec2(px * 3.0, y_scaled * 2.0 - uTime * 1.8);
+                vec2 warp1 = vec2(fbm(noise_uv * 1.5), fbm(noise_uv * 2.0 + vec2(1.0)));
+                vec2 final_uv = noise_uv + warp1 * 0.35;
+                float licks = fbm(final_uv * 3.5 - vec2(0.0, uTime * 1.8));
+                
+                float flame_field = (exp(-y_scaled * 2.2) * 0.4 + licks * 0.7) * shape_mask - y_scaled * 0.5;
+                float p_temp = smoothstep(0.05, 0.38, flame_field) * height_fade;
+                p_temp = clamp(p_temp, 0.0, 1.0);
+                total_temp = p_temp;
+                
+                float glow_width = profile_width * 1.5;
+                float glow_shape = exp(- (px * px) / (2.0 * glow_width * glow_width)) * container_mask;
+                total_bg_glow = glow_shape * exp(-y_scaled * 2.0) * (0.04 + 0.12 * bass);
+            }
+            
+            if (total_temp > 0.005) {
+                // Warm fire colors with a hint of blue at the base
+                vec3 col_blue = vec3(0.2, 0.3, 0.8) * (0.8 + bass * 0.3);
+                vec3 col_red = vec3(0.85, 0.1, 0.0);
+                vec3 col_orange = vec3(1.0, 0.4, 0.0);
+                vec3 col_yellow = vec3(1.0, 0.85, 0.2);
+                vec3 flame_color;
+                if (total_temp < 0.1) {
+                    flame_color = mix(col_blue, col_red, total_temp / 0.1);
+                } else if (total_temp < 0.3) {
+                    flame_color = mix(col_red, col_orange, (total_temp - 0.1) / 0.2);
+                } else if (total_temp < 0.6) {
+                    flame_color = mix(col_orange, col_yellow, (total_temp - 0.3) / 0.3);
+                } else {
+                    flame_color = mix(col_yellow, vec3(1.0, 0.95, 0.6), (total_temp - 0.6) / 0.4);
+                }
+                float target_density = total_temp * (3.5 + bass * 2.2);
+                float opacity = 1.0 - exp(-target_density);
+                opacity = clamp(opacity, 0.0, 0.93);
+                base_color = mix(base_color, flame_color * (1.05 + bass * 0.4), opacity);
+            }
+            base_color += vec3(0.85, 0.14, 0.01) * clamp(total_bg_glow, 0.0, 0.5);
+            
+        } else if (uFlameAlgorithm < 5.5) {
+            // --- ALGORITHM 5: Game-Style (modern adaptive heat haze + edge glow) ---
+            float container_mask = smoothstep(0.31, 0.22, abs(vPos.x));
+            
+            // Smoke
+            if (vPos.y >= ground_height) {
+                float s_height = vPos.y - ground_height;
+                float smoke_width = 0.18 + 0.32 * s_height;
+                float smoke_sway = sin(uTime * 1.1) * 0.14 + uWindGust * 0.55;
+                float smoke_x = vPos.x - smoke_sway * s_height * 0.55;
+                vec2 smoke_uv = vec2(smoke_x * 2.5, s_height * 0.35 - uTime * 0.5);
+                float smoke_noise = fbm(smoke_uv * 3.0) * 0.4;
+                float smoke_shape = exp(- (smoke_x * smoke_x) / (2.0 * smoke_width * smoke_width));
+                float smoke_density = smoke_shape * (0.05 + 0.20 * smoke_noise) * smoothstep(1.0, 0.2, vPos.y);
+                base_color = mix(base_color, vec3(0.22, 0.22, 0.26), smoke_density * 0.4);
+            }
+            
+            // Coals
+            float dist_to_coals = length(vec2(vPos.x * 3.0, (vPos.y - ground_height) * 5.0));
+            float coals_glow = exp(-dist_to_coals * 3.5) * (0.8 + 0.5 * bass) * container_mask;
+            base_color += vec3(0.98, 0.18, 0.01) * coals_glow * 1.5;
+            
+            // Single plume with adaptive heat haze and edge glow
+            float flame_height = 0.32 + 0.38 * bass + 0.12 * mid;
+            flame_height = max(0.1, flame_height);
+            float y_scaled = (vPos.y - ground_height) / flame_height;
+            
+            float total_temp = 0.0;
+            float total_bg_glow = 0.0;
+            float edge_glow = 0.0;
+            
+            if (vPos.y >= ground_height && y_scaled < 1.35) {
+                float height_fade = smoothstep(1.35, 0.65, y_scaled);
+                float taper = 1.1 - y_scaled * 0.85;
+                float profile_width = 0.08 * max(0.1, taper);
+                float px = vPos.x - 0.0;
+                px -= sin(uTime * 1.7) * 0.04 * y_scaled;
+                float shape_mask = exp(- (px * px) / (2.0 * profile_width * profile_width)) * container_mask;
+                
+                // Heat haze: displace UV based on noise
+                vec2 noise_uv = vec2(px * 4.0, y_scaled * 2.5 - uTime * 2.0);
+                float displace = fbm(noise_uv) * 0.08;
+                vec2 displaced_uv = noise_uv + vec2(displace, displace * 0.5);
+                float heat = fbm(displaced_uv);
+                
+                // Edge detection using derivative of heat
+                edge_glow = fwidth(heat) * 4.0 * shape_mask * height_fade;
+                
+                float flame_field = (exp(-y_scaled * 2.2) * 0.4 + heat * 0.7) * shape_mask - y_scaled * 0.5;
+                float p_temp = smoothstep(0.05, 0.38, flame_field) * height_fade;
+                p_temp = clamp(p_temp, 0.0, 1.0);
+                total_temp = p_temp;
+                
+                float glow_width = profile_width * 1.5;
+                float glow_shape = exp(- (px * px) / (2.0 * glow_width * glow_width)) * container_mask;
+                total_bg_glow = glow_shape * exp(-y_scaled * 2.0) * (0.04 + 0.12 * bass);
+            }
+            
+            if (total_temp > 0.005) {
+                // Adaptive color: blue base, warm middle, bright tips
+                vec3 col_base = vec3(0.1, 0.3, 0.9);
+                vec3 col_mid = vec3(1.0, 0.85, 0.5);
+                vec3 col_tip = vec3(1.0, 0.7, 0.1);
+                float height_factor = smoothstep(0.0, 1.0, y_scaled);
+                vec3 flame_color = mix(col_base, col_mid, smoothstep(0.0, 0.5, height_factor));
+                flame_color = mix(flame_color, col_tip, smoothstep(0.5, 1.0, height_factor));
+                // Add edge glow
+                flame_color += vec3(0.8, 0.9, 1.0) * edge_glow * 0.5;
+                
+                float target_density = total_temp * (3.5 + bass * 2.0);
+                float opacity = 1.0 - exp(-target_density);
+                opacity = clamp(opacity, 0.0, 0.93);
+                base_color = mix(base_color, flame_color * (1.05 + bass * 0.4), opacity);
+            }
+            base_color += vec3(0.85, 0.14, 0.01) * clamp(total_bg_glow + edge_glow * 0.3, 0.0, 0.5);
         } else {
-            glow_tint = vec3(0.85, 0.14, 0.01);
+            // --- ALGORITHM 6: Multi (5 vortex plumes, independent flicker, spatial reactivity) ---
+            float container_mask = smoothstep(0.35, 0.25, abs(vPos.x));
+
+            // Smoke (unchanged)
+            if (vPos.y >= ground_height) {
+                float s_height = vPos.y - ground_height;
+                float smoke_width = 0.20 + 0.35 * s_height;
+                float smoke_sway = sin(uTime * 0.9) * 0.15 + uWindGust * 0.6;
+                float smoke_x = vPos.x - smoke_sway * s_height * 0.55;
+                vec2 smoke_uv = vec2(smoke_x * 2.5, s_height * 0.35 - uTime * 0.5);
+                float smoke_noise = fbm(smoke_uv * 3.0) * 0.4;
+                float smoke_shape = exp(- (smoke_x * smoke_x) / (2.0 * smoke_width * smoke_width));
+                float smoke_density = smoke_shape * (0.06 + 0.18 * smoke_noise) * smoothstep(1.0, 0.2, vPos.y);
+                base_color = mix(base_color, vec3(0.25, 0.25, 0.30), smoke_density * 0.4);
+            }
+
+            // Coals (unchanged)
+            float dist_to_coals = length(vec2(vPos.x * 3.0, (vPos.y - ground_height) * 5.0));
+            float coals_glow = exp(-dist_to_coals * 3.5) * (0.8 + 0.5 * bass) * container_mask;
+            base_color += vec3(0.98, 0.18, 0.01) * coals_glow * 1.5;
+
+            // Five vortex plumes – each with its own height, width, color, and independent flicker
+            float vortex_x_offsets[5];
+            vortex_x_offsets[0] = -0.18;
+            vortex_x_offsets[1] = -0.09;
+            vortex_x_offsets[2] = 0.0;
+            vortex_x_offsets[3] = 0.09;
+            vortex_x_offsets[4] = 0.18;
+
+            // Colors: outer deep red, inner dark red-orange, center yellow
+            vec3 vortex_colors[5];
+            vortex_colors[0] = vec3(0.95, 0.10, 0.0);
+            vortex_colors[1] = vec3(0.80, 0.15, 0.0);
+            vortex_colors[2] = vec3(1.0, 0.85, 0.2);
+            vortex_colors[3] = vec3(0.80, 0.15, 0.0);
+            vortex_colors[4] = vec3(0.95, 0.10, 0.0);
+
+            // Per‑vortex music reactivity – left side gets much more bass, right side gets more treble
+            float reacts[5];
+            float bass_contrib[5];
+            float treble_contrib[5];
+            for (int v = 0; v < 5; v++) {
+                float tv = clamp((vortex_x_offsets[v] + 0.18) / 0.36, 0.0, 1.0);
+                // Bass weight: 1.0 at left, 0.0 at right
+                float bw = 1.0 - tv;
+                // Treble weight: 0.0 at left, 1.0 at right
+                float tw = tv;
+                // Mid weight: peaks in the center
+                float mw = 1.0 - 2.0 * abs(tv - 0.5);
+                // Normalise so sum = 1
+                float sum = bw + mw + tw;
+                bw /= sum;
+                mw /= sum;
+                tw /= sum;
+                // Subtle reactivity for color (only 1.0x for bass/treble, 0.5x for mid)
+                reacts[v] = 1.0 + bw * bass * 1.0 + mw * mid * 0.5 + tw * treble * 1.0;
+                // Store separate contributions for height/width/speed (unchanged)
+                bass_contrib[v] = bw * bass;
+                treble_contrib[v] = tw * treble;
+            }
+
+            // Local temperatures and color weights for each vortex
+            float temps[5];
+            float color_weights[5];
+            float total_bg_glow = 0.0;
+
+            for (int v = 0; v < 5; v++) {
+                // Height: left side gets taller with bass, right side gets taller with treble
+                float v_height = 0.35 + 0.30 * bass_contrib[v] + 0.12 * mid + 0.30 * treble_contrib[v];
+                v_height = max(0.08, v_height);
+                float y_scaled_v = (vPos.y - ground_height) / v_height;
+                temps[v] = 0.0;
+                color_weights[v] = exp(-pow(vPos.x - vortex_x_offsets[v], 2.0) * 80.0);
+
+                if (vPos.y >= ground_height && y_scaled_v < 1.3) {
+                    float height_fade = smoothstep(1.3, 0.5, y_scaled_v);
+                    float taper = 1.05 - y_scaled_v * 0.8;
+                    // Width: left side gets wider with bass, right side gets wider with treble
+                    float width_scale = 1.0 + 0.3 * (bass_contrib[v] + treble_contrib[v]);
+                    float profile_width = 0.07 * max(0.1, taper) * width_scale;
+                    float px = vPos.x - vortex_x_offsets[v];
+
+                    // Speed: left side flows faster with bass, right side flows faster with treble
+                    float speed_scale = 1.0 + 0.5 * (bass_contrib[v] + treble_contrib[v]);
+                    float time_offset = uTime * (1.0 + 0.15 * float(v) + 0.5 * speed_scale);
+                    float helix_angle = time_offset * 2.0 + y_scaled_v * 6.0 + float(v) * 2.0;
+                    float helix_x = sin(helix_angle) * 0.03 * y_scaled_v;
+                    px -= helix_x;
+
+                    float shape_mask = exp(- (px * px) / (2.0 * profile_width * profile_width)) * container_mask;
+
+                    // Independent noise seed – each vortex uses a different offset
+                    vec2 noise_uv = vec2(px * 3.0 + 0.17 * float(v), y_scaled_v * 2.0 - time_offset * 0.8);
+                    vec2 warp1 = vec2(fbm(noise_uv * 1.5 + 0.31 * float(v)), fbm(noise_uv * 2.0 + vec2(1.0 + 0.13 * float(v))));
+                    vec2 final_uv = noise_uv + warp1 * 0.3;
+                    // Intensity: left side gets brighter with bass, right side gets brighter with treble
+                    float intensity_scale = 1.0 + 0.3 * (bass_contrib[v] + treble_contrib[v]);
+                    float licks = fbm(final_uv * 3.5 - vec2(0.0, time_offset * 0.9)) * intensity_scale;
+
+                    float flame_field = (exp(-y_scaled_v * 2.0) * 0.4 + licks * 0.6) * shape_mask - y_scaled_v * 0.5;
+                    float p_temp = smoothstep(0.05, 0.35, flame_field) * height_fade;
+                    p_temp = clamp(p_temp, 0.0, 1.0);
+                    temps[v] = p_temp;
+
+                    // Background glow
+                    float glow_width = profile_width * 1.5;
+                    float glow_shape = exp(- (px * px) / (2.0 * glow_width * glow_width)) * container_mask;
+                    total_bg_glow += glow_shape * exp(-y_scaled_v * 2.0) * (0.04 + 0.12 * bass);
+                }
+            }
+
+            // Compute per-pixel local temperature by blending scaled temperatures from all vortices
+            float local_temp = 0.0;
+            float total_weight = 0.0;
+            for (int v = 0; v < 5; v++) {
+                float scaled_temp = temps[v] * reacts[v];
+                float w = color_weights[v];
+                local_temp += scaled_temp * w;
+                total_weight += w;
+            }
+            if (total_weight > 0.001) {
+                local_temp /= total_weight;
+            } else {
+                local_temp = 0.0;
+            }
+
+            // Smooth color blend from all vortices (unchanged)
+            vec3 blend_color = vortex_colors[2];
+            float total_cw = color_weights[0] + color_weights[1] + color_weights[2] + color_weights[3] + color_weights[4];
+            if (total_cw > 0.001) {
+                blend_color = vec3(0.0);
+                for (int v = 0; v < 5; v++) {
+                    blend_color += vortex_colors[v] * color_weights[v];
+                }
+                blend_color /= total_cw;
+            }
+
+            if (local_temp > 0.005) {
+                // Vortex color gradient (blue → red → orange → yellow → white)
+                // Reduced music influence on color – keep it subtle
+                vec3 col_blue = vec3(0.2, 0.3, 0.8) * 0.9;
+                vec3 col_red = vec3(0.85, 0.1, 0.0);
+                vec3 col_orange = vec3(1.0, 0.4, 0.0);
+                vec3 col_yellow = vec3(1.0, 0.85, 0.2);
+                vec3 flame_color;
+                if (local_temp < 0.1) {
+                    flame_color = mix(col_blue, col_red, local_temp / 0.1);
+                } else if (local_temp < 0.3) {
+                    flame_color = mix(col_red, col_orange, (local_temp - 0.1) / 0.2);
+                } else if (local_temp < 0.6) {
+                    flame_color = mix(col_orange, col_yellow, (local_temp - 0.3) / 0.3);
+                } else {
+                    flame_color = mix(col_yellow, vec3(1.0, 0.95, 0.6), (local_temp - 0.6) / 0.4);
+                }
+
+                // Tint with the smoothly blended per‑vortex color to give spatial variety
+                flame_color = mix(flame_color, blend_color, 0.35);
+
+                // Very subtle music influence on final brightness and opacity
+                float target_density = local_temp * (3.0 + bass * 0.5);
+                float opacity = 1.0 - exp(-target_density);
+                opacity = clamp(opacity, 0.0, 0.92);
+                base_color = mix(base_color, flame_color * (1.0 + bass * 0.1), opacity);
+            }
+            base_color += vec3(0.85, 0.14, 0.01) * clamp(total_bg_glow, 0.0, 0.5);
         }
-        vec3 glow_color = glow_tint * bg_glow;
-        
-        base_color += glow_color;
-        base_color = mix(base_color, flame_color * (1.1 + bass * 0.35), opacity);
         
         // C. 3D NORMAL-MAPPED CAMPFIRE ROCKS RING (Calculated last so they sit in front of the fire!)
         // 7 rugged rocks arranged in a beautiful circular campfire ring around the fireplace ashes
