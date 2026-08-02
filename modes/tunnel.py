@@ -168,6 +168,42 @@ class TunnelModeMixin:
         by = self.wormhole_bend_y * np.cos(z_arr * 0.06 + self.wormhole_phase_y)
         return bx, by
 
+    def get_tunnel_lines(self):
+        # Gathers the line-segment geometry (jagged lightning bolts + the central fly-by
+        # shooting star trail) rendered in on_render for TUNNEL Wormhole mode.
+        get_bend_offsets = self.get_bend_offsets
+        line_pos = []
+        line_col = []
+
+        # Draw Jagged Lightning Bolts down the Tunnel during Lightning Flash event
+        if self.lightning_active_timer > 0.0:
+            # Jagged paths in line segments
+            for bolt in self.active_lightning_bolts:
+                if len(bolt) > 1:
+                    for idx in range(len(bolt) - 1):
+                        line_pos.append(bolt[idx])
+                        line_pos.append(bolt[idx + 1])
+                        # strobe color
+                        line_col.append([0.85, 0.95, 1.0, 1.0])
+                        line_col.append([0.85, 0.95, 1.0, 1.0])
+
+        # Draw massive, central fly-by Shooting Star trail inside Wormhole
+        if self.wormhole_shooting_star_active:
+            # Create dynamic segment lines representing a trail behind the star
+            head_z = self.wormhole_shooting_star_z
+            for t_seg in range(12):
+                z0 = head_z - t_seg * 1.5
+                z1 = head_z - (t_seg + 1) * 1.5
+                bx0, by0 = get_bend_offsets(z0)
+                bx1, by1 = get_bend_offsets(z1)
+                line_pos.append([self.wormhole_shooting_star_x + bx0, self.wormhole_shooting_star_y + by0 + 4.0, z0])
+                line_pos.append([self.wormhole_shooting_star_x + bx1, self.wormhole_shooting_star_y + by1 + 4.0, z1])
+                alpha = np.clip((1.0 - t_seg / 12.0) * ((z0 + 50.0)/50.0), 0.0, 1.0)
+                line_col.append([0.15, 0.85, 1.0, alpha])
+                line_col.append([0.15, 0.85, 1.0, alpha])
+
+        return line_pos, line_col
+
     def render_tunnel(self):
         get_bend_offsets = self.get_bend_offsets
             

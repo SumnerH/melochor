@@ -1089,6 +1089,110 @@ class FireModeMixin:
         if self.active_rarity is not None:
             self.update_active_rarity(dt)
 
+    def get_fire_lines(self):
+        # Gathers the line-segment geometry (campfire lightning bolts + the Shooting Star/
+        # Bats/Tumbleweed rarity silhouettes) rendered in on_render for FIRE Plasma mode.
+        line_pos = []
+        line_col = []
+
+        # Draw Campfire Lightning Bolts in FIRE Plasma mode
+        if hasattr(self, 'fire_lightning_bolts'):
+            for bolt in self.fire_lightning_bolts:
+                frac = bolt['life'] / bolt['max_life']
+                # Stroboscopic lightning flickering intensity
+                strobe = 1.0 if (int(frac * 30.0) % 2 == 0) else 0.15
+                alpha = frac * strobe
+
+                for pt0, pt1, depth in bolt['segments']:
+                    line_pos.append(pt0)
+                    line_pos.append(pt1)
+
+                    # Main trunk is thick white-blue, branches are thinner blueish
+                    if depth == 0:
+                        col = [0.92, 0.96, 1.0, alpha * 0.95]
+                    else:
+                        col = [0.35, 0.65, 1.0, alpha * 0.55 * (1.0 / (depth + 1))]
+                    line_col.append(col)
+                    line_col.append(col)
+
+        # Draw Scenic FIRE Plasma Mode Rarities (Shooting Star, Bats, Tumbleweed)
+        if self.active_rarity is not None:
+            r = self.active_rarity
+            if r['type'] == 'SHOOTING_STAR' and 'trail' in r:
+                for idx in range(len(r['trail']) - 1):
+                    pt0 = r['trail'][idx]
+                    pt1 = r['trail'][idx + 1]
+                    alpha = (idx + 1) / len(r['trail'])
+                    line_pos.append([pt0[0], pt0[1], 0.0])
+                    line_pos.append([pt1[0], pt1[1], 0.0])
+                    # Beautiful blazing white-gold trail
+                    line_col.append([1.0, 0.90, 0.65, alpha * 0.95])
+                    line_col.append([1.0, 0.90, 0.65, alpha * 0.95])
+            elif r['type'] == 'BATS' and 'bats' in r:
+                span = 0.024 # Wider wing span for striking silhouette visibility
+                t_val = self.get_sim_time()
+                for b in r['bats']:
+                    bp = b['pos']
+                    flap = np.sin(t_val * 24.0 + b['phase']) * 0.015
+                    col = [0.0, 0.0, 0.0, 0.98] # Solid black silhouette
+
+                    # Wing Left
+                    line_pos.append([bp[0], bp[1], 0.0])
+                    line_pos.append([bp[0] - span, bp[1] + flap, 0.0])
+                    # Wing Right
+                    line_pos.append([bp[0], bp[1], 0.0])
+                    line_pos.append([bp[0] + span, bp[1] + flap, 0.0])
+                    # Body/Head
+                    line_pos.append([bp[0], bp[1] + 0.006, 0.0])
+                    line_pos.append([bp[0], bp[1] - 0.008, 0.0])
+                    for _ in range(6):
+                        line_col.append(col)
+            elif r['type'] == 'TUMBLEWEED':
+                tx = r['x']
+                ty = r['y']
+                rad = r['radius']
+                rot = r['rotation']
+                col = [0.08, 0.05, 0.03, 0.90] # Twiggy dark brown branches
+
+                # Render a highly detailed tangled branch ball
+                num_loops = 10
+                for i_loop in range(num_loops):
+                    # Rotate each loop plane
+                    loop_ang = i_loop * (np.pi / num_loops) + rot
+                    c_l, s_l = np.cos(loop_ang), np.sin(loop_ang)
+
+                    segments = 6
+                    # Vary radius slightly to create fuzzy/tangled twig density
+                    loop_rad = rad * (0.85 + 0.25 * np.sin(i_loop * 4.3))
+
+                    p_prev = None
+                    for j_seg in range(segments + 1):
+                        a0 = j_seg * (2.0 * np.pi / segments)
+                        # Add jagged offset to make the branches look twiggy and rough
+                        jag_r = loop_rad * (1.0 + 0.12 * np.sin(j_seg * 5.7 + i_loop))
+
+                        p_local = np.array([jag_r * np.cos(a0), jag_r * 0.5 * np.sin(a0)])
+                        p_rot = [p_local[0] * c_l - p_local[1] * s_l, p_local[0] * s_l + p_local[1] * c_l]
+
+                        if p_prev is not None:
+                            line_pos.append([tx + p_prev[0], ty + p_prev[1], 0.0])
+                            line_pos.append([tx + p_rot[0], ty + p_rot[1], 0.0])
+                            line_col.append(col)
+                            line_col.append(col)
+                        p_prev = p_rot
+
+                # Draw 8 cross-cutting core branches for a beautifully tangled inner ball center
+                for k in range(8):
+                    ang_c = k * 1.7 + rot
+                    pt0 = [tx + rad * 0.8 * np.cos(ang_c), ty + rad * 0.4 * np.sin(ang_c)]
+                    pt1 = [tx - rad * 0.8 * np.cos(ang_c), ty - rad * 0.4 * np.sin(ang_c)]
+                    line_pos.append([pt0[0], pt0[1], 0.0])
+                    line_pos.append([pt1[0], pt1[1], 0.0])
+                    line_col.append(col)
+                    line_col.append(col)
+
+        return line_pos, line_col
+
     def render_fire(self):
         act_mask = self.fire_spark_active
         if np.any(act_mask):
