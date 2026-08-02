@@ -270,3 +270,143 @@ class MandalaModeMixin:
                 size_arr = np.concatenate([size_arr, np.array(sym_size, dtype=np.float32)], axis=0)
                 
         return pos_arr, col_arr, size_arr, np.array(mandala_tri_pos, dtype=np.float32), np.array(mandala_tri_col, dtype=np.float32)
+
+    def spawn_rarity_mandala(self, r_type):
+        if r_type == "BIRD":
+            self.active_rarity = {
+                'type': 'BIRD',
+                'pos': np.array([0.0, 4.0, 0.0], dtype=np.float32),
+                'ang': np.random.uniform(0.0, 2*np.pi),
+                'phase': 0.0,
+                'life': 12.0,
+                'max_life': 12.0
+            }
+        elif r_type == "SMOKE":
+            self.active_rarity = {
+                'type': 'SMOKE',
+                'particles_pos': [],
+                'particles_ang': [],
+                'particles_rad': [],
+                'life': 6.0,
+                'max_life': 6.0
+            }
+        elif r_type == "SUN_BURST":
+            self.active_rarity = {
+                'type': 'SUN_BURST',
+                'phase': 0.0,
+                'life': 3.5,
+                'max_life': 3.5
+            }
+        elif r_type == "BUTTERFLY":
+            self.active_rarity = {
+                'type': 'BUTTERFLY',
+                'pos': np.array([0.0, 4.0, 0.0], dtype=np.float32),
+                'ang': np.random.uniform(0.0, 2*np.pi),
+                'phase': 0.0,
+                'life': 15.0,
+                'max_life': 15.0
+            }
+
+    def update_rarity_mandala(self, r, dt):
+        t_type = r['type']
+        if t_type == "BIRD":
+            r['phase'] += dt * 15.0
+            speed = 4.2 * (1.0 + self.react_mid * 0.5)
+            r['pos'][0] += np.cos(r['ang']) * speed * dt
+            r['pos'][1] += np.sin(r['ang']) * speed * dt
+            # Fully flies off screen boundaries before deactivating
+            if np.linalg.norm(r['pos'] - np.array([0.0, 4.0, 0.0])) > 24.0:
+                self.active_rarity = None
+        elif t_type == "SMOKE":
+            # Spawn 4 smoke particles per frame at slightly offset spiral progression angles
+            for step in range(4):
+                ang = (r['life'] * 3.5 + step * 0.15) % (2.0 * np.pi)
+                r['particles_pos'].append(np.array([0.0, 4.0, 0.0], dtype=np.float32))
+                r['particles_ang'].append(ang)
+                r['particles_rad'].append(0.0)
+            rem_pos, rem_ang, rem_rad = [], [], []
+            for j in range(len(r['particles_pos'])):
+                r['particles_rad'][j] += dt * 2.8 * (1.0 + self.react_mid * 0.4)
+                r['particles_ang'][j] += dt * 3.0
+                rad = r['particles_rad'][j]
+                theta = r['particles_ang'][j]
+                r['particles_pos'][j] = np.array([rad * np.cos(theta), 4.0 + rad * np.sin(theta), np.sin(theta * 2.0) * 0.15], dtype=np.float32)
+                if rad < 12.0:
+                    rem_pos.append(r['particles_pos'][j])
+                    rem_ang.append(r['particles_ang'][j])
+                    rem_rad.append(r['particles_rad'][j])
+            r['particles_pos'] = rem_pos
+            r['particles_ang'] = rem_ang
+            r['particles_rad'] = rem_rad
+        elif t_type == "SUN_BURST":
+            r['phase'] += dt * 0.4
+        elif t_type == "BUTTERFLY":
+            # Music-modulated wing flap rate
+            flap_rate = 24.0 + self.react_treble * 35.0
+            r['phase'] += dt * flap_rate
+            # Music-modulated turning angles/speeds
+            erratic_factor = 6.0 + self.react_bass * 12.0
+            r['ang'] += np.random.uniform(-1.8, 1.8) * dt * erratic_factor
+            # Music-modulated speed and bobbing amplitude
+            speed = 3.6 + self.react_mid * 5.0
+            bob_amp = 1.5 + self.react_bass * 4.0
+            r['pos'][0] += (np.cos(r['ang']) * speed + np.sin(r['phase'] * 3.0) * bob_amp) * dt
+            r['pos'][1] += (np.sin(r['ang']) * speed + np.cos(r['phase'] * 3.5) * bob_amp) * dt
+            # Fully flies off screen boundaries before deactivating
+            if np.linalg.norm(r['pos'] - np.array([0.0, 4.0, 0.0])) > 24.0:
+                self.active_rarity = None
+
+    def trigger_climax_mandala(self, routine_name):
+        if routine_name == "Peace Symbol":
+            self.peace_symbol_timer = 5.0
+            for idx in range(len(self.mandala_base_pos)):
+                self.mandala_base_pos[idx] = [0.0, 4.0, 0.0]
+                angle = (idx / len(self.mandala_base_pos)) * 2.0 * np.pi
+                speed = np.random.uniform(9.0, 14.0)
+                self.mandala_base_vel[idx, 0] = speed * np.cos(angle)
+                self.mandala_base_vel[idx, 1] = speed * np.sin(angle)
+                self.mandala_base_vel[idx, 2] = np.random.uniform(-0.5, 0.5)
+                self.mandala_base_ages[idx] = 0.0
+                self.mandala_base_max_ages[idx] = np.random.uniform(2.0, 3.0)
+                self.mandala_base_col[idx] = [1.0, 0.8, 0.1, 1.0] if idx % 2 == 0 else [1.0, 0.3, 0.2, 1.0]
+                self.mandala_base_size[idx] = np.random.uniform(10.0, 16.0)
+        elif routine_name == "Halo Effect":
+            self.halo_timer = 5.0
+            for idx in range(len(self.mandala_base_pos)):
+                self.mandala_base_pos[idx] = [0.0, 4.0, 0.0]
+                angle = (idx / len(self.mandala_base_pos)) * 2.0 * np.pi
+                speed = np.random.uniform(11.0, 17.0)
+                self.mandala_base_vel[idx, 0] = speed * np.cos(angle)
+                self.mandala_base_vel[idx, 1] = speed * np.sin(angle)
+                self.mandala_base_vel[idx, 2] = np.random.uniform(-0.5, 0.5)
+                self.mandala_base_ages[idx] = 0.0
+                self.mandala_base_max_ages[idx] = np.random.uniform(2.2, 3.5)
+                self.mandala_base_col[idx] = [0.15, 0.85, 1.0, 1.0] if idx % 2 == 0 else [0.9, 0.15, 0.5, 1.0]
+                self.mandala_base_size[idx] = np.random.uniform(12.0, 20.0)
+        elif routine_name == "Supernova":
+            # Explode all mandala particles radially
+            for idx in range(len(self.mandala_base_pos)):
+                self.mandala_base_pos[idx] = [0.0, 4.0, 0.0]
+                angle = (idx / len(self.mandala_base_pos)) * 2.0 * np.pi
+                speed = np.random.uniform(10.0, 15.0)
+                self.mandala_base_vel[idx, 0] = speed * np.cos(angle)
+                self.mandala_base_vel[idx, 1] = speed * np.sin(angle)
+                self.mandala_base_vel[idx, 2] = np.random.uniform(-1.0, 1.0)
+                self.mandala_base_ages[idx] = 0.0
+                self.mandala_base_max_ages[idx] = np.random.uniform(2.2, 3.5)
+                self.mandala_base_col[idx] = [1.0, 0.95, 0.8, 1.0] if idx % 2 == 0 else [0.95, 0.25, 0.85, 1.0]
+                self.mandala_base_size[idx] = np.random.uniform(14.0, 22.0)
+        elif routine_name == "Shooting Star":
+            # Contracting cosmic shooting stars inwards
+            for idx in range(100):
+                angle = np.random.uniform(0.0, 2 * np.pi)
+                rad = 12.0
+                self.mandala_base_pos[idx] = [rad * np.cos(angle), 4.0 + rad * np.sin(angle), np.random.uniform(-0.5, 0.5)]
+                speed = -np.random.uniform(6.0, 10.0)
+                self.mandala_base_vel[idx, 0] = speed * np.cos(angle)
+                self.mandala_base_vel[idx, 1] = speed * np.sin(angle)
+                self.mandala_base_vel[idx, 2] = np.random.uniform(-0.1, 0.1)
+                self.mandala_base_ages[idx] = 0.0
+                self.mandala_base_max_ages[idx] = np.random.uniform(1.8, 2.8)
+                self.mandala_base_col[idx] = [0.1, 0.9, 1.0, 1.0]
+                self.mandala_base_size[idx] = np.random.uniform(8.0, 14.0)

@@ -362,3 +362,133 @@ class TunnelModeMixin:
             size_combined = np.concatenate([size_combined, np.array(aurora_size, dtype=np.float32)], axis=0)
             
         return pos_combined, col_combined, size_combined, np.array(hood_tri_pos, dtype=np.float32), np.array(hood_tri_col, dtype=np.float32)
+
+    def spawn_rarity_tunnel(self, r_type):
+        if r_type == "PLANET":
+            # Gas giant planet initialization
+            ang = np.random.uniform(0.0, 2 * np.pi)
+            r_dist = 13.0
+            pos = np.array([r_dist * np.cos(ang), r_dist * np.sin(ang), -55.0], dtype=np.float32)
+            style = "NEPTUNE"
+            self.active_rarity = {
+                'type': 'PLANET',
+                'pos': pos,
+                'vel': np.array([0.0, 0.0, 15.0], dtype=np.float32),
+                'phase': 0.0,
+                'style': style,
+                'life': 7.0,
+                'max_life': 7.0
+            }
+        elif r_type == "GALAXY":
+            # Move Galaxy farther away in background
+            ang = np.random.uniform(0.0, 2 * np.pi)
+            r_dist = 22.0
+            pos = np.array([r_dist * np.cos(ang), r_dist * np.sin(ang), -85.0], dtype=np.float32)
+            self.active_rarity = {
+                'type': 'GALAXY',
+                'pos': pos,
+                'vel': np.array([0.0, 0.0, 3.2], dtype=np.float32),
+                'phase': 0.0,
+                'life': 31.0,
+                'max_life': 31.0
+            }
+        elif r_type == "ASTEROIDS":
+            pos = np.array([0.0, 0.0, -55.0], dtype=np.float32)
+            offsets = [np.random.uniform(-15.0, 15.0, 3) for _ in range(10)]
+            for ao in offsets:
+                ao[2] = np.random.uniform(-8.0, 8.0)
+                ao[0] = np.sign(ao[0]) * max(11.0, abs(ao[0]))
+                ao[1] = np.sign(ao[1]) * max(11.0, abs(ao[1]))
+            self.active_rarity = {
+                'type': 'ASTEROIDS',
+                'pos': pos,
+                'vel': np.array([0.0, 0.0, 23.0], dtype=np.float32),
+                'offsets': offsets,
+                'rotations': [np.random.uniform(0.0, 2*np.pi) for _ in range(10)],
+                'rot_vels': [np.random.uniform(0.5, 2.5) for _ in range(10)],
+                'life': 5.0,
+                'max_life': 5.0
+            }
+
+    def update_rarity_tunnel(self, r, dt):
+        t_type = r['type']
+        if t_type == "PLANET":
+            r['pos'] += r['vel'] * dt
+            r['phase'] += dt * 0.75
+            if r['pos'][2] > 18.0:
+                self.active_rarity = None
+        elif t_type == "GALAXY":
+            r['pos'] += r['vel'] * dt
+            r['phase'] += dt * 0.5
+            if r['pos'][2] > 18.0:
+                self.active_rarity = None
+        elif t_type == "ASTEROIDS":
+            r['pos'] += r['vel'] * dt
+            for i in range(len(r['rotations'])):
+                r['rotations'][i] += r['rot_vels'][i] * dt
+            if r['pos'][2] > 18.0:
+                self.active_rarity = None
+
+    def trigger_climax_tunnel(self, routine_name):
+        get_bend_offsets = self.get_bend_offsets
+        if routine_name == "Lightning Flash":
+            self.lightning_active_timer = 0.4
+            self.active_lightning_bolts = []
+            for _ in range(2):
+                bolt = []
+                bx, by = get_bend_offsets(-55.0)
+                bolt.append([np.random.uniform(-2.5, 2.5) + bx, np.random.uniform(-2.5, 2.5) + by + 4.0, -55.0])
+                for z_coord in np.linspace(-50.0, 0.0, 15):
+                    bx, by = get_bend_offsets(z_coord)
+                    bolt.append([np.random.uniform(-2.5, 2.5) + bx, np.random.uniform(-2.5, 2.5) + by + 4.0, z_coord])
+                self.active_lightning_bolts.append(bolt)
+        if routine_name == "Supernova":
+            self.wormhole_supernova_active = True
+            self.wormhole_supernova_age = 0.0
+            for k in range(120):
+                idx = self.next_spark_idx
+                self.spark_pos[idx] = [0.0, 0.0, -15.0]
+                theta_v = np.random.uniform(0.0, 2.0 * np.pi)
+                phi_v = np.random.uniform(-np.pi / 2.0, np.pi / 2.0)
+                speed_v = np.random.uniform(10.0, 20.0)
+                vx = speed_v * np.cos(phi_v) * np.cos(theta_v)
+                vy = speed_v * np.cos(phi_v) * np.sin(theta_v)
+                vz = speed_v * np.sin(phi_v)
+                
+                self.spark_vel[idx] = [vx, vy, vz]
+                self.spark_col[idx] = [1.0, 0.9, 0.7, 1.0] if k % 2 == 0 else [0.2, 0.8, 1.0, 1.0]
+                self.spark_size[idx] = np.random.uniform(9.0, 15.0)
+                self.spark_age[idx] = 0.0
+                self.spark_max_age[idx] = np.random.uniform(1.2, 2.0)
+                self.spark_active[idx] = True
+                self.next_spark_idx = (self.next_spark_idx + 1) % len(self.spark_pos)
+        elif routine_name == "Shooting Star":
+            self.wormhole_shooting_star_active = True
+            self.wormhole_shooting_star_z = -55.0
+            self.wormhole_shooting_star_x = np.random.uniform(-3.0, 3.0)
+            self.wormhole_shooting_star_y = np.random.uniform(-3.0, 3.0)
+            for ss in range(6):
+                ss_x = np.random.uniform(-5.0, 5.0)
+                ss_y = np.random.uniform(-5.0, 5.0)
+                ss_z = -55.0
+                for k in range(15):
+                    idx = self.next_spark_idx
+                    self.spark_pos[idx] = [ss_x, ss_y, ss_z - k * 0.8]
+                    self.spark_vel[idx] = [0.0, 0.0, 35.0]
+                    self.spark_col[idx] = [1.0, 0.95, 0.8, 1.0]
+                    self.spark_size[idx] = np.random.uniform(8.0, 12.0) - k * 0.4
+                    self.spark_age[idx] = 0.0
+                    self.spark_max_age[idx] = np.random.uniform(1.5, 2.2)
+                    self.spark_active[idx] = True
+                    self.next_spark_idx = (self.next_spark_idx + 1) % len(self.spark_pos)
+        else:
+            near_gems = np.where((self.gem_z < 0.0) & (self.gem_z > -50.0))[0]
+            if len(near_gems) > 0:
+                for _ in range(25):
+                    g_idx = random.choice(near_gems)
+                    self.spawn_gem_sparks(g_idx)
+                    for s_offset in range(6):
+                        s_idx = (self.next_spark_idx - s_offset - 1) % len(self.spark_pos)
+                        if self.spark_active[s_idx]:
+                            self.spark_vel[s_idx] *= 1.8
+                            self.spark_size[s_idx] *= 1.6

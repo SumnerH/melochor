@@ -754,3 +754,143 @@ class UnderwaterModeMixin:
         size_combined = np.concatenate([b_size, a_size, v_size, seabed_size, p_size_arr, j_size_arr], axis=0).astype(np.float32)
 
         return pos_combined, col_combined, size_combined, np.array(hood_tri_pos, dtype=np.float32), np.array(hood_tri_col, dtype=np.float32)
+
+    def spawn_rarity_underwater(self, r_type):
+        if r_type == "SQUID":
+            pos = np.array([np.random.uniform(-4.0, 4.0), np.random.uniform(1.0, 2.5), np.random.uniform(0.0, 4.0)], dtype=np.float32)
+            # Restrict squid direction vector to within 30 degrees of camera-perpendicular X-Y plane
+            theta = np.random.uniform(0.0, 2.0 * np.pi)
+            dx = np.cos(theta)
+            dy = np.sin(theta)
+            dz = np.random.uniform(-0.45, 0.45)
+            direction = np.array([dx, dy, dz], dtype=np.float32)
+            direction /= np.linalg.norm(direction)
+            self.squid_pos = pos
+            self.squid_dir = direction
+            self.squid_vel = direction * 1.0 # slowed down to 1/4 from 4.0
+            self.squid_phase = 0.0
+            self.active_rarity = {
+                'type': 'SQUID',
+                'life': 30.0,
+                'max_life': 30.0
+            }
+        elif r_type == "MANTA":
+            # Expand spawn starting point to -24.0 for full screen boundary clearance
+            pos = np.array([-24.0, np.random.uniform(2.0, 7.0), np.random.uniform(0.0, 6.0)], dtype=np.float32)
+            direction = np.array([1.0, np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1)], dtype=np.float32)
+            direction /= np.linalg.norm(direction)
+            self.active_rarity = {
+                'type': 'MANTA',
+                'pos': pos,
+                'dir': direction,
+                'vel': direction * 1.75,
+                'phase': 0.0,
+                'life': 25.0,
+                'max_life': 25.0
+            }
+        elif r_type == "SEAHORSE":
+            # Spawn just below seabed (Y=-6.0) so it rises into view quickly
+            pos = np.array([np.random.uniform(-4.0, 4.0), -6.0, np.random.uniform(1.0, 5.0)], dtype=np.float32)
+            direction = np.array([np.random.uniform(-0.15, 0.15), 1.0, np.random.uniform(-0.15, 0.15)], dtype=np.float32)
+            direction /= np.linalg.norm(direction)
+            self.active_rarity = {
+                'type': 'SEAHORSE',
+                'pos': pos,
+                'dir': direction,
+                'vel': direction * 1.15, # majestic upward swim speed
+                'phase': 0.0,
+                'life': 30.0,
+                'max_life': 30.0
+            }
+        elif r_type == "LANTERN_FISH":
+            # Spawn at -24.0 horizontally and keep deep in background (Z in [-15.0, -13.0])
+            pos = np.array([-24.0, np.random.uniform(1.0, 7.0), np.random.uniform(-15.0, -13.0)], dtype=np.float32)
+            direction = np.array([1.0, np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1)], dtype=np.float32)
+            direction /= np.linalg.norm(direction)
+            offsets = [np.array([np.random.uniform(-1.5, 1.5), np.random.uniform(-1.2, 1.2), np.random.uniform(-1.0, 1.0)], dtype=np.float32) for _ in range(8)]
+            self.active_rarity = {
+                'type': 'LANTERN_FISH',
+                'pos': pos,
+                'dir': direction,
+                'vel': direction * 1.4, # slowed from 2.2 to 1.4
+                'offsets': offsets,
+                'life': 30.0,
+                'max_life': 30.0
+            }
+
+    def update_rarity_underwater(self, r, dt):
+        t_type = r['type']
+        if t_type == "SQUID":
+            # Squid is updated inside update_underwater_mode
+            pass
+        elif t_type == "MANTA":
+            r['pos'] += r['vel'] * dt
+            # Precisely match the wing flap to the music track's BPM (1 flap every 8 beats)
+            r['phase'] += dt * (self.script_bpm / 60.0) * 0.25 * np.pi
+            # Fully swims off the screen boundaries before deactivating
+            if r['pos'][0] > 24.0:
+                self.active_rarity = None
+        elif t_type == "SEAHORSE":
+            r['pos'] += r['vel'] * dt
+            # Bobbing phase synchronized with audio
+            r['phase'] += dt * (2.5 + self.react_bass * 5.0)
+            # Add horizontal/vertical bobbing physics synchronized with audio
+            bob_h = np.sin(r['phase'] * 1.2) * 0.8 * (1.0 + self.react_bass * 1.5)
+            bob_v = np.cos(r['phase'] * 0.8) * 0.65 * (1.0 + self.react_bass * 1.5)
+            r['pos'][0] += bob_h * dt
+            r['pos'][1] += bob_v * dt
+            # Fully bob/swim off screen boundaries before deactivating
+            if r['pos'][1] > 11.0:
+                self.active_rarity = None
+        elif t_type == "LANTERN_FISH":
+            r['pos'] += r['vel'] * dt
+            # Fully swims off screen boundaries before deactivating
+            if r['pos'][0] > 24.0:
+                self.active_rarity = None
+
+    def trigger_climax_underwater(self, routine_name):
+        if routine_name == "Supernova":
+            # Giant white-hot supernova eruption from all vents!
+            for _ in range(240):
+                idx = self.next_bubble_idx
+                v_idx = random.randint(0, 2)
+                v_loc = self.vent_locs[v_idx]
+                self.bubble_pos[idx] = [v_loc[0], v_loc[1] + 1.75, v_loc[2]] + np.random.uniform([-0.5, 0.0, -0.5], [0.5, 0.25, 0.5])
+                self.bubble_size[idx] = np.random.uniform(4.0, 8.0)
+                self.bubble_vel[idx] = [np.random.uniform(-2.5, 2.5), np.random.uniform(4.0, 8.0), np.random.uniform(-2.5, 2.5)]
+                self.bubble_col[idx] = [1.0, 0.95, 0.8, 1.0]
+                self.bubble_active[idx] = True
+                self.bubble_is_fragment[idx] = False
+                self.next_bubble_idx = (self.next_bubble_idx + 1) % len(self.bubble_pos)
+            if self.active_rarity is not None and self.active_rarity['type'] == 'SQUID':
+                self.squid_vel = self.squid_dir * 2.0 # slowed down to 1/4 from 8.0
+                self.squid_phase = 0.0
+        elif routine_name == "Shooting Star":
+            # Underwater shooting stars: cyan bioluminescent trails streaking horizontally
+            for i in range(120):
+                idx = self.next_bubble_idx
+                self.bubble_pos[idx] = [-15.0 + i * 0.1, np.random.uniform(0.0, 8.0), np.random.uniform(0.0, 6.0)]
+                self.bubble_vel[idx] = [np.random.uniform(8.0, 15.0), np.random.uniform(-0.4, 0.4), np.random.uniform(-0.4, 0.4)]
+                self.bubble_size[idx] = np.random.uniform(2.0, 4.0)
+                self.bubble_col[idx] = [0.1, 0.85, 1.0, 0.95]
+                self.bubble_active[idx] = True
+                self.bubble_is_fragment[idx] = False
+                self.next_bubble_idx = (self.next_bubble_idx + 1) % len(self.bubble_pos)
+        else:
+            for _ in range(180):
+                idx = self.next_bubble_idx
+                v_idx = random.randint(0, 2)
+                v_loc = self.vent_locs[v_idx]
+                self.bubble_pos[idx] = [v_loc[0], v_loc[1] + 1.75, v_loc[2]] + np.random.uniform([-0.35, 0.0, -0.35], [0.35, 0.25, 0.35])
+                self.bubble_size[idx] = np.random.uniform(2.5, 6.0)
+                rise_speed = np.random.uniform(2.5, 5.5)
+                self.bubble_vel[idx] = [np.random.uniform(-1.5, 1.5), rise_speed, np.random.uniform(-1.5, 1.5)]
+                self.bubble_col[idx] = [random.choice([0.9, 0.1, 0.0]), random.choice([0.1, 0.9, 0.8]), random.choice([0.9, 0.1, 1.0]), np.random.uniform(0.7, 1.0)]
+                self.bubble_active[idx] = True
+                self.bubble_is_fragment[idx] = False
+                self.next_bubble_idx = (self.next_bubble_idx + 1) % len(self.bubble_pos)
+
+        for i in range(self.num_jelly):
+            self.jelly_phase[i] = 0.0
+            self.jelly_vel[i] = self.jelly_dir[i] * 5.0
+            self.jelly_col[i, 3] = 1.0

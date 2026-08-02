@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import random
 import OpenGL.GL as gl
 
 class FireModeMixin:
@@ -1100,3 +1101,225 @@ class FireModeMixin:
             size_combined = np.zeros(0, dtype=np.float32)
             
         return pos_combined, col_combined, size_combined, np.zeros((0, 3), dtype=np.float32), np.zeros((0, 4), dtype=np.float32)
+
+    def spawn_rarity_fire(self, r_type):
+        if r_type == "SHOOTING_STAR":
+            fly_right = np.random.choice([True, False])
+            if fly_right:
+                # Spawn on left, fly right
+                start_x = np.random.uniform(-0.8, -0.2)
+                vel_x = np.random.uniform(0.15, 0.35)
+            else:
+                # Spawn on right, fly left
+                start_x = np.random.uniform(0.2, 0.8)
+                vel_x = np.random.uniform(-0.35, -0.15)
+                
+            start_pt = np.array([start_x, 1.0], dtype=np.float32)
+            # Randomized angle/vertical speed
+            vel_y = np.random.uniform(-0.3, -0.15)
+            vel = np.array([vel_x, vel_y], dtype=np.float32)
+            
+            self.active_rarity = {
+                'type': 'SHOOTING_STAR',
+                'pos': start_pt,
+                'vel': vel,
+                'trail': [start_pt.copy()],
+                'life': 18.0,
+                'max_life': 18.0
+            }
+        elif r_type == "BATS":
+            bats = []
+            num_bats = np.random.randint(6, 11)
+            for _ in range(num_bats):
+                ox = np.random.uniform(-0.18, 0.18)
+                oy = np.random.uniform(-0.15, 0.15)
+                b_pos = np.array([-1.2 + ox, 0.18 + oy], dtype=np.float32)
+                # Velocity is 1/5 of previous speed
+                b_vel = np.array([np.random.uniform(0.076, 0.096), np.random.uniform(0.016, 0.032)], dtype=np.float32)
+                bats.append({
+                    'pos': b_pos,
+                    'vel': b_vel,
+                    'phase': np.random.uniform(0.0, 2.0 * np.pi)
+                })
+            self.active_rarity = {
+                'type': 'BATS',
+                'bats': bats,
+                'life': 35.0, # Increased lifetime since they move 1/5 speed
+                'max_life': 35.0
+            }
+        elif r_type == "TUMBLEWEED":
+            spawn_left = np.random.choice([True, False])
+            x_start = -1.2 if spawn_left else 1.2
+            # Speed is halved again!
+            speed_val = np.random.uniform(0.04, 0.07)
+            vx = speed_val if spawn_left else -speed_val
+            
+            # Depth displacement (forward-back from current location)
+            depth_offset = np.random.uniform(-0.06, 0.06)
+            base_y = -0.58 + depth_offset
+            radius = 0.022 + depth_offset * 0.22 # Scale size with physical depth
+            
+            self.active_rarity = {
+                'type': 'TUMBLEWEED',
+                'x': x_start,
+                'base_y': base_y,
+                'y': base_y,
+                'vel_x': vx,
+                'radius': radius,
+                'rotation': 0.0,
+                'rot_vel': vx / radius,
+                'bounce_phase': 0.0,
+                'hop_y': 0.0,
+                'hop_vy': 0.0,
+                'life': 55.0,
+                'max_life': 55.0
+            }
+
+    def update_rarity_fire(self, r, dt):
+        t_type = r['type']
+        if t_type == "SHOOTING_STAR":
+            r['pos'] += r['vel'] * dt
+            r['trail'].append(r['pos'].copy())
+            if len(r['trail']) > 8:
+                r['trail'].pop(0)
+            if r['pos'][1] < -0.38:
+                self.active_rarity = None
+        elif t_type == "BATS":
+            all_off_screen = True
+            for b in r['bats']:
+                b['pos'] += b['vel'] * dt
+                if b['pos'][0] < 1.2:
+                    all_off_screen = False
+            if all_off_screen:
+                self.active_rarity = None
+        elif t_type == "TUMBLEWEED":
+            r['x'] += r['vel_x'] * dt
+            r['rotation'] += r['rot_vel'] * dt
+            
+            # Constant rolling rhythm bobbing
+            r['bounce_phase'] += dt * 6.0
+            base_bob = abs(np.sin(r['bounce_phase'])) * 0.003
+            
+            # Big beat detection (using self.react_bass > 0.54)
+            if self.react_bass > 0.54:
+                # Upward jump velocity scaled by bass power
+                r['hop_vy'] = max(r.get('hop_vy', 0.0), self.react_bass * 0.18)
+                
+            # Physics loop for the big hops
+            r['hop_y'] += r['hop_vy'] * dt
+            r['hop_vy'] -= 0.65 * dt # Gravity pulling downwards
+            
+            # Ground collision check
+            if r['hop_y'] <= 0.0:
+                r['hop_y'] = 0.0
+                if abs(r['hop_vy']) > 0.04:
+                    r['hop_vy'] = -r['hop_vy'] * 0.42 # Elastic bounce!
+                else:
+                    r['hop_vy'] = 0.0
+                    
+            r['y'] = r['base_y'] + base_bob + r['hop_y']
+            if (r['vel_x'] > 0 and r['x'] > 1.2) or (r['vel_x'] < 0 and r['x'] < -1.2):
+                self.active_rarity = None
+
+    def trigger_climax_fire(self, routine_name):
+        if routine_name == "Flame Flare":
+            for _ in range(160):
+                self.spawn_differentiated_spark('FLARE')
+        elif routine_name == "Flame Wave":
+            for _ in range(180):
+                self.spawn_differentiated_spark('WAVE')
+        elif routine_name == "Treble Spark Shower":
+            for _ in range(250):
+                self.spawn_differentiated_spark('SHOWER')
+        elif routine_name == "Fire Eruption":
+            for _ in range(300):
+                self.spawn_differentiated_spark('ERUPTION')
+        elif routine_name in ("Lotus Bloom", "Coral Pulse", "Plasma Burst"):
+            for _ in range(120):
+                self.spawn_fire_spark("bass", 1.8)
+        elif routine_name in ("Cosmic Spin", "Geyser Eruption", "Gravity Surge"):
+            for _ in range(120):
+                self.spawn_fire_spark("mid", 1.8)
+        elif routine_name in ("Infinite Pulse", "Plankton Surge", "Stardust Stream"):
+            for _ in range(120):
+                self.spawn_fire_spark("treble", 1.8)
+        elif routine_name in ("Geometric Collapse", "Deep Vent Blast", "Event Horizon"):
+            for _ in range(200):
+                band = random.choice(["bass", "mid", "treble"])
+                self.spawn_fire_spark(band, 2.0)
+        elif routine_name == "Lightning Strike":
+            # Procedural lightning-strike trigger (Upgraded to 1-4 random bolts with dynamic branching intricacy!)
+            if not hasattr(self, 'fire_lightning_bolts'):
+                self.fire_lightning_bolts = []
+            
+            num_bolts = np.random.randint(1, 5)
+            for _ in range(num_bolts):
+                start_x = np.random.uniform(-0.85, 0.85)
+                end_x = np.random.uniform(-0.35, 0.35) # Strike inside or near the hearth ring
+                start_pt = [start_x, 1.0, 0.0]
+                end_pt = [end_x, -0.82, 0.0]
+                
+                # Randomize intricacy and branching probability per bolt
+                is_intricate = np.random.uniform(0.0, 1.0) < 0.45
+                max_d = np.random.randint(4, 6) if is_intricate else np.random.randint(2, 4)
+                b_prob = np.random.uniform(0.24, 0.34) if is_intricate else np.random.uniform(0.12, 0.18)
+                
+                segments = self.generate_lightning_bolt(start_pt, end_pt, max_depth=max_d, branch_prob=b_prob)
+                
+                # Randomize bolt lifetime slightly so they don't fade at the exact same millisecond
+                b_life = np.random.uniform(0.18, 0.32)
+                self.fire_lightning_bolts.append({
+                    'segments': segments,
+                    'life': b_life,
+                    'max_life': b_life
+                })
+            
+            # Dynamic sky strobe flash
+            self.climax_flash = 1.0
+            
+            # Electric blue/white spark shower explosion at the striking points!
+            for _ in range(120):
+                idx = self.next_fire_spark_idx
+                self.next_fire_spark_idx = (self.next_fire_spark_idx + 1) % len(self.fire_spark_pos)
+                strike_x = np.random.uniform(-0.35, 0.35)
+                self.fire_spark_pos[idx] = [strike_x, -0.82, np.random.uniform(-0.05, 0.05)]
+                theta = np.random.uniform(0.0, 2.0 * np.pi)
+                phi = np.random.uniform(np.radians(10.0), np.radians(80.0))
+                speed = np.random.uniform(1.2, 3.2)
+                self.fire_spark_vel[idx] = [speed * np.sin(phi) * np.sin(theta), speed * np.cos(phi), speed * np.sin(phi) * np.cos(theta)]
+                self.fire_spark_col[idx] = [0.85, 0.95, 1.0, 1.0] # Electric blueish-white!
+                self.fire_spark_size[idx] = np.random.uniform(3.0, 7.0)
+                max_life = np.random.uniform(0.6, 1.5)
+                self.fire_spark_life[idx] = max_life
+                self.fire_spark_max_life[idx] = max_life
+                self.fire_spark_hue[idx] = 0.82 # Blueish hue range
+                self.fire_spark_active[idx] = True
+        elif routine_name in ("Thermal Flare", "Astral Projection", "Bioluminescent Rainbow", "Lightning Flash"):
+            for _ in range(250):
+                self.spawn_fire_spark("treble", 2.2)
+        elif routine_name == "Supernova":
+            for _ in range(250):
+                idx = self.next_fire_spark_idx
+                self.next_fire_spark_idx = (self.next_fire_spark_idx + 1) % len(self.fire_spark_pos)
+                self.fire_spark_pos[idx] = [np.random.uniform(-2.0, 2.0), np.random.uniform(-1.0, 1.0), np.random.uniform(-1.0, 1.0)]
+                angle = np.random.uniform(0.0, 2.0 * np.pi)
+                speed = np.random.uniform(4.0, 10.0)
+                self.fire_spark_vel[idx] = [speed * np.cos(angle), np.random.uniform(3.0, 10.0), speed * np.sin(angle)]
+                self.fire_spark_col[idx] = [1.0, np.random.uniform(0.3, 0.9), np.random.uniform(0.0, 0.5), 1.0]
+                self.fire_spark_size[idx] = np.random.uniform(6.0, 15.0)
+                max_life = np.random.uniform(2.0, 4.0)
+                self.fire_spark_life[idx] = max_life
+                self.fire_spark_max_life[idx] = max_life
+                self.fire_spark_active[idx] = True
+        elif routine_name == "Shooting Star":
+            for _ in range(15):
+                idx = self.next_fire_spark_idx
+                self.next_fire_spark_idx = (self.next_fire_spark_idx + 1) % len(self.fire_spark_pos)
+                self.fire_spark_pos[idx] = [np.random.uniform(-6.0, 6.0), -1.0, np.random.uniform(-2.0, 2.0)]
+                self.fire_spark_vel[idx] = [np.random.uniform(-1.0, 1.0), np.random.uniform(12.0, 18.0), np.random.uniform(-1.0, 1.0)]
+                self.fire_spark_col[idx] = [1.0, np.random.uniform(0.8, 1.0), np.random.uniform(0.5, 0.8), 1.0]
+                self.fire_spark_size[idx] = np.random.uniform(12.0, 20.0)
+                max_life = np.random.uniform(3.0, 4.5)
+                self.fire_spark_life[idx] = max_life
+                self.fire_spark_max_life[idx] = max_life
+                self.fire_spark_active[idx] = True
