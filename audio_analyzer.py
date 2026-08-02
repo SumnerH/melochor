@@ -16,7 +16,7 @@ COLORS_KEYS = [
     "magnesium_white"
 ]
 
-ANALYZER_VERSION = 3
+ANALYZER_VERSION = 5
 
 def get_panning_vectorized(t_sec_arr, fs, y_left, y_right, window_duration=0.1):
     """Vectorized panning calculation for multiple time points."""
@@ -71,6 +71,24 @@ def get_spectrum_color(t_sec, t, mag, bass_bins, mid_bins, high_bins, palette_ov
         return str(np.random.choice(m_colors))
     else:
         return str(np.random.choice(h_colors))
+
+def get_band_energy_ratios(t_sec, t, mag, bass_bins, mid_bins, high_bins):
+    """Returns the REAL normalized (bass_ratio, mid_ratio, high_ratio) spectral energy shares
+    at time t_sec, computed directly from the FFT magnitude spectrum. Unlike a fixed synthetic
+    ratio, this reflects genuine per-moment spectral balance and is stored on firework events
+    so the visualizer can drive true per-band reactivity (e.g. left=bass/right=treble flame
+    differentiation) from the actual music content."""
+    idx = np.argmin(np.abs(t - t_sec))
+    frame_mag = mag[:, idx]
+    
+    bass_energy = np.sum(frame_mag[bass_bins]) if np.any(bass_bins) else 0.0
+    mid_energy = np.sum(frame_mag[mid_bins]) if np.any(mid_bins) else 0.0
+    high_energy = np.sum(frame_mag[high_bins]) if np.any(high_bins) else 0.0
+    
+    total = bass_energy + mid_energy + high_energy
+    if total < 1e-5:
+        return 0.33, 0.33, 0.34
+    return bass_energy / total, mid_energy / total, high_energy / total
 
 def find_ffmpeg_binary():
     import sys
@@ -443,13 +461,21 @@ def analyze_audio(mp3_path, color_hints=None):
         # Get both colors in one call
         color, sec_color = get_spectrum_color(t_sec, t, mag, bass_bins, mid_bins, high_bins, palette_override=palette)
         
+        # Real per-event spectral energy balance (see get_band_energy_ratios), used by the
+        # visualizer to drive genuine per-band reactivity instead of a fixed synthetic ratio.
+        band_bass, band_mid, band_treble = get_band_energy_ratios(t_sec, t, mag, bass_bins, mid_bins, high_bins)
+        
         events.append({
             "time": round(t_sec, 3),
             "type": "firework",
             "fw_type": int(np.random.choice(shell_types)),
             "color": color,
             "secondary_color": sec_color,
-            "x_offset": float(x_offset)
+            "x_offset": float(x_offset),
+            "band_type": "bass",
+            "band_bass": round(float(band_bass), 3),
+            "band_mid": round(float(band_mid), 3),
+            "band_treble": round(float(band_treble), 3)
         })
         
     # High peaks -> Crackling time rain, spiders, tourbillons, bees
@@ -482,13 +508,21 @@ def analyze_audio(mp3_path, color_hints=None):
         color = get_spectrum_color(t_sec, t, mag, bass_bins, mid_bins, high_bins, palette_override=palette)
         sec_color = get_spectrum_color(t_sec, t, mag, bass_bins, mid_bins, high_bins, palette_override=palette)
         
+        # Real per-event spectral energy balance (see get_band_energy_ratios), used by the
+        # visualizer to drive genuine per-band reactivity instead of a fixed synthetic ratio.
+        band_bass, band_mid, band_treble = get_band_energy_ratios(t_sec, t, mag, bass_bins, mid_bins, high_bins)
+        
         events.append({
             "time": round(t_sec, 3),
             "type": "firework",
             "fw_type": int(np.random.choice(shell_types)),
             "color": color,
             "secondary_color": sec_color,
-            "x_offset": float(x_offset)
+            "x_offset": float(x_offset),
+            "band_type": "treble",
+            "band_bass": round(float(band_bass), 3),
+            "band_mid": round(float(band_mid), 3),
+            "band_treble": round(float(band_treble), 3)
         })
         
     # Mid peaks -> Regular colorful peonies, ghost rings, pistils, farfalles
@@ -521,13 +555,21 @@ def analyze_audio(mp3_path, color_hints=None):
         color = get_spectrum_color(t_sec, t, mag, bass_bins, mid_bins, high_bins, palette_override=palette)
         sec_color = get_spectrum_color(t_sec, t, mag, bass_bins, mid_bins, high_bins, palette_override=palette)
         
+        # Real per-event spectral energy balance (see get_band_energy_ratios), used by the
+        # visualizer to drive genuine per-band reactivity instead of a fixed synthetic ratio.
+        band_bass, band_mid, band_treble = get_band_energy_ratios(t_sec, t, mag, bass_bins, mid_bins, high_bins)
+        
         events.append({
             "time": round(t_sec, 3),
             "type": "firework",
             "fw_type": int(np.random.choice(shell_types)),
             "color": color,
             "secondary_color": sec_color,
-            "x_offset": float(x_offset)
+            "x_offset": float(x_offset),
+            "band_type": "mid",
+            "band_bass": round(float(band_bass), 3),
+            "band_mid": round(float(band_mid), 3),
+            "band_treble": round(float(band_treble), 3)
         })
         
     # 10. Advanced Offline Music Key shift and Dynamics analysis
