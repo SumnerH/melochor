@@ -16,35 +16,83 @@ class PondModeMixin:
         self.pond_lightning_timer = 0.0
         self.pond_rain_spawn_accumulator = 0.0
 
-        # Distant birds use a conventional boids flock. Keep their starting
-        # formation compact enough to read as a flock, but spaced apart enough
-        # that the small silhouettes never merge into a single large shape.
-        self.pond_bird_count = 14
-        flock_center = np.array([
-            np.random.uniform(-0.45, 0.45),
-            np.random.uniform(0.38, 0.66),
-        ], dtype=np.float32)
-        self.pond_bird_pos = flock_center + np.random.normal(
-            0.0, [0.16, 0.09], (self.pond_bird_count, 2)
-        ).astype(np.float32)
-        flock_heading = np.full(
-            self.pond_bird_count,
-            np.random.choice((0.0, np.pi)),
-            dtype=np.float32,
-        ) + np.random.uniform(-0.24, 0.24, self.pond_bird_count)
-        self.pond_bird_vel = np.column_stack((
-            np.cos(flock_heading),
-            np.sin(flock_heading),
-        )).astype(np.float32) * np.random.uniform(
-            0.115, 0.155, (self.pond_bird_count, 1)
-        ).astype(np.float32)
-        self.pond_bird_heading = flock_heading.astype(np.float32)
-        self.pond_bird_phase = np.random.uniform(
-            0.0, 2.0 * np.pi, self.pond_bird_count
-        ).astype(np.float32)
-        self.pond_bird_leader = 0
-        self.pond_bird_leader_heading = float(flock_heading[0])
-        self.pond_bird_turn_cooldown = 0.0
+        # Keep two separate distant flocks. They share the pond sky but never
+        # use one another as boid neighbors, leaders, or music-turn targets.
+        self.pond_flock_count = 2
+        self.pond_birds_per_flock = 7
+        self.pond_bird_count = self.pond_flock_count * self.pond_birds_per_flock
+        self.pond_flocks = []
+
+        flock_specs = (
+            {
+                "center_x": np.random.uniform(-0.72, -0.30),
+                "center_y": np.random.uniform(0.42, 0.67),
+                "heading": np.random.uniform(-0.22, 0.28),
+                "speed": (0.110, 0.145),
+                "bounds": (-0.94, -0.05, 0.20, 0.82),
+                "turn_bias": 1.0,
+                "response_threshold": 0.18,
+            },
+            {
+                "center_x": np.random.uniform(0.30, 0.72),
+                "center_y": np.random.uniform(0.30, 0.58),
+                "heading": np.random.uniform(np.pi - 0.28, np.pi + 0.22),
+                "speed": (0.120, 0.158),
+                "bounds": (0.05, 0.94, 0.16, 0.78),
+                "turn_bias": -1.0,
+                "response_threshold": 0.25,
+            },
+        )
+
+        for flock_index, spec in enumerate(flock_specs):
+            flock_center = np.array(
+                [spec["center_x"], spec["center_y"]],
+                dtype=np.float32,
+            )
+            bird_count = self.pond_birds_per_flock
+            flock_heading = np.full(
+                bird_count,
+                spec["heading"],
+                dtype=np.float32,
+            ) + np.random.uniform(-0.24, 0.24, bird_count).astype(np.float32)
+            speeds = np.random.uniform(
+                spec["speed"][0],
+                spec["speed"][1],
+                (bird_count, 1),
+            ).astype(np.float32)
+
+            self.pond_flocks.append({
+                "positions": flock_center + np.random.normal(
+                    0.0,
+                    [0.105, 0.065],
+                    (bird_count, 2),
+                ).astype(np.float32),
+                "velocities": np.column_stack((
+                    np.cos(flock_heading),
+                    np.sin(flock_heading),
+                )).astype(np.float32) * speeds,
+                "headings": flock_heading.astype(np.float32),
+                "phases": (
+                    np.random.uniform(0.0, 2.0 * np.pi, bird_count)
+                    + flock_index * 0.91
+                ).astype(np.float32),
+                "leader": int(np.random.randint(0, bird_count)),
+                "leader_heading": float(flock_heading[0]),
+                "turn_cooldown": 0.0,
+                "bounds": spec["bounds"],
+                "turn_bias": spec["turn_bias"],
+                "response_threshold": spec["response_threshold"],
+                "speed_range": spec["speed"],
+                "music_phase": float(np.random.uniform(0.0, 2.0 * np.pi)),
+            })
+
+            leader = self.pond_flocks[-1]["leader"]
+            self.pond_flocks[-1]["leader_heading"] = float(flock_heading[leader])
+
+        # The renderer uploads one flat array to the existing shader uniforms.
+        # These compatibility arrays are refreshed from the independent flocks
+        # after every simulation update.
+        self._sync_pond_bird_shader_data()
 
         cloud_count = 65
         self.pond_cloud_pos = np.column_stack((
@@ -65,6 +113,25 @@ class PondModeMixin:
             pond_y.ravel(),
             np.zeros(pond_x.size),
         )).astype(np.float32)
+
+    def _sync_pond_bird_shader_data(self):
+        """Pack independent flock state into the flat arrays used by the shader."""
+        self.pond_bird_pos = np.concatenate(
+            [flock["positions"] for flock in self.pond_flocks],
+            axis=0,
+        ).astype(np.float32)
+        self.pond_bird_vel = np.concatenate(
+            [flock["velocities"] for flock in self.pond_flocks],
+            axis=0,
+        ).astype(np.float32)
+        self.pond_bird_heading = np.concatenate(
+            [flock["headings"] for flock in self.pond_flocks],
+            axis=0,
+        ).astype(np.float32)
+        self.pond_bird_phase = np.concatenate(
+            [flock["phases"] for flock in self.pond_flocks],
+            axis=0,
+        ).astype(np.float32)
 
     def add_pond_music_ripple(self, event):
         """Inject a broad, music-driven ripple into the shader's water simulation."""
@@ -117,40 +184,70 @@ class PondModeMixin:
         self.pond_shader_ripples = self.pond_shader_ripples[-8:]
 
     def _steer_pond_flock(self, event):
-        """Turn the distant flock together in response to analyzed musical hits."""
-        if self.pond_bird_turn_cooldown > 0.0:
-            return
-
+        """Let each flock independently react to an analyzed musical hit."""
         band_type = event.get("band_type")
         band_energy = max(
             float(event.get("band_bass", 0.0)),
             float(event.get("band_mid", 0.0)),
             float(event.get("band_treble", 0.0)),
         )
-        if band_energy < 0.20:
+
+        if band_energy < 0.18:
             return
 
-        if band_type == "treble":
-            turn_amount = np.random.uniform(0.45, 0.85)
-        elif band_type == "mid":
-            turn_amount = np.random.uniform(0.25, 0.55)
-        elif band_type == "bass" and band_energy > 0.45:
-            turn_amount = np.random.uniform(0.35, 0.70)
-        else:
-            return
+        for flock_index, flock in enumerate(self.pond_flocks):
+            if flock["turn_cooldown"] > 0.0:
+                continue
 
-        direction = -1.0 if self.current_stereo_panning < 0.0 else 1.0
-        self.pond_bird_leader_heading += direction * turn_amount
-        leader_speed = 0.115 + band_energy * 0.050
-        leader = self.pond_bird_leader
-        self.pond_bird_vel[leader] = [
-            np.cos(self.pond_bird_leader_heading) * leader_speed,
-            np.sin(self.pond_bird_leader_heading) * leader_speed,
-        ]
+            # Treble reliably catches both flocks' attention, while mid and bass
+            # receive separate per-flock response chances and energy thresholds.
+            if band_type == "treble":
+                turn_range = (0.34, 0.76)
+                response_chance = 0.92
+            elif band_type == "mid":
+                turn_range = (0.20, 0.52)
+                response_chance = 0.64
+            elif band_type == "bass" and band_energy > 0.42:
+                turn_range = (0.28, 0.66)
+                response_chance = 0.74
+            else:
+                continue
 
-        # Only the leader receives the abrupt music-driven turn. The remaining
-        # birds change course through alignment and cohesion in update_pond().
-        self.pond_bird_turn_cooldown = 0.65
+            if band_energy < flock["response_threshold"]:
+                continue
+
+            # Each flock makes its own response decision. Stereo direction and
+            # opposing flock bias make simultaneous reactions diverge instead of
+            # causing a mirrored or rigid whole-sky movement.
+            if np.random.random() > response_chance:
+                continue
+
+            stereo_direction = (
+                -1.0 if self.current_stereo_panning < 0.0 else 1.0
+            )
+            independent_direction = (
+                stereo_direction
+                * flock["turn_bias"]
+                * (1.0 if np.random.random() < 0.76 else -1.0)
+            )
+            turn_amount = np.random.uniform(*turn_range) * (
+                0.82 + band_energy * 0.34
+            )
+            flock["leader_heading"] += independent_direction * turn_amount
+            flock["music_phase"] += turn_amount * (
+                0.50 if flock_index == 0 else -0.58
+            )
+
+            leader = flock["leader"]
+            leader_speed = np.random.uniform(*flock["speed_range"]) + band_energy * 0.045
+            flock["velocities"][leader] = [
+                np.cos(flock["leader_heading"]) * leader_speed,
+                np.sin(flock["leader_heading"]) * leader_speed,
+            ]
+
+            # Separate cooldowns permit one flock to react while the other is
+            # still settling from an earlier musical turn.
+            flock["turn_cooldown"] = np.random.uniform(0.48, 0.86)
 
     def _spawn_pond_raindrop(self, band_energy):
         x = np.clip(
@@ -165,14 +262,111 @@ class PondModeMixin:
         })
 
     def _add_pond_ripple(self, position, energy):
-        self.pond_ripples.append({
-            "pos": np.array([position[0], -1.28, 0.0], dtype=np.float32),
-            "radius": 0.05,
-            "speed": 1.4 + energy * 1.7,
-            "life": 1.8 + energy * 0.7,
-            "max_life": 1.8 + energy * 0.7,
-            "energy": energy,
+        """Send a rain or trout impact directly to the fullscreen ripple shader."""
+        # The shader can display eight simultaneous wave sources. Reserve up to
+        # four for natural impacts so frequent rain cannot evict music ripples.
+        rain_ripples = [
+            ripple
+            for ripple in self.pond_shader_ripples
+            if ripple.get("source") == "rain"
+        ]
+        if len(rain_ripples) >= 4:
+            oldest_rain_ripple = max(
+                rain_ripples,
+                key=lambda ripple: ripple["age"],
+            )
+            for index, ripple in enumerate(self.pond_shader_ripples):
+                if ripple is oldest_rain_ripple:
+                    del self.pond_shader_ripples[index]
+                    break
+
+        if len(self.pond_shader_ripples) >= 8:
+            non_music_ripples = [
+                ripple
+                for ripple in self.pond_shader_ripples
+                if ripple.get("source") == "rain"
+            ]
+            if not non_music_ripples:
+                return
+            oldest_rain_ripple = max(
+                non_music_ripples,
+                key=lambda ripple: ripple["age"],
+            )
+            for index, ripple in enumerate(self.pond_shader_ripples):
+                if ripple is oldest_rain_ripple:
+                    del self.pond_shader_ripples[index]
+                    break
+
+        self.pond_shader_ripples.append({
+            "position": np.array(
+                [
+                    np.clip(position[0] / 10.5, -0.82, 0.82),
+                    -0.80,
+                ],
+                dtype=np.float32,
+            ),
+            "age": 0.0,
+            "strength": float(np.clip(0.32 + energy * 0.42, 0.0, 1.0)),
+            "source": "rain",
         })
+
+    def _update_pond_flock(self, flock, dt, music_energy):
+        """Advance one isolated leader-driven boid flock."""
+        flock["turn_cooldown"] = max(0.0, flock["turn_cooldown"] - dt)
+
+        positions = flock["positions"]
+        velocities = flock["velocities"]
+        leader = flock["leader"]
+
+        offsets = positions[np.newaxis, :, :] - positions[:, np.newaxis, :]
+        distances = np.linalg.norm(offsets, axis=2)
+        nearby = (distances > 0.0) & (distances < 0.23)
+        neighbor_count = np.maximum(nearby.sum(axis=1, keepdims=True), 1)
+
+        neighbor_positions = (
+            nearby[..., np.newaxis] * positions[np.newaxis, :, :]
+        ).sum(axis=1) / neighbor_count
+        neighbor_velocities = (
+            nearby[..., np.newaxis] * velocities[np.newaxis, :, :]
+        ).sum(axis=1) / neighbor_count
+        separation = (
+            -offsets
+            / np.maximum(distances[..., np.newaxis], 0.022) ** 2
+            * (distances[..., np.newaxis] < 0.092)
+        ).sum(axis=1)
+
+        min_x, max_x, min_y, max_y = flock["bounds"]
+        boundary_force = np.zeros_like(positions)
+        boundary_force[:, 0] += np.where(positions[:, 0] > max_x, -0.90, 0.0)
+        boundary_force[:, 0] += np.where(positions[:, 0] < min_x, 0.90, 0.0)
+        boundary_force[:, 1] += np.where(positions[:, 1] > max_y, -0.72, 0.0)
+        boundary_force[:, 1] += np.where(positions[:, 1] < min_y, 0.72, 0.0)
+
+        leader_position = positions[leader]
+        leader_velocity = velocities[leader].copy()
+        follower_force = (
+            (neighbor_positions - positions) * 0.090
+            + (neighbor_velocities - velocities) * 0.32
+            + separation * 0.095
+            + (leader_position - positions) * 0.070
+            + (leader_velocity - velocities) * 0.25
+            + boundary_force
+        )
+        follower_force[leader] = boundary_force[leader]
+        velocities += follower_force * dt
+
+        desired_speed = np.random.uniform(*flock["speed_range"]) + music_energy * 0.045
+        speed = np.linalg.norm(velocities, axis=1, keepdims=True)
+        velocities *= desired_speed / np.maximum(speed, 1e-5)
+        positions += velocities * dt
+
+        flock["headings"] = np.arctan2(velocities[:, 1], velocities[:, 0])
+        flock["phases"] += dt * (
+            4.4
+            + self.react_treble * 4.6
+            + self.react_mid * 1.3
+            + 0.35 * np.sin(flock["music_phase"])
+        )
 
     def update_pond(self, dt):
         active_shader_ripples = []
@@ -201,69 +395,14 @@ class PondModeMixin:
                 remaining_rain.append(drop)
         self.pond_rain = remaining_rain
 
-        remaining_ripples = []
-        for ripple in self.pond_ripples:
-            ripple["radius"] += ripple["speed"] * dt
-            ripple["life"] -= dt
-            if ripple["life"] > 0.0 and ripple["radius"] < 5.2:
-                remaining_ripples.append(ripple)
-        self.pond_ripples = remaining_ripples
+        # All visible ripples are simulated by the fullscreen shader via
+        # pond_shader_ripples, including rain and trout impacts.
 
-        self.pond_bird_turn_cooldown = max(
-            0.0, self.pond_bird_turn_cooldown - dt
-        )
-
-        # A leader-driven boids flock. The designated lead bird receives musical
-        # turns; nearby followers align with its new trajectory over successive
-        # frames, creating a visible travelling turn instead of a simultaneous
-        # whole-flock rotation.
-        positions = self.pond_bird_pos
-        velocities = self.pond_bird_vel
-        leader = self.pond_bird_leader
-        offsets = positions[np.newaxis, :, :] - positions[:, np.newaxis, :]
-        distances = np.linalg.norm(offsets, axis=2)
-        nearby = (distances > 0.0) & (distances < 0.26)
-        neighbor_count = np.maximum(nearby.sum(axis=1, keepdims=True), 1)
-
-        neighbor_positions = (
-            nearby[..., np.newaxis] * positions[np.newaxis, :, :]
-        ).sum(axis=1) / neighbor_count
-        neighbor_velocities = (
-            nearby[..., np.newaxis] * velocities[np.newaxis, :, :]
-        ).sum(axis=1) / neighbor_count
-        separation = (
-            -offsets
-            / np.maximum(distances[..., np.newaxis], 0.022) ** 2
-            * (distances[..., np.newaxis] < 0.105)
-        ).sum(axis=1)
-
-        boundary_force = np.zeros_like(positions)
-        boundary_force[:, 0] += np.where(positions[:, 0] > 0.92, -0.90, 0.0)
-        boundary_force[:, 0] += np.where(positions[:, 0] < -0.92, 0.90, 0.0)
-        boundary_force[:, 1] += np.where(positions[:, 1] > 0.82, -0.72, 0.0)
-        boundary_force[:, 1] += np.where(positions[:, 1] < 0.18, 0.72, 0.0)
-
-        leader_position = positions[leader]
-        leader_velocity = velocities[leader].copy()
-        follower_force = (
-            (neighbor_positions - positions) * 0.08
-            + (neighbor_velocities - velocities) * 0.30
-            + separation * 0.090
-            + (leader_position - positions) * 0.065
-            + (leader_velocity - velocities) * 0.24
-            + boundary_force
-        )
-        follower_force[leader] = boundary_force[leader]
-        velocities += follower_force * dt
-
-        desired_speed = 0.115 + music_energy * 0.050
-        speed = np.linalg.norm(velocities, axis=1, keepdims=True)
-        velocities *= desired_speed / np.maximum(speed, 1e-5)
-        positions += velocities * dt
-        self.pond_bird_heading = np.arctan2(velocities[:, 1], velocities[:, 0])
-        self.pond_bird_phase += dt * (
-            5.0 + self.react_treble * 5.0 + self.react_mid * 1.5
-        )
+        # Update each flock separately; no cohesion, alignment, or leader force
+        # crosses from one flock to the other.
+        for flock in self.pond_flocks:
+            self._update_pond_flock(flock, dt, music_energy)
+        self._sync_pond_bird_shader_data()
 
         # Leaf, lightning, and trout routines are rendered entirely by the
         # fullscreen shader. Avoid particle approximations that read as dots.
@@ -309,8 +448,8 @@ class PondModeMixin:
         positions, colors, sizes = [], [], []
 
         # The fullscreen pond shader renders the water surface, grass banks,
-        # clouds, rain, ripples, trees, and flocking swallows without dot art.
-        # Keep only routine effects below as foreground accents.
+        # clouds, rain, ripples, trees, and two independently flocking groups
+        # of swallows without dot art.
         # The fullscreen pond shader renders layered storm clouds, physical rain
         # streaks, water reflections, and continuous ripples. Keep the routine
         # effects below as foreground accents rather than duplicating the scene
