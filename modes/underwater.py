@@ -187,6 +187,26 @@ class UnderwaterModeMixin:
         self.seabed_twinkle_phase = np.random.uniform(0.0, 2 * np.pi, self.num_seabed_pts).astype(np.float32)
         self.seabed_is_glowing = (np.random.rand(self.num_seabed_pts) < 0.28) # 28% of seabed points glow
 
+    def sample_spatial_audio_underwater(self, positions):
+        """Return bilinearly interpolated bass, mid, and treble energy per world position."""
+        zones = self.spatial_audio_zones
+        rows, cols = zones.shape[:2]
+
+        x_normalized = np.clip((positions[:, 0] + 15.0) / 30.0, 0.0, 1.0)
+        y_normalized = np.clip((positions[:, 1] + 2.5) / 11.5, 0.0, 1.0)
+        grid_x = x_normalized * (cols - 1)
+        grid_y = y_normalized * (rows - 1)
+
+        x0 = np.floor(grid_x).astype(np.intp)
+        y0 = np.floor(grid_y).astype(np.intp)
+        x1 = np.minimum(x0 + 1, cols - 1)
+        y1 = np.minimum(y0 + 1, rows - 1)
+        x_fraction = (grid_x - x0)[:, np.newaxis]
+        y_fraction = (grid_y - y0)[:, np.newaxis]
+
+        lower = zones[y0, x0] * (1.0 - x_fraction) + zones[y0, x1] * x_fraction
+        upper = zones[y1, x0] * (1.0 - x_fraction) + zones[y1, x1] * x_fraction
+        return lower * (1.0 - y_fraction) + upper * y_fraction
 
     def update_underwater(self, dt):
         # Spawn bubbles based on volume hits and frequencies
@@ -363,16 +383,29 @@ class UnderwaterModeMixin:
         w_treble = y_norm ** 2
         w_mid = 1.0 - w_bass - w_treble
 
-        # 2. Localized spectral energy per particle
-        e_local = (w_bass * self.react_bass + 
-                   w_mid * self.react_mid + 
-                   w_treble * self.react_treble)
+        # 2. Sample the same diffusing regional audio field used by FIRE Plasma.
+        # Reactivity 5 preserves the original regional response; 0 disables it,
+        # while 6-10 progressively strengthen its brightness impact.
+        regional_reactivity = self.opt_particle_reactivity / 5.0
+        local_bands = self.sample_spatial_audio_underwater(self.algae_pos)
+        regional_energy = (
+            w_bass * local_bands[:, 0]
+            + w_mid * local_bands[:, 1]
+            + w_treble * local_bands[:, 2]
+        )
+        global_energy = (
+            w_bass * self.react_bass
+            + w_mid * self.react_mid
+            + w_treble * self.react_treble
+        )
+        e_local = (regional_energy + global_energy * 0.18) * regional_reactivity
 
-        # 3. Map horizontal stereo soundstage scale
+        # 3. Preserve a subtle instantaneous stereo response while the persistent
+        # spatial field supplies the dominant localized twinkle pattern.
         x_norm = np.clip(self.algae_pos[:, 0] / 15.0, -1.0, 1.0)
-        s_coeff = 1.0 + 0.8 * (x_norm * self.current_stereo_panning)
+        s_coeff = 1.0 + 0.25 * (x_norm * self.current_stereo_panning)
 
-        # 4. Compute final spatial-audio reaction factor
+        # 4. Compute final regional audio reaction factor.
         r_local = e_local * s_coeff
 
         # 5. Tick individual phases forward (using self.algae_random_rates for flicker-free variation)
@@ -382,12 +415,20 @@ class UnderwaterModeMixin:
         algae_twinkle = np.sin(self.algae_twinkle_phase) * 0.5 + 0.5
         self.algae_col[:, 3] = (0.15 + r_local * 0.85) * (0.2 + 0.8 * algae_twinkle)
 
-        # Seabed bioluminescent phosphorescence twinkling
-        self.seabed_twinkle_phase += (1.2 + self.react_bass * 5.0) * dt * np.random.uniform(0.7, 1.4, self.num_seabed_pts)
-        for i in range(self.num_seabed_pts):
-            if self.seabed_is_glowing[i]:
-                twinkle_val = np.sin(self.seabed_twinkle_phase[i]) * 0.5 + 0.5
-                self.seabed_col[i, 3] = (0.25 + self.react_bass * 0.75) * (0.15 + 0.85 * twinkle_val)
+        # Seabed phosphorescence uses local low-frequency energy, so bass activity
+        # blooms across nearby parts of the ocean floor rather than uniformly.
+        seabed_bands = self.sample_spatial_audio_underwater(self.seabed_pos)
+        seabed_bass = (
+            seabed_bands[:, 0] + self.react_bass * 0.18
+        ) * regional_reactivity
+        self.seabed_twinkle_phase += (
+            1.2 + seabed_bass * 5.0
+        ) * dt * np.random.uniform(0.7, 1.4, self.num_seabed_pts)
+        glowing = self.seabed_is_glowing
+        twinkle_values = np.sin(self.seabed_twinkle_phase[glowing]) * 0.5 + 0.5
+        self.seabed_col[glowing, 3] = (
+            0.25 + seabed_bass[glowing] * 0.75
+        ) * (0.15 + 0.85 * twinkle_values)
 
         # Update Jellyfish pulsing and movement physics
         for i in range(self.num_jelly):
@@ -485,14 +526,20 @@ class UnderwaterModeMixin:
         a_col = self.algae_col
         a_size = -self.algae_size * (1.0 + self.react_treble * 0.4)
         
-        # Render irregular Stalagmite Vents on seabed
+        # Render irregular Stalagmite Vents on seabed. Each glowing crater mouth
+        # samples its nearby regional bass energy rather than pulsing in unison.
         v_pos = self.vent_pts_pos
         v_col = self.vent_pts_col.copy()
         v_size = -self.vent_pts_size.copy()
+        regional_reactivity = self.opt_particle_reactivity / 5.0
+        vent_bass = (
+            self.sample_spatial_audio_underwater(v_pos)[:, 0]
+            + self.react_bass * 0.18
+        ) * regional_reactivity
         for i in range(self.num_vent_pts):
             if i % 24 >= 20: # Glowing crater mouths
-                v_col[i, 3] = 0.5 + self.react_bass * 0.5
-                v_size[i] *= (1.0 + self.react_bass * 0.4)
+                v_col[i, 3] = np.clip(0.5 + vent_bass[i] * 0.5, 0.0, 1.0)
+                v_size[i] *= 1.0 + vent_bass[i] * 0.4
                 
         # Render Sandy/Rocky Sea Floor Points
         seabed_pos = self.seabed_pos
@@ -723,7 +770,16 @@ class UnderwaterModeMixin:
                 hood_tri_col.extend(m_cols)
                 
             if self.active_rarity is not None and self.active_rarity['type'] == 'SEAHORSE':
-                sh_pts, sh_cols = make_solid_seahorse(self.active_rarity['pos'], self.active_rarity['phase'])
+                camera_pos = np.array([
+                    self.camera_dist * np.cos(self.camera_phi) * np.sin(self.camera_theta),
+                    self.camera_dist * np.sin(self.camera_phi),
+                    self.camera_dist * np.cos(self.camera_phi) * np.cos(self.camera_theta),
+                ], dtype=np.float32)
+                sh_pts, sh_cols = make_solid_seahorse(
+                    self.active_rarity['pos'],
+                    self.active_rarity['phase'],
+                    camera_pos,
+                )
                 hood_tri_pos.extend(sh_pts)
                 hood_tri_col.extend(sh_cols)
                 

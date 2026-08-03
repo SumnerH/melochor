@@ -1,7 +1,7 @@
 import math
 import numpy as np
 
-def make_solid_seahorse(center, phase):
+def make_solid_seahorse(center, phase, camera_pos=None):
     """Generates an organic, beautifully lit, 2.5D classic seahorse profile silhouette with a realistic S-spine, wiggling tail, and elegant highlights."""
     vertices = []
     colors = []
@@ -227,34 +227,46 @@ def make_solid_seahorse(center, phase):
         vertices.extend([p_f_right_top, p_b_right_bottom, p_b_right_top])
         colors.extend([c_r_rt, c_r_rb, c_r_rt])
         
-    # 4. Apply dynamic 3D swimming/bobbing rotations to all vertices relative to origin using vectorized NumPy transformations
-    pitch_ang = 0.15 * math.cos(phase * 1.3) + 0.05 * math.sin(phase * 2.5)
-    roll_ang = 0.12 * math.sin(phase * 1.1)
-    yaw_ang = 0.08 * math.cos(phase * 0.7)
-    
-    cp, sp = math.cos(pitch_ang), math.sin(pitch_ang)
-    cr, sr = math.cos(roll_ang), math.sin(roll_ang)
-    cy, sy = math.cos(yaw_ang), math.sin(yaw_ang)
-    
-    cx, cy, cz = center[0], center[1], center[2]
-    
+    # Keep the silhouette nearly perpendicular to the camera. The local X/Y plane
+    # contains the recognizable seahorse profile; only the narrow local Z thickness
+    # points toward the camera.
     if len(vertices) > 0:
         v_arr = np.array(vertices, dtype=np.float32)
-        x, y, z = v_arr[:, 0], v_arr[:, 1], v_arr[:, 2]
-        x1 = cp * x - sp * y
-        y1 = sp * x + cp * y
-        z1 = z
-        
-        x2 = x1
-        y2 = cr * y1 - sr * z1
-        z2 = sr * y1 + cr * z1
-        
-        x3 = cy * x2 + sy * z2
-        y3 = y2
-        z3 = -sy * x2 + cy * z2
-        
-        rotated_vertices = np.stack([x3 + cx, y3 + cy, z3 + cz], axis=1).tolist()
+
+        if camera_pos is None:
+            camera_pos = np.array([center[0], center[1], center[2] + 1.0], dtype=np.float32)
+        else:
+            camera_pos = np.asarray(camera_pos, dtype=np.float32)
+
+        face_normal = camera_pos - np.asarray(center, dtype=np.float32)
+        face_normal[1] = 0.0
+        normal_length = np.linalg.norm(face_normal)
+        if normal_length < 1e-5:
+            face_normal = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+        else:
+            face_normal /= normal_length
+
+        profile_right = np.cross(np.array([0.0, 1.0, 0.0], dtype=np.float32), face_normal)
+        profile_right /= np.linalg.norm(profile_right)
+        profile_up = np.cross(face_normal, profile_right)
+        profile_up /= np.linalg.norm(profile_up)
+
+        # A subtle, profile-plane swimming wobble preserves life without obscuring
+        # the snout, crowned head, curved trunk, and coiled tail silhouette.
+        lean = 0.06 * math.sin(phase * 1.1)
+        c_lean, s_lean = math.cos(lean), math.sin(lean)
+        local_x = v_arr[:, 0] * c_lean - v_arr[:, 1] * s_lean
+        local_y = v_arr[:, 0] * s_lean + v_arr[:, 1] * c_lean
+        local_z = v_arr[:, 2]
+
+        transformed = (
+            np.asarray(center, dtype=np.float32)
+            + local_x[:, np.newaxis] * profile_right
+            + local_y[:, np.newaxis] * profile_up
+            + local_z[:, np.newaxis] * face_normal
+        )
+        rotated_vertices = transformed.tolist()
     else:
         rotated_vertices = []
-        
+
     return rotated_vertices, colors

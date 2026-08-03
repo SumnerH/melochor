@@ -73,6 +73,7 @@ active_presets = [
         "opt_trailers": 0,
         "opt_gravity": 1.0,
         "opt_height_restrict": True,
+        "opt_particle_reactivity": 3,
         "opt_star_shape": 0
     },
     {
