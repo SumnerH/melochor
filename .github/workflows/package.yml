@@ -33,6 +33,11 @@ jobs:
             mingw-w64-x86_64-python-numpy
             mingw-w64-x86_64-python-scipy
             mingw-w64-x86_64-python-gobject
+            mingw-w64-x86_64-python-cffi
+            mingw-w64-x86_64-python-sounddevice
+            mingw-w64-x86_64-python-soundfile
+            mingw-w64-x86_64-python-audioread
+            mingw-w64-x86_64-python-pyopengl
             mingw-w64-x86_64-gtk4
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-pkg-config
@@ -40,25 +45,16 @@ jobs:
             mingw-w64-x86_64-libsndfile
             mingw-w64-x86_64-pyinstaller
 
-      # MSYS2 owns its system Python and rejects system-wide pip installs under
-      # PEP 668. Use an isolated venv while retaining pacman-provided GTK,
-      # NumPy, SciPy, PyInstaller, and native audio libraries.
-      - name: Create Build Environment and Install Python Dependencies (Windows)
+      # Keep all Windows packages under pacman's control. PyPI's generic
+      # soundfile/sounddevice wheels cannot reliably locate MSYS2's native
+      # libsndfile and PortAudio dependency trees on Python 3.14. The venv
+      # isolates the build command without replacing those MSYS2 packages.
+      - name: Create and Validate Build Environment (Windows)
         if: matrix.os == 'windows-latest'
         shell: msys2 {0}
         run: |
           python -m venv --system-site-packages .venv
-          .venv/bin/python -m pip install --upgrade pip setuptools
-          # Allow pip to resolve runtime dependencies. In particular,
-          # sounddevice's _sounddevice_data package supplies its bundled
-          # PortAudio DLL when ctypes cannot discover MSYS2's DLL directly.
-          .venv/bin/python -m pip install cffi sounddevice soundfile audioread PyOpenGL
-          # On MSYS2/Python 3.14, sounddevice cannot discover PortAudio via
-          # ctypes.util.find_library(), despite pacman providing libportaudio-2.dll.
-          # Validate the actual native DLL directly; sounddevice itself is exercised
-          # from the packaged application after main.py adds the bundle DLL directory
-          # to PATH.
-          .venv/bin/python -c "import ctypes, gi, numpy, scipy, soundfile, audioread, OpenGL.GL; ctypes.CDLL('/mingw64/bin/libportaudio-2.dll'); gi.require_version('Gtk', '4.0'); from gi.repository import Gtk; print('Windows build environment imports and PortAudio DLL validated.')"
+          .venv/bin/python -c "import ctypes, gi, numpy, scipy, sounddevice, soundfile, audioread, OpenGL.GL; ctypes.CDLL('/mingw64/bin/libportaudio-2.dll'); ctypes.CDLL('/mingw64/bin/libsndfile-1.dll'); gi.require_version('Gtk', '4.0'); from gi.repository import Gtk; print('Windows build environment imports and native audio libraries validated.')"
 
       - name: Download Static FFmpeg (Windows)
         if: matrix.os == 'windows-latest'
