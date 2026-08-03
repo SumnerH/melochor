@@ -187,6 +187,15 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         self.react_treble = 0.0
         self.current_stereo_panning = 0.0
         self.procedural_beat_timer = 0.0
+
+        # Low-resolution screen-space audio field. Its RGB channels retain
+        # localized bass, mid, and treble energy for regional shader effects.
+        self.spatial_audio_zone_cols = 8
+        self.spatial_audio_zone_rows = 5
+        self.spatial_audio_zones = np.zeros(
+            (self.spatial_audio_zone_rows, self.spatial_audio_zone_cols, 3),
+            dtype=np.float32,
+        )
         
         # Climax Events and BPM phase
         self.climax_flash = 0.0
@@ -313,6 +322,56 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         rate = attack_rate if target > current else decay_rate
         factor = 1.0 - math.exp(-rate * dt)
         return current + (target - current) * factor
+
+    def inject_spatial_audio_event(self, event):
+        """Add an analyzed audio event to the regional screen-space audio field."""
+        band_indices = {"bass": 0, "mid": 1, "treble": 2}
+        dominant_index = band_indices.get(event.get("band_type"), 1)
+        bands = np.array(
+            [
+                event.get("band_bass", 0.0),
+                event.get("band_mid", 0.0),
+                event.get("band_treble", 0.0),
+            ],
+            dtype=np.float32,
+        )
+        bands[dominant_index] += 0.85
+        bands /= max(float(np.max(bands)), 1e-6)
+
+        # Analyzed shell placement corresponds to stereo panning. Bass regions
+        # occupy the lower sky, mids the center, and trebles the upper sky.
+        x_offset = event.get("x_offset")
+        if x_offset is None:
+            x_norm = np.clip(self.current_stereo_panning, -1.0, 1.0)
+        else:
+            x_norm = np.clip(float(x_offset) / 11.0, -1.0, 1.0)
+        y_norm = (0.24, 0.50, 0.80)[dominant_index]
+
+        zone_x = (x_norm * 0.5 + 0.5) * (self.spatial_audio_zone_cols - 1)
+        zone_y = y_norm * (self.spatial_audio_zone_rows - 1)
+        grid_y, grid_x = np.mgrid[
+            0:self.spatial_audio_zone_rows,
+            0:self.spatial_audio_zone_cols,
+        ]
+        distance_sq = (grid_x - zone_x) ** 2 + (grid_y - zone_y) ** 2
+        influence = np.exp(-distance_sq / 1.4).astype(np.float32)[..., np.newaxis]
+
+        self.spatial_audio_zones += influence * bands[np.newaxis, np.newaxis, :] * 0.75
+        np.clip(self.spatial_audio_zones, 0.0, 1.5, out=self.spatial_audio_zones)
+
+    def update_spatial_audio_zones(self, dt):
+        """Diffuse and fade regional energy between analyzed music events."""
+        zones = self.spatial_audio_zones
+        padded = np.pad(zones, ((1, 1), (1, 1), (0, 0)), mode="edge")
+        neighbor_average = (
+            padded[:-2, 1:-1]
+            + padded[2:, 1:-1]
+            + padded[1:-1, :-2]
+            + padded[1:-1, 2:]
+        ) * 0.25
+
+        zones += (neighbor_average - zones) * min(1.0, dt * 4.0)
+        zones *= math.exp(-1.7 * dt)
 
     def get_sim_time(self):
         if hasattr(self, 'is_recording') and self.is_recording:
@@ -695,6 +754,12 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         self.sky_flame_env_bass_loc = gl.glGetUniformLocation(self.sky_program, "uFlameEnvBass")
         self.sky_flame_env_mid_loc = gl.glGetUniformLocation(self.sky_program, "uFlameEnvMid")
         self.sky_flame_env_treble_loc = gl.glGetUniformLocation(self.sky_program, "uFlameEnvTreble")
+        self.sky_spatial_audio_enabled_loc = gl.glGetUniformLocation(
+            self.sky_program, "uSpatialAudioEnabled"
+        )
+        self.sky_spatial_audio_zones_loc = gl.glGetUniformLocation(
+            self.sky_program, "uSpatialAudioZones[0]"
+        )
 
     def on_render(self, area, context):
         if self.sky_program is None:
@@ -786,6 +851,17 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
                 gl.glUniform1f(self.sky_react_treble_loc, self.react_treble_smooth)
             if hasattr(self, 'sky_react_mid_loc') and self.sky_react_mid_loc != -1:
                 gl.glUniform1f(self.sky_react_mid_loc, self.react_mid_smooth)
+            if hasattr(self, 'sky_spatial_audio_enabled_loc') and self.sky_spatial_audio_enabled_loc != -1:
+                gl.glUniform1f(
+                    self.sky_spatial_audio_enabled_loc,
+                    1.0 if self.major_mode == "FIRE Plasma" else 0.0,
+                )
+            if hasattr(self, 'sky_spatial_audio_zones_loc') and self.sky_spatial_audio_zones_loc != -1:
+                gl.glUniform3fv(
+                    self.sky_spatial_audio_zones_loc,
+                    self.spatial_audio_zone_cols * self.spatial_audio_zone_rows,
+                    self.spatial_audio_zones.reshape(-1, 3),
+                )
             if hasattr(self, 'sky_stereo_panning_loc') and self.sky_stereo_panning_loc != -1:
                 gl.glUniform1f(self.sky_stereo_panning_loc, self.current_stereo_panning)
             if hasattr(self, 'sky_aspect_loc') and self.sky_aspect_loc != -1:
@@ -1187,6 +1263,7 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         self.react_bass_smooth += (self.react_bass - self.react_bass_smooth) * dt * 2.6
         self.react_mid_smooth += (self.react_mid - self.react_mid_smooth) * dt * 2.6
         self.react_treble_smooth += (self.react_treble - self.react_treble_smooth) * dt * 2.6
+        self.update_spatial_audio_zones(dt)
 
         # DIAGNOSTIC: print real reactive values once per second while a track plays in FIRE
         # Plasma mode. Watch this in the console during a track with strong, distinct bass/

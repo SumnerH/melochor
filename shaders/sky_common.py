@@ -50,6 +50,10 @@ uniform float uFlameEnvBass;
 uniform float uFlameEnvMid;
 uniform float uFlameEnvTreble;
 
+// Eight columns by five rows of local bass, mid, and treble energy.
+uniform float uSpatialAudioEnabled;
+uniform vec3 uSpatialAudioZones[40];
+
 // Noise helper functions for high-fidelity procedurals
 float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -82,6 +86,24 @@ float pattern(vec2 p, out vec2 q, out vec2 r) {
     return fbm(p + 4.0 * r);
 }
 
+vec3 sampleSpatialAudio(vec2 pos) {
+    vec2 uv = clamp(pos * 0.5 + 0.5, vec2(0.0), vec2(1.0));
+    float grid_x = uv.x * 7.0;
+    float grid_y = uv.y * 4.0;
+    int x0 = int(floor(grid_x));
+    int y0 = int(floor(grid_y));
+    int x1 = min(x0 + 1, 7);
+    int y1 = min(y0 + 1, 4);
+    float tx = fract(grid_x);
+    float ty = fract(grid_y);
+
+    vec3 zone00 = uSpatialAudioZones[y0 * 8 + x0];
+    vec3 zone10 = uSpatialAudioZones[y0 * 8 + x1];
+    vec3 zone01 = uSpatialAudioZones[y1 * 8 + x0];
+    vec3 zone11 = uSpatialAudioZones[y1 * 8 + x1];
+    return mix(mix(zone00, zone10, tx), mix(zone01, zone11, tx), ty);
+}
+
 vec3 get_starfield(vec2 pos, float aspect, float t_grad) {
     vec3 stars_color = vec3(0.0);
     vec2 star_uv = vec2(pos.x * aspect, pos.y) * 15.0;
@@ -94,8 +116,20 @@ vec3 get_starfield(vec2 pos, float aspect, float t_grad) {
         float w_treble = t_grad * t_grad;
         float w_mid = 1.0 - w_bass - w_treble;
 
-        // 2. Localized spectral energy based on vertical coordinate
-        float e_local = w_bass * uReactBass + w_mid * uReactMid + w_treble * uReactTreble;
+        // 2. In FIRE Plasma, nearby analyzed zones determine which areas of
+        // the sky brighten together. Other modes retain global reactivity.
+        float global_energy = w_bass * uReactBass + w_mid * uReactMid + w_treble * uReactTreble;
+        vec3 local_bands = sampleSpatialAudio(pos);
+        float regional_energy = (
+            w_bass * local_bands.r
+            + w_mid * local_bands.g
+            + w_treble * local_bands.b
+        );
+        float e_local = mix(
+            global_energy,
+            regional_energy + global_energy * 0.18,
+            uSpatialAudioEnabled
+        );
 
         // 3. Map horizontal stereo soundstage scale
         float s_coeff = 1.0 + 0.8 * (pos.x * uStereoPanning);
