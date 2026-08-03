@@ -2,6 +2,9 @@
 
 Major changes are listed by tagged release, newest first.
 
+## v0.2.20
+
+- Win32 build fixes: resolve sounddevice dependencies in Windows packaging
 ## v0.2.19
 
 - Win32 build fixes: resolve sounddevice dependencies in Windows packaging
