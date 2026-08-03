@@ -48,6 +48,7 @@ active_presets = [
         "opt_gravity": 1.0,
         "opt_height_restrict": True,
         "opt_star_shape": 0,
+        "opt_particle_reactivity": 5,
         "mandala_slices": 12
     },
     {
@@ -59,6 +60,7 @@ active_presets = [
         "opt_gravity": 0.5,
         "opt_height_restrict": False,
         "opt_star_shape": 2, # larger diamonds
+        "opt_particle_reactivity": 10,
         "mandala_slices": 4
     },
     {

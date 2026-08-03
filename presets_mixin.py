@@ -32,6 +32,7 @@ class PresetMixin:
         self.opt_gravity = preset["opt_gravity"]
         self.opt_height_restrict = preset["opt_height_restrict"]
         self.opt_star_shape = preset["opt_star_shape"]
+        self.opt_particle_reactivity = preset.get("opt_particle_reactivity", 0)
         
         if self.major_mode == "SYNAESTHESIA Classic":
             if self.opt_star_shape in (1, 2, 3):
