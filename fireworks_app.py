@@ -123,6 +123,7 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         self.routine_queue = []
         self.active_routine_name = ""
         self.routine_timer = 0.0
+        self.mode_routine_indices = {}
         
         self.camera_dist = 26.0
         self.camera_theta = 0.0
@@ -341,6 +342,65 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             self.trigger_syn_star_burst()
         elif self.major_mode == "FIRE Plasma":
             self.trigger_climax_fire(routine_name)
+
+    def cycle_current_mode_routine(self):
+        routines_by_mode = {
+            "FIREWORKS": [
+                ("American Flag", lambda: self.trigger_routine("American Flag", self.launch_american_flag)),
+                ("Liberty Bell", lambda: self.trigger_routine("Liberty Bell", self.launch_liberty_bell)),
+                ("Statue of Liberty", lambda: self.trigger_routine("Statue of Liberty", self.launch_statue_of_liberty)),
+                ("Flower Bouquet", lambda: self.trigger_routine("Flower Bouquet", self.launch_flower_bouquet)),
+                ("The Dragon", lambda: self.trigger_routine("The Dragon", self.launch_the_dragon)),
+                ("Supernova", lambda: self.trigger_routine("Supernova", self.launch_supernova)),
+                ("Shooting Star", lambda: self.trigger_routine("Shooting Star", self.launch_shooting_star)),
+            ],
+            "TUNNEL Wormhole": [
+                ("Plasma Burst", lambda: self.trigger_climax_event(1.1, "Plasma Burst")),
+                ("Gravity Surge", lambda: self.trigger_climax_event(1.2, "Gravity Surge")),
+                ("Stardust Stream", lambda: self.trigger_climax_event(1.3, "Stardust Stream")),
+                ("Event Horizon", lambda: self.trigger_climax_event(1.4, "Event Horizon")),
+                ("Lightning Flash", lambda: self.trigger_climax_event(1.8, "Lightning Flash")),
+                ("Supernova", lambda: self.trigger_climax_event(2.0, "Supernova")),
+                ("Shooting Star", lambda: self.trigger_climax_event(1.6, "Shooting Star")),
+            ],
+            "UNDERWATER Lava": [
+                ("Coral Pulse", lambda: self.trigger_climax_event(1.1, "Coral Pulse")),
+                ("Geyser Eruption", lambda: self.trigger_climax_event(1.2, "Geyser Eruption")),
+                ("Plankton Surge", lambda: self.trigger_climax_event(1.3, "Plankton Surge")),
+                ("Deep Vent Blast", lambda: self.trigger_climax_event(1.4, "Deep Vent Blast")),
+                ("Bioluminescent Rainbow", lambda: self.trigger_climax_event(1.8, "Bioluminescent Rainbow")),
+                ("Supernova", lambda: self.trigger_climax_event(2.0, "Supernova")),
+                ("Shooting Star", lambda: self.trigger_climax_event(1.6, "Shooting Star")),
+            ],
+            "MANDALA Sacred": [
+                ("Lotus Bloom", lambda: self.trigger_climax_event(1.1, "Lotus Bloom")),
+                ("Cosmic Spin", lambda: self.trigger_climax_event(1.2, "Cosmic Spin")),
+                ("Infinite Pulse", lambda: self.trigger_climax_event(1.3, "Infinite Pulse")),
+                ("Geometric Collapse", lambda: self.trigger_climax_event(1.4, "Geometric Collapse")),
+                ("Astral Projection", lambda: self.trigger_climax_event(1.8, "Astral Projection")),
+                ("Peace Symbol", lambda: self.trigger_climax_event(1.6, "Peace Symbol")),
+                ("Halo Effect", lambda: self.trigger_climax_event(1.8, "Halo Effect")),
+            ],
+            "SYNAESTHESIA Classic": [
+                ("Star Burst", self.trigger_syn_star_burst),
+            ],
+            "FIRE Plasma": [
+                ("Flame Flare", lambda: self.trigger_climax_event(1.1, "Flame Flare")),
+                ("Flame Wave", lambda: self.trigger_climax_event(1.2, "Flame Wave")),
+                ("Treble Spark Shower", lambda: self.trigger_climax_event(1.3, "Treble Spark Shower")),
+                ("Fire Eruption", lambda: self.trigger_climax_event(1.4, "Fire Eruption")),
+                ("Lightning Strike", lambda: self.trigger_climax_event(1.8, "Lightning Strike")),
+            ],
+        }
+        routines = routines_by_mode.get(self.major_mode, [])
+        if not routines:
+            return
+
+        routine_idx = (self.mode_routine_indices.get(self.major_mode, -1) + 1) % len(routines)
+        self.mode_routine_indices[self.major_mode] = routine_idx
+        routine_name, trigger = routines[routine_idx]
+        print(f"Cycling {self.major_mode} routine to: {routine_name}")
+        trigger()
 
     def spawn_rarity(self, r_type):
         print(f"SPAWNING RARITY: {r_type}!")

@@ -130,6 +130,9 @@ class InputHandlerMixin:
         elif keyval in (Gdk.KEY_c, Gdk.KEY_C):
             self.fireworks.clear()
             return True
+        elif keyval in (Gdk.KEY_x, Gdk.KEY_X):
+            self.cycle_current_mode_routine()
+            return True
         elif keyval in (Gdk.KEY_m, Gdk.KEY_M):
             self.toggle_sync_playback()
             return True
