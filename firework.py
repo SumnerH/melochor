@@ -720,7 +720,7 @@ class Firework:
                     )
                     flicker[crackle_mask] = np.where(strobe, 1.0, 0.15)
                     self.colors[crackle_mask, 3] = fade[crackle_mask] * flicker[crackle_mask]
-            
+
             if self.history_len > 1:
                 self.history[1:] = self.history[:-1]
                 self.history[0] = self.positions.copy()

@@ -98,6 +98,7 @@ void main() {
         float alpha = pow(1.0 - t, 1.5) * vColor.a;
         vec3 spark_color = mix(vColor.rgb, vec3(1.0, 1.0, 0.95), core * 0.85);
         spark_color += vec3(core * 0.40);
+
         FragColor = vec4(spark_color, alpha);
     }
 }

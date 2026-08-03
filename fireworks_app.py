@@ -981,19 +981,56 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
                     num_pts = len(fw.positions)
                     if num_pts == 0:
                         continue
-                    # Primary bright exploding stars
+
+                    # Use the same live audio envelope as Mandala. Do not hold this
+                    # value between frames: reactivity must visibly rise and fall with
+                    # each beat rather than becoming a near-constant glow.
+                    reactivity = self.opt_particle_reactivity / 10.0
+                    beat_level = np.clip(
+                        max(self.react_bass, self.react_mid, self.react_treble),
+                        0.0,
+                        1.5,
+                    )
+                    pulse_strength = reactivity * beat_level * 0.5
+                    particle_pulse = 1.0 + pulse_strength * 1.5
+
+                    # Apply the beat response after Firework.update() has calculated
+                    # chemical color and lifetime fading. This affects the render buffer
+                    # only, so it cannot interfere with particle simulation or fading.
+                    reactive_colors = fw.colors.copy()
+                    reactive_colors[:, :3] += (
+                        1.0 - reactive_colors[:, :3]
+                    ) * min(1.0, pulse_strength * 0.7)
+                    reactive_colors[:, 3] += (
+                        1.0 - reactive_colors[:, 3]
+                    ) * min(1.0, pulse_strength)
+
+                    # Current explosion sparks, including post-explosion falling sparks.
                     part_pos.append(fw.positions)
-                    part_col.append(fw.colors)
-                    part_size.append(np.full(num_pts, fw.star_size, dtype=np.float32))
-                    
-                    # Particle trails history step-down fading
+                    part_col.append(reactive_colors)
+                    part_size.append(
+                        np.full(num_pts, fw.star_size * particle_pulse, dtype=np.float32)
+                    )
+
+                    # Trails are historical positions of those same sparks. Apply the
+                    # same live pulse so each complete falling streak brightens together.
                     if fw.history_len > 1 and fw.history is not None:
                         for h in range(fw.history_len):
                             trail_factor = 1.0 - (h / fw.history_len)
                             step_colors = fw.colors.copy()
-                            step_colors[:, 3] *= trail_factor * 0.45
-                            step_sizes = np.full(num_pts, max(1.0, (fw.star_size * 0.65) * trail_factor), dtype=np.float32)
-                            
+                            step_colors[:, :3] += (
+                                1.0 - step_colors[:, :3]
+                            ) * min(1.0, pulse_strength * 0.7)
+                            normal_alpha = step_colors[:, 3] * trail_factor * 0.45
+                            pulse_alpha = min(1.0, pulse_strength) * trail_factor * 0.55
+                            step_colors[:, 3] = np.maximum(normal_alpha, pulse_alpha)
+                            step_sizes = np.full(
+                                num_pts,
+                                max(1.0, (fw.star_size * 0.65) * trail_factor)
+                                * particle_pulse,
+                                dtype=np.float32,
+                            )
+
                             part_pos.append(fw.history[h])
                             part_col.append(step_colors)
                             part_size.append(step_sizes)

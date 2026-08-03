@@ -458,8 +458,14 @@ def analyze_audio(mp3_path, color_hints=None):
         rand_x = np.random.uniform(-max_x, max_x)
         x_offset = 0.8 * panned_x + 0.2 * rand_x
         
-        # Get both colors in one call
-        color, sec_color = get_spectrum_color(t_sec, t, mag, bass_bins, mid_bins, high_bins, palette_override=palette)
+        # Select the primary and secondary shell colors independently.
+        # get_spectrum_color() returns one color key, not a color pair.
+        color = get_spectrum_color(
+            t_sec, t, mag, bass_bins, mid_bins, high_bins, palette_override=palette
+        )
+        sec_color = get_spectrum_color(
+            t_sec, t, mag, bass_bins, mid_bins, high_bins, palette_override=palette
+        )
         
         # Real per-event spectral energy balance (see get_band_energy_ratios), used by the
         # visualizer to drive genuine per-band reactivity instead of a fixed synthetic ratio.
