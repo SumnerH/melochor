@@ -80,30 +80,13 @@ if getattr(sys, 'frozen', False):
             break
 # ----------------------------------------------------------------------------
 
+# The configured desktop theme contains GTK 3-only CSS. Force GTK 4's native
+# Adwaita theme before importing GI so GTK does not parse that incompatible CSS.
+os.environ["GTK_THEME"] = "Adwaita"
+
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GLib
-
-# Suppress verbose and deprecation-related GTK theme/parsing warnings
-def gtk_log_writer_func(log_level, fields, *args):
-    try:
-        log_domain = ""
-        for field in fields:
-            if field.key == "GLIB_DOMAIN":
-                log_domain = field.value
-                break
-        is_warning_or_lower = not (log_level & (GLib.LogLevelFlags.LEVEL_ERROR | GLib.LogLevelFlags.LEVEL_CRITICAL))
-        if log_domain in ("Gtk", "Gdk") and is_warning_or_lower:
-            return GLib.LogWriterOutput.HANDLED
-    except Exception:
-        pass
-    user_data = args[-1] if args else None
-    return GLib.log_writer_default(log_level, fields, user_data)
-
-try:
-    GLib.log_set_writer_func(gtk_log_writer_func, None)
-except Exception:
-    pass
 
 import OpenGL.contextdata
 # Bypass PyOpenGL GLX/EGL detection mismatch by mocking context getter
