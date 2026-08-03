@@ -430,17 +430,20 @@ class UnderwaterModeMixin:
             0.25 + seabed_bass[glowing] * 0.75
         ) * (0.15 + 0.85 * twinkle_values)
 
-        # Update Jellyfish pulsing and movement physics
+        # Update jellyfish pulsing and movement physics.
         for i in range(self.num_jelly):
-            # Phase-locked directly to global tempo_phase to prevent drift and lock strictly on beat
-            pulse_rate = 0.5 if (i % 2 == 1) else 1.0
+            # Remain phase-locked to the shared BPM clock, but reduce the existing
+            # swimming cadence by half. Staggering preserves a natural school rhythm
+            # without allowing individual jellyfish to drift off the musical grid.
+            pulse_rate = 0.125 if (i % 2 == 1) else 0.25
             stagger = i * 0.25
             self.jelly_phase[i] = 2.0 * np.pi * (self.tempo_phase * pulse_rate + stagger)
             
             cos_val = np.cos(self.jelly_phase[i])
             if cos_val > 0.0:
-                # Thrust synchronized directly with beat and amplified by real-time bass reactions
-                thrust = 3.2 * cos_val * (1.0 + self.react_bass * 2.2)
+                # Halve forward thrust so each beat-synchronized contraction produces
+                # about half the previous travel distance.
+                thrust = 0.8 * cos_val * (1.0 + self.react_bass * 2.2)
                 self.jelly_vel[i] += self.jelly_dir[i] * thrust * dt
             else:
                 drag = 1.0
@@ -449,8 +452,8 @@ class UnderwaterModeMixin:
             # Apply position update
             self.jelly_pos[i] += self.jelly_vel[i] * dt
             
-            # Gentle ambient upward buoyancy drift
-            self.jelly_pos[i, 1] += 0.22 * dt
+            # Match passive buoyancy to the slower forward motion.
+            self.jelly_pos[i, 1] += 0.055 * dt
             
             # Reset jellyfish if they exit the water ceiling (expanded height limit to match bubbles)
             if self.jelly_pos[i, 1] > 16.0:
