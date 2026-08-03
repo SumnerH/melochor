@@ -85,6 +85,7 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         self.opt_star_shape = 0      # 0: default, 1..6 shapes
         self.opt_color_mode = 'REALISTIC' # 'REALISTIC', 'NEON', 'TRANQUIL', 'METAL'
         self.opt_height_restrict = True
+        self.opt_particle_reactivity = 0  # 0: off, 1..10: beat-driven particle pulsing
         self.mandala_slices = 12
         self.active_presets = active_presets
         
@@ -201,7 +202,7 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             "SQUID", "MANTA", "SEAHORSE", "LANTERN_FISH",
             "PLANET", "GALAXY", "ASTEROIDS",
             "CATHERINE_WHEEL",
-            "BIRD", "SMOKE", "SUN_BURST", "BUTTERFLY"
+            "BIRD", "BUTTERFLY"
         ]
         self.rarity_cycle_idx = -1
         self.lightning_active_timer = 0.0
@@ -213,7 +214,11 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         self.wormhole_shooting_star_y = 0.0
         self.wormhole_shooting_star_z = 0.0
         self.peace_symbol_timer = 0.0
-        self.halo_timer = 0.0
+        self.ring_effect_timer = 0.0
+        self.mandala_fog_halo_timer = 0.0
+        self.mandala_squiggle_timer = 0.0
+        self.mandala_starburst_rebirth_timer = 0.0
+        self.mandala_black_hole_timer = 0.0
         
         # Meeus Moon Phase state variables
         self.moon_illumed = 0.5
@@ -375,11 +380,14 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             "MANDALA Sacred": [
                 ("Lotus Bloom", lambda: self.trigger_climax_event(1.1, "Lotus Bloom")),
                 ("Cosmic Spin", lambda: self.trigger_climax_event(1.2, "Cosmic Spin")),
-                ("Infinite Pulse", lambda: self.trigger_climax_event(1.3, "Infinite Pulse")),
-                ("Geometric Collapse", lambda: self.trigger_climax_event(1.4, "Geometric Collapse")),
-                ("Astral Projection", lambda: self.trigger_climax_event(1.8, "Astral Projection")),
+                ("Ring Effect", lambda: self.trigger_climax_event(1.3, "Ring Effect")),
+                ("Halo Effect", lambda: self.trigger_climax_event(1.4, "Halo Effect")),
+                ("Smoke!", lambda: self.trigger_climax_event(1.5, "Smoke!")),
+                ("Star Burst", lambda: self.trigger_climax_event(1.6, "Star Burst")),
+                ("Starburst Effect", lambda: self.trigger_climax_event(1.7, "Starburst Effect")),
+                ("Black Hole Effect", lambda: self.trigger_climax_event(1.8, "Black Hole Effect")),
                 ("Peace Symbol", lambda: self.trigger_climax_event(1.6, "Peace Symbol")),
-                ("Halo Effect", lambda: self.trigger_climax_event(1.8, "Halo Effect")),
+                ("Squiggles", lambda: self.trigger_climax_event(1.4, "Squiggles")),
             ],
             "SYNAESTHESIA Classic": [
                 ("Star Burst", self.trigger_syn_star_burst),
@@ -513,7 +521,7 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
 
         elif r_type == "CATHERINE_WHEEL":
             self.spawn_rarity_fireworks(r_type)
-        elif r_type in ("BIRD", "SMOKE", "SUN_BURST", "BUTTERFLY"):
+        elif r_type in ("BIRD", "BUTTERFLY"):
             self.spawn_rarity_mandala(r_type)
         elif r_type in ("SHOOTING_STAR", "BATS", "TUMBLEWEED"):
             self.spawn_rarity_fire(r_type)
@@ -531,7 +539,7 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             self.update_rarity_tunnel(r, dt)
         elif t_type == "CATHERINE_WHEEL":
             self.update_rarity_fireworks(r, dt)
-        elif t_type in ("BIRD", "SMOKE", "SUN_BURST", "BUTTERFLY"):
+        elif t_type in ("BIRD", "BUTTERFLY"):
             self.update_rarity_mandala(r, dt)
         elif t_type in ("SHOOTING_STAR", "BATS", "TUMBLEWEED"):
             self.update_rarity_fire(r, dt)
@@ -547,7 +555,7 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
                 elif self.major_mode == "FIREWORKS":
                     self.rarity_queued_type = "CATHERINE_WHEEL" 
                 elif self.major_mode == "MANDALA Sacred":
-                    self.rarity_queued_type = random.choice(["BIRD", "SMOKE", "SUN_BURST", "BUTTERFLY"])
+                    self.rarity_queued_type = random.choice(["BIRD", "BUTTERFLY"])
                 elif self.major_mode == "FIRE Plasma":
                     self.rarity_queued_type = random.choice(["SHOOTING_STAR", "BATS", "TUMBLEWEED"])
                 if self.rarity_queued_type is not None:
@@ -889,6 +897,10 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             t_line_pos, t_line_col = self.get_tunnel_lines()
             line_pos.extend(t_line_pos)
             line_col.extend(t_line_col)
+        elif self.major_mode == "MANDALA Sacred":
+            m_line_pos, m_line_col = self.get_mandala_lines()
+            line_pos.extend(m_line_pos)
+            line_col.extend(m_line_col)
         elif self.major_mode == "FIRE Plasma":
             f_line_pos, f_line_col = self.get_fire_lines()
             line_pos.extend(f_line_pos)
@@ -1164,8 +1176,8 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
                 self.active_lightning_bolts = []
         if self.peace_symbol_timer > 0.0:
             self.peace_symbol_timer = max(0.0, self.peace_symbol_timer - dt)
-        if self.halo_timer > 0.0:
-            self.halo_timer = max(0.0, self.halo_timer - dt)
+        if self.ring_effect_timer > 0.0:
+            self.ring_effect_timer = max(0.0, self.ring_effect_timer - dt)
         
         # Check for implicit/proactive real-time climax peak (flash point)
         if self.music_playing and self.major_mode != "FIREWORKS":

@@ -20,6 +20,19 @@ class MandalaModeMixin:
         for i in range(M):
             self.reset_mandala_particle(i)
 
+    def _launch_mandala_burst(self, speed_range=(10.0, 16.0)):
+        center = np.array([0.0, 4.0, 0.0], dtype=np.float32)
+        particle_count = len(self.mandala_base_pos)
+        self.mandala_base_pos[:] = center
+        angles = np.linspace(0.0, 2.0 * np.pi, particle_count, endpoint=False)
+        angles += np.random.uniform(-0.08, 0.08, particle_count)
+        speeds = np.random.uniform(*speed_range, particle_count)
+        self.mandala_base_vel[:, 0] = np.cos(angles) * speeds
+        self.mandala_base_vel[:, 1] = np.sin(angles) * speeds
+        self.mandala_base_vel[:, 2] = np.random.uniform(-0.6, 0.6, particle_count)
+        self.mandala_base_ages[:] = 0.0
+        self.mandala_base_max_ages[:] = np.random.uniform(2.2, 3.6, particle_count)
+
     def reset_mandala_particle(self, idx):
         self.mandala_base_pos[idx] = [0.0, 4.0, 0.0]
         angle = np.random.uniform(0.0, 2 * np.pi)
@@ -46,9 +59,27 @@ class MandalaModeMixin:
         self.mandala_base_size[idx] = np.random.uniform(5.0, 11.0)
 
     def update_mandala(self, dt):
+        if self.mandala_fog_halo_timer > 0.0:
+            self.mandala_fog_halo_timer = max(0.0, self.mandala_fog_halo_timer - dt)
+        if self.mandala_squiggle_timer > 0.0:
+            self.mandala_squiggle_timer = max(0.0, self.mandala_squiggle_timer - dt)
+        if self.mandala_starburst_rebirth_timer > 0.0:
+            self.mandala_starburst_rebirth_timer -= dt
+            if self.mandala_starburst_rebirth_timer <= 0.0:
+                self._launch_mandala_burst((12.0, 19.0))
+        if self.mandala_black_hole_timer > 0.0:
+            self.mandala_black_hole_timer -= dt
+            center = np.array([0.0, 4.0, 0.0], dtype=np.float32)
+            self.mandala_base_pos += (center - self.mandala_base_pos) * min(1.0, dt * 7.0)
+            self.mandala_base_vel *= max(0.0, 1.0 - dt * 8.0)
+            self.mandala_base_ages[:] = 0.0
+            if self.mandala_black_hole_timer <= 0.0:
+                self._launch_mandala_burst((12.0, 19.0))
+            return
+
         speed_factor = 1.0 + self.react_bass * 2.5
         if self.opt_gravity > 0.0:
-            self.mandala_base_vel[:, 1] -= 3.0 * self.opt_gravity * dt
+            self.mandala_base_vel[:, 1] -= 9.81 * self.opt_gravity * dt
         self.mandala_base_pos += self.mandala_base_vel * speed_factor * dt
 
         if self.opt_trailers > 0:
@@ -103,7 +134,10 @@ class MandalaModeMixin:
         life_ratio = ages_rep / max_ages_rep
         col_arr[:, 3] *= np.clip(1.0 - life_ratio, 0.0, 1.0)
         
-        current_size_arr = np.repeat(self.mandala_base_size, S) * (1.0 + self.react_treble * 0.5)
+        reactivity = self.opt_particle_reactivity / 10.0
+        beat_level = np.clip(max(self.react_bass, self.react_mid, self.react_treble), 0.0, 1.5)
+        particle_pulse = 1.0 + reactivity * beat_level * 1.5
+        current_size_arr = np.repeat(self.mandala_base_size, S) * particle_pulse
         
         all_pos_list = [pos_arr]
         all_col_list = [col_arr]
@@ -131,7 +165,7 @@ class MandalaModeMixin:
                 h_ratio = h_ages_rep / h_max_rep
                 
                 h_col_arr[:, 3] *= np.clip(1.0 - h_ratio, 0.0, 1.0) * fade_factor * 0.45
-                h_size_arr = np.repeat(self.mandala_base_size, S) * (1.0 + self.react_treble * 0.5) * (0.4 + 0.6 * fade_factor)
+                h_size_arr = np.repeat(self.mandala_base_size, S) * particle_pulse * (0.4 + 0.6 * fade_factor)
                 
                 all_pos_list.append(h_pos_arr)
                 all_col_list.append(h_col_arr)
@@ -143,6 +177,38 @@ class MandalaModeMixin:
         
         mandala_tri_pos = []
         mandala_tri_col = []
+        
+        # Render the Halo Effect as one continuous, ethereal golden fog band.
+        # Closely spaced overlapping annuli approximate a smooth Gaussian density profile:
+        # its brightness peaks at the center, then disappears softly into the black background.
+        if self.mandala_fog_halo_timer > 0.0:
+            center = np.array([0.0, 4.0, 0.35], dtype=np.float32)
+            lifetime_progress = np.clip(self.mandala_fog_halo_timer / 5.0, 0.0, 1.0)
+            fade = min(1.0, lifetime_progress * 3.0, (1.0 - lifetime_progress) * 4.0 + 0.25)
+            breathe = 1.0 + np.sin(self.get_sim_time() * 1.4) * 0.035
+            base_radius = 5.0 * breathe
+            segments = 128
+            fog_layers = 41
+            fog_half_width = 1.8
+            annulus_width = fog_half_width * 0.14
+
+            for layer in range(fog_layers):
+                offset = -fog_half_width + (2.0 * fog_half_width * layer / (fog_layers - 1))
+                normalized_offset = offset / fog_half_width
+                density = np.exp(-4.5 * normalized_offset * normalized_offset)
+                radius = base_radius + offset
+                alpha = 0.032 * density * fade
+                gold = [1.0, 0.72 + density * 0.16, 0.16 + density * 0.12]
+
+                for idx in range(segments):
+                    a0 = 2.0 * np.pi * idx / segments
+                    a1 = 2.0 * np.pi * (idx + 1) / segments
+                    inner0 = center + np.array([(radius - annulus_width) * np.cos(a0), (radius - annulus_width) * np.sin(a0), 0.0])
+                    outer0 = center + np.array([(radius + annulus_width) * np.cos(a0), (radius + annulus_width) * np.sin(a0), 0.0])
+                    inner1 = center + np.array([(radius - annulus_width) * np.cos(a1), (radius - annulus_width) * np.sin(a1), 0.0])
+                    outer1 = center + np.array([(radius + annulus_width) * np.cos(a1), (radius + annulus_width) * np.sin(a1), 0.0])
+                    mandala_tri_pos.extend((inner0, outer0, outer1, inner0, outer1, inner1))
+                    mandala_tri_col.extend([gold + [alpha]] * 6)
         
         # Render Peace Symbol Overlay in central space (Un-sliced to remain perfectly legible)
         if self.peace_symbol_timer > 0.0:
@@ -176,12 +242,12 @@ class MandalaModeMixin:
             col_arr = np.concatenate([col_arr, np.array(peace_col, dtype=np.float32)], axis=0)
             size_arr = np.concatenate([size_arr, np.array(peace_size, dtype=np.float32)], axis=0)
             
-        # Render Pulsing Halo Effect with outward firing sparks (Un-sliced circle with scattered sparks)
-        if self.halo_timer > 0.0:
+        # Render the particle-based Ring Effect with outward firing sparks.
+        if self.ring_effect_timer > 0.0:
             halo_pos, halo_col, halo_size = [], [], []
             R_halo = 5.2 + self.react_bass * 1.5 + np.sin(self.get_sim_time() * 5.0) * 0.25
             center = np.array([0.0, 4.0, 0.0], dtype=np.float32)
-            alpha_h = np.clip(self.halo_timer / 1.0, 0.0, 1.0)
+            alpha_h = np.clip(self.ring_effect_timer / 1.0, 0.0, 1.0)
             for i_h in range(80):
                 ang = i_h * 2.0 * np.pi / 80.0 + self.get_sim_time() * 1.5
                 pt = center + np.array([R_halo * np.cos(ang), R_halo * np.sin(ang), 0.0], dtype=np.float32)
@@ -270,6 +336,36 @@ class MandalaModeMixin:
                 size_arr = np.concatenate([size_arr, np.array(sym_size, dtype=np.float32)], axis=0)
                 
         return pos_arr, col_arr, size_arr, np.array(mandala_tri_pos, dtype=np.float32), np.array(mandala_tri_col, dtype=np.float32)
+
+    def get_mandala_lines(self):
+        if self.mandala_squiggle_timer <= 0.0:
+            return [], []
+
+        line_pos = []
+        line_col = []
+        center = np.array([0.0, 4.0, 0.0], dtype=np.float32)
+        palette = get_palette_colors(self.opt_color_mode) if self.opt_color_mode != 'REALISTIC' else None
+        lifetime = 5.0
+        progress = 1.0 - np.clip(self.mandala_squiggle_timer / lifetime, 0.0, 1.0)
+        ray_length = 2.0 + progress * 10.0
+        segments = 36
+
+        for sector in range(self.mandala_slices):
+            base_angle = 2.0 * np.pi * sector / self.mandala_slices
+            color = list(palette[sector % len(palette)][:3]) if palette else [1.0, 0.72, 0.2]
+            previous = center.copy()
+            for idx in range(1, segments + 1):
+                fraction = idx / segments
+                radius = ray_length * fraction
+                wobble = np.sin(fraction * 8.0 * np.pi - self.get_sim_time() * 2.0 + sector * 0.7) * 0.18 * fraction
+                angle = base_angle + wobble
+                current = center + np.array([radius * np.cos(angle), radius * np.sin(angle), 0.05], dtype=np.float32)
+                alpha = (1.0 - fraction * 0.45) * np.clip(self.mandala_squiggle_timer, 0.0, 1.0)
+                line_pos.extend((previous, current))
+                line_col.extend((color + [alpha], color + [alpha]))
+                previous = current
+
+        return line_pos, line_col
 
     def spawn_rarity_mandala(self, r_type):
         if r_type == "BIRD":
@@ -370,43 +466,31 @@ class MandalaModeMixin:
                 self.mandala_base_max_ages[idx] = np.random.uniform(2.0, 3.0)
                 self.mandala_base_col[idx] = [1.0, 0.8, 0.1, 1.0] if idx % 2 == 0 else [1.0, 0.3, 0.2, 1.0]
                 self.mandala_base_size[idx] = np.random.uniform(10.0, 16.0)
+        elif routine_name == "Ring Effect":
+            self.ring_effect_timer = 5.0
+            self._launch_mandala_burst((11.0, 17.0))
         elif routine_name == "Halo Effect":
-            self.halo_timer = 5.0
-            for idx in range(len(self.mandala_base_pos)):
-                self.mandala_base_pos[idx] = [0.0, 4.0, 0.0]
-                angle = (idx / len(self.mandala_base_pos)) * 2.0 * np.pi
-                speed = np.random.uniform(11.0, 17.0)
-                self.mandala_base_vel[idx, 0] = speed * np.cos(angle)
-                self.mandala_base_vel[idx, 1] = speed * np.sin(angle)
-                self.mandala_base_vel[idx, 2] = np.random.uniform(-0.5, 0.5)
-                self.mandala_base_ages[idx] = 0.0
-                self.mandala_base_max_ages[idx] = np.random.uniform(2.2, 3.5)
-                self.mandala_base_col[idx] = [0.15, 0.85, 1.0, 1.0] if idx % 2 == 0 else [0.9, 0.15, 0.5, 1.0]
-                self.mandala_base_size[idx] = np.random.uniform(12.0, 20.0)
-        elif routine_name == "Supernova":
-            # Explode all mandala particles radially
-            for idx in range(len(self.mandala_base_pos)):
-                self.mandala_base_pos[idx] = [0.0, 4.0, 0.0]
-                angle = (idx / len(self.mandala_base_pos)) * 2.0 * np.pi
-                speed = np.random.uniform(10.0, 15.0)
-                self.mandala_base_vel[idx, 0] = speed * np.cos(angle)
-                self.mandala_base_vel[idx, 1] = speed * np.sin(angle)
-                self.mandala_base_vel[idx, 2] = np.random.uniform(-1.0, 1.0)
-                self.mandala_base_ages[idx] = 0.0
-                self.mandala_base_max_ages[idx] = np.random.uniform(2.2, 3.5)
-                self.mandala_base_col[idx] = [1.0, 0.95, 0.8, 1.0] if idx % 2 == 0 else [0.95, 0.25, 0.85, 1.0]
-                self.mandala_base_size[idx] = np.random.uniform(14.0, 22.0)
-        elif routine_name == "Shooting Star":
-            # Contracting cosmic shooting stars inwards
-            for idx in range(100):
-                angle = np.random.uniform(0.0, 2 * np.pi)
-                rad = 12.0
-                self.mandala_base_pos[idx] = [rad * np.cos(angle), 4.0 + rad * np.sin(angle), np.random.uniform(-0.5, 0.5)]
-                speed = -np.random.uniform(6.0, 10.0)
-                self.mandala_base_vel[idx, 0] = speed * np.cos(angle)
-                self.mandala_base_vel[idx, 1] = speed * np.sin(angle)
-                self.mandala_base_vel[idx, 2] = np.random.uniform(-0.1, 0.1)
-                self.mandala_base_ages[idx] = 0.0
-                self.mandala_base_max_ages[idx] = np.random.uniform(1.8, 2.8)
-                self.mandala_base_col[idx] = [0.1, 0.9, 1.0, 1.0]
-                self.mandala_base_size[idx] = np.random.uniform(8.0, 14.0)
+            self.mandala_fog_halo_timer = 5.0
+        elif routine_name == "Smoke!":
+            self.active_rarity = None
+            self.spawn_rarity_mandala("SMOKE")
+        elif routine_name == "Star Burst":
+            self.active_rarity = None
+            self.spawn_rarity_mandala("SUN_BURST")
+        elif routine_name == "Starburst Effect":
+            center = np.array([0.0, 4.0, 0.0], dtype=np.float32)
+            outward = self.mandala_base_pos - center
+            distances = np.linalg.norm(outward[:, :2], axis=1)
+            angles = np.arctan2(outward[:, 1], outward[:, 0])
+            angles[distances < 0.01] = np.random.uniform(0.0, 2.0 * np.pi, np.count_nonzero(distances < 0.01))
+            speeds = np.random.uniform(12.0, 20.0, len(self.mandala_base_pos))
+            self.mandala_base_vel[:, 0] = np.cos(angles) * speeds
+            self.mandala_base_vel[:, 1] = np.sin(angles) * speeds
+            self.mandala_base_vel[:, 2] = np.random.uniform(-0.8, 0.8, len(self.mandala_base_pos))
+            self.mandala_base_ages[:] = 0.0
+            self.mandala_base_max_ages[:] = 0.8
+            self.mandala_starburst_rebirth_timer = 0.65
+        elif routine_name == "Black Hole Effect":
+            self.mandala_black_hole_timer = 1.25
+        elif routine_name == "Squiggles":
+            self.mandala_squiggle_timer = 5.0

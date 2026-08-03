@@ -50,7 +50,7 @@ class InputHandlerMixin:
             elif self.major_mode == "FIRE Plasma":
                 self.trigger_climax_event(intensity=1.2, routine_name="Flame Wave")
             else:
-                self.trigger_climax_event(intensity=1.2, routine_name="Geyser Eruption" if self.major_mode == "UNDERWATER Lava" else "Cosmic Spin" if self.major_mode == "MANDALA Sacred" else "Gravity Surge")
+                self.trigger_climax_event(intensity=1.2, routine_name="Geyser Eruption" if self.major_mode == "UNDERWATER Lava" else "Ring Effect" if self.major_mode == "MANDALA Sacred" else "Gravity Surge")
             return True
         elif key_char == '3':
             if self.major_mode == "FIREWORKS":
@@ -64,7 +64,7 @@ class InputHandlerMixin:
             elif self.major_mode == "FIRE Plasma":
                 self.trigger_climax_event(intensity=1.3, routine_name="Treble Spark Shower")
             else:
-                self.trigger_climax_event(intensity=1.3, routine_name="Plankton Surge" if self.major_mode == "UNDERWATER Lava" else "Infinite Pulse" if self.major_mode == "MANDALA Sacred" else "Stardust Stream")
+                self.trigger_climax_event(intensity=1.3, routine_name="Plankton Surge" if self.major_mode == "UNDERWATER Lava" else "Halo Effect" if self.major_mode == "MANDALA Sacred" else "Stardust Stream")
             return True
         elif key_char == '4':
             if self.major_mode == "FIREWORKS":
@@ -78,7 +78,7 @@ class InputHandlerMixin:
             elif self.major_mode == "FIRE Plasma":
                 self.trigger_climax_event(intensity=1.4, routine_name="Fire Eruption")
             else:
-                self.trigger_climax_event(intensity=1.4, routine_name="Deep Vent Blast" if self.major_mode == "UNDERWATER Lava" else "Geometric Collapse" if self.major_mode == "MANDALA Sacred" else "Event Horizon")
+                self.trigger_climax_event(intensity=1.4, routine_name="Deep Vent Blast" if self.major_mode == "UNDERWATER Lava" else "Smoke!" if self.major_mode == "MANDALA Sacred" else "Event Horizon")
             return True
         elif key_char == '5':
             if self.major_mode == "FIREWORKS":
@@ -89,13 +89,13 @@ class InputHandlerMixin:
             elif self.major_mode == "FIRE Plasma":
                 self.trigger_climax_event(intensity=1.8, routine_name="Lightning Strike")
             else:
-                self.trigger_climax_event(intensity=1.8, routine_name="Bioluminescent Rainbow" if self.major_mode == "UNDERWATER Lava" else "Astral Projection" if self.major_mode == "MANDALA Sacred" else "Lightning Flash")
+                self.trigger_climax_event(intensity=1.8, routine_name="Bioluminescent Rainbow" if self.major_mode == "UNDERWATER Lava" else "Star Burst" if self.major_mode == "MANDALA Sacred" else "Lightning Flash")
             return True
         elif key_char == '6':
             if self.major_mode == "FIREWORKS":
                 self.trigger_routine("Supernova", self.launch_supernova)
             elif self.major_mode == "MANDALA Sacred":
-                self.trigger_climax_event(intensity=1.6, routine_name="Peace Symbol")
+                self.trigger_climax_event(intensity=1.6, routine_name="Starburst Effect")
             elif self.major_mode == "FIRE Plasma":
                 pass
             else:
@@ -105,7 +105,7 @@ class InputHandlerMixin:
             if self.major_mode == "FIREWORKS":
                 self.trigger_routine("Shooting Star", self.launch_shooting_star)
             elif self.major_mode == "MANDALA Sacred":
-                self.trigger_climax_event(intensity=1.8, routine_name="Halo Effect")
+                self.trigger_climax_event(intensity=1.8, routine_name="Black Hole Effect")
             elif self.major_mode == "FIRE Plasma":
                 pass
             else:
@@ -161,6 +161,10 @@ class InputHandlerMixin:
             self.opt_trailers = (self.opt_trailers + 1) % 11
             self.update_legend_labels()
             return True
+        elif keyval in (Gdk.KEY_j, Gdk.KEY_J):
+            self.opt_particle_reactivity = (self.opt_particle_reactivity + 1) % 11
+            print(f"Particle Reactivity: {self.opt_particle_reactivity}/10")
+            return True
         elif keyval in (Gdk.KEY_t, Gdk.KEY_T):
             self.show_rockets = not self.show_rockets
             self.update_legend_labels()
@@ -207,7 +211,7 @@ class InputHandlerMixin:
                 "UNDERWATER Lava": ["SQUID", "MANTA", "SEAHORSE", "LANTERN_FISH"],
                 "TUNNEL Wormhole": ["PLANET", "GALAXY", "ASTEROIDS"],
                 "FIREWORKS": ["CATHERINE_WHEEL"],
-                "MANDALA Sacred": ["BIRD", "SMOKE", "SUN_BURST", "BUTTERFLY"],
+                "MANDALA Sacred": ["BIRD", "BUTTERFLY"],
                 "FIRE Plasma": ["SHOOTING_STAR", "BATS", "TUMBLEWEED"]
             }
             if self.major_mode in mode_rarities:
