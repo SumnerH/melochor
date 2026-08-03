@@ -14,6 +14,9 @@ class TunnelModeMixin:
         self.wormhole_phase_x = 0.0
         self.wormhole_phase_y = 0.0
         self.tunnel_change_timer = 0.0
+        self.tunnel_gem_explosion_timer = 0.0
+        self.tunnel_rainbow_timer = 0.0
+        self.tunnel_aurora_timer = 0.0
 
         # WALL GEMS (glowing crystal nodules - heavily reduced)
         N_gems = 15
@@ -43,6 +46,12 @@ class TunnelModeMixin:
         self.next_spark_idx = 0
 
     def update_tunnel(self, dt):
+        self.tunnel_gem_explosion_timer = max(
+            0.0, self.tunnel_gem_explosion_timer - dt
+        )
+        self.tunnel_rainbow_timer = max(0.0, self.tunnel_rainbow_timer - dt)
+        self.tunnel_aurora_timer = max(0.0, self.tunnel_aurora_timer - dt)
+
         # Calculate dynamic tempo speed factor with floor at 40.0 and cap at 240.0 BPM
         bpm = self.script_bpm if (hasattr(self, 'script_bpm') and self.script_bpm > 0.0) else 40.0
         bpm = np.clip(bpm, 40.0, 240.0)
@@ -102,7 +111,8 @@ class TunnelModeMixin:
                 1.0 - self.spark_age[active_sparks] / self.spark_max_age[active_sparks], 0.0, 1.0
             )
 
-    def spawn_gem_sparks(self, g_idx):
+    def spawn_gem_sparks(self, g_idx, burst=False):
+        """Emit regular music sparks or a dense, high-energy gem explosion."""
         gz = self.gem_z[g_idx]
         g_angle = self.gem_angle[g_idx]
         g_rad = self.gem_base_radius[g_idx]
@@ -111,14 +121,17 @@ class TunnelModeMixin:
         gx = g_rad * np.cos(g_angle)
         gy = g_rad * np.sin(g_angle)
         
-        num_sparks_spawn = 6
+        # An explosion emits many more of the normal, fine gem sparks rather
+        # than turning each particle into an oversized star.
+        num_sparks_spawn = 42 if burst else 6
+        burst_velocity = 1.15 if burst else 1.0
         for _ in range(num_sparks_spawn):
             idx = self.next_spark_idx
             self.spark_pos[idx] = [gx, gy, gz]
             
-            rad_speed = np.random.uniform(-14.0, -3.0)
-            tan_speed = np.random.uniform(-5.0, 5.0)
-            z_speed = np.random.uniform(-18.0, 6.0)
+            rad_speed = np.random.uniform(-14.0, -3.0) * burst_velocity
+            tan_speed = np.random.uniform(-5.0, 5.0) * burst_velocity
+            z_speed = np.random.uniform(-18.0, 6.0) * burst_velocity
             
             cos_a = np.cos(g_angle)
             sin_a = np.sin(g_angle)
@@ -155,10 +168,16 @@ class TunnelModeMixin:
                 col_g = 0.68 * (1.0 - frac) + 0.72 * frac
                 col_b = 0.22 * (1.0 - frac) + 0.08 * frac
                 
-            self.spark_col[idx] = [col_r, col_g, col_b, 1.0]
+            spark_color = np.array([col_r, col_g, col_b], dtype=np.float32)
+            if burst:
+                spark_color += (1.0 - spark_color) * 0.65
+            self.spark_col[idx] = [*spark_color, 1.0]
             self.spark_size[idx] = np.random.uniform(5.0, 9.0)
             self.spark_age[idx] = 0.0
-            self.spark_max_age[idx] = np.random.uniform(0.4, 0.9)
+            self.spark_max_age[idx] = np.random.uniform(
+                0.55 if burst else 0.4,
+                1.05 if burst else 0.9,
+            )
             self.spark_active[idx] = True
             
             self.next_spark_idx = (self.next_spark_idx + 1) % len(self.spark_pos)
@@ -217,7 +236,18 @@ class TunnelModeMixin:
         gz = self.gem_z
         
         gem_col_arr = self.gem_col.copy()
-        gem_col_arr[:, 3] *= np.clip((gz + 60.0) / 60.0, 0.0, 1.0)
+        gem_fog = np.clip((gz + 60.0) / 60.0, 0.0, 1.0)
+        explosion_progress = np.clip(
+            self.tunnel_gem_explosion_timer / 2.2, 0.0, 1.0
+        )
+        gem_flare = explosion_progress * (
+            0.82 + 0.18 * np.sin(self.tempo_phase * 2.0 * np.pi) ** 2
+        )
+        gem_col_arr[:, :3] = np.minimum(
+            1.0,
+            gem_col_arr[:, :3] + (1.0 - gem_col_arr[:, :3]) * gem_flare,
+        )
+        gem_col_arr[:, 3] *= gem_fog * (1.0 + gem_flare * 2.6)
         
         # Render active sparks
         active_mask = self.spark_active
@@ -229,30 +259,109 @@ class TunnelModeMixin:
         aurora_size = []
         time_val = self.get_sim_time()
         
-        # 1. CONTINUOUS BACKGROUND AURORA BOREALIS OUTSIDE TUNNEL WALLS (extremely transparent)
-        for i_strip in range(15):
-            ang = (i_strip / 14.0) * np.pi * 0.8 + np.pi * 0.1 # cover top half & sides
-            for p_idx in range(25):
-                z_coord = -55.0 + p_idx * 2.5
-                bx, by = get_bend_offsets(z_coord)
-                R_aur = 11.5 + np.sin(ang * 4.0 + time_val * 1.5) * np.cos(z_coord * 0.07 - time_val * 0.8) * 1.3
-                px = R_aur * np.cos(ang) + bx
-                py = R_aur * np.sin(ang) + by + 4.0
-                pz = z_coord
-                
-                ang_f = abs(ang - np.pi / 2.0) / (np.pi / 2.0)
-                # Blend from vibrant neon emerald-green to purple-pink outer sheets
-                col_r = 0.1 * (1.0 - ang_f) + 0.75 * ang_f
-                col_g = 0.95 * (1.0 - ang_f) + 0.1 * ang_f
-                col_b = 0.35 * (1.0 - ang_f) + 0.9 * ang_f
-                
-                fog_factor = np.clip((z_coord + 50.0) / 50.0, 0.0, 1.0)
-                alpha = 0.32 * fog_factor * (0.32 + self.react_mid * 0.68) * (1.0 - ang_f * 0.2)
-                
-                aurora_pos.append([px, py, pz])
-                aurora_col.append([col_r, col_g, col_b, alpha])
-                aurora_size.append(5.0)
-                
+        # 1. AURORA BOREALIS: diffuse, luminous atmospheric veils beyond the
+        # tunnel wall. Each ribbon fades to transparent at both edges, avoiding
+        # the hard-edged awning appearance of opaque curtain panels.
+        aurora_strength = np.clip(
+            self.tunnel_aurora_timer / 5.0, 0.0, 1.0
+        )
+        if aurora_strength > 0.0:
+            veil_count = 5
+            segment_count = 42
+            for veil_index in range(veil_count):
+                color_phase = veil_index / max(1, veil_count - 1)
+                base_angle = np.pi * (0.16 + color_phase * 0.68)
+                veil_color = [
+                    0.06 + color_phase * 0.42,
+                    0.96 - color_phase * 0.48,
+                    0.42 + color_phase * 0.48,
+                ]
+
+                for segment_index in range(segment_count):
+                    z0 = -58.0 + segment_index * 1.65
+                    z1 = z0 + 1.65
+                    wave0 = (
+                        np.sin(z0 * 0.105 - time_val * 0.74 + veil_index * 1.91)
+                        + 0.48 * np.sin(
+                            z0 * 0.247 + time_val * 1.16 + veil_index * 2.73
+                        )
+                    )
+                    wave1 = (
+                        np.sin(z1 * 0.105 - time_val * 0.74 + veil_index * 1.91)
+                        + 0.48 * np.sin(
+                            z1 * 0.247 + time_val * 1.16 + veil_index * 2.73
+                        )
+                    )
+                    angle0 = base_angle + wave0 * 0.105
+                    angle1 = base_angle + wave1 * 0.105
+                    width0 = 0.34 + 0.15 * np.sin(
+                        z0 * 0.17 - time_val * 1.34 + veil_index
+                    )
+                    width1 = 0.34 + 0.15 * np.sin(
+                        z1 * 0.17 - time_val * 1.34 + veil_index
+                    )
+                    radius0 = 12.4 + wave0 * 1.15
+                    radius1 = 12.4 + wave1 * 1.15
+                    bx0, by0 = get_bend_offsets(z0)
+                    bx1, by1 = get_bend_offsets(z1)
+
+                    left0 = [
+                        radius0 * np.cos(angle0 - width0) + bx0,
+                        radius0 * np.sin(angle0 - width0) + by0 + 4.0,
+                        z0,
+                    ]
+                    center0 = [
+                        radius0 * np.cos(angle0) + bx0,
+                        radius0 * np.sin(angle0) + by0 + 4.0,
+                        z0,
+                    ]
+                    right0 = [
+                        radius0 * np.cos(angle0 + width0) + bx0,
+                        radius0 * np.sin(angle0 + width0) + by0 + 4.0,
+                        z0,
+                    ]
+                    left1 = [
+                        radius1 * np.cos(angle1 - width1) + bx1,
+                        radius1 * np.sin(angle1 - width1) + by1 + 4.0,
+                        z1,
+                    ]
+                    center1 = [
+                        radius1 * np.cos(angle1) + bx1,
+                        radius1 * np.sin(angle1) + by1 + 4.0,
+                        z1,
+                    ]
+                    right1 = [
+                        radius1 * np.cos(angle1 + width1) + bx1,
+                        radius1 * np.sin(angle1 + width1) + by1 + 4.0,
+                        z1,
+                    ]
+
+                    fog = np.clip((z0 + 58.0) / 58.0, 0.0, 1.0)
+                    shimmer = 0.66 + 0.34 * np.sin(
+                        z0 * 0.29 - time_val * 1.95 + veil_index * 2.17
+                    )
+                    core_color = [
+                        *veil_color,
+                        aurora_strength * fog * shimmer * 0.58,
+                    ]
+                    edge_color = [*veil_color, 0.0]
+
+                    hood_tri_pos.extend(
+                        (
+                            left0, center0, left1,
+                            center0, center1, left1,
+                            center0, right0, center1,
+                            right0, right1, center1,
+                        )
+                    )
+                    hood_tri_col.extend(
+                        (
+                            edge_color, core_color, edge_color,
+                            core_color, core_color, edge_color,
+                            core_color, edge_color, core_color,
+                            edge_color, edge_color, core_color,
+                        )
+                    )
         # 2. PLANET RARITY (solid 3D rocky sphere with tilting rings)
         if self.active_rarity is not None and self.active_rarity['type'] == 'PLANET':
             r = self.active_rarity
@@ -384,13 +493,17 @@ class TunnelModeMixin:
             ], axis=0).astype(np.float32)
             
             size_combined = np.concatenate([
-                self.gem_size * (1.1 + self.react_treble * 0.8),
+                self.gem_size
+                * (1.1 + self.react_treble * 0.8 + gem_flare * 1.4),
                 sp_size
             ], axis=0).astype(np.float32)
         else:
             pos_combined = np.stack([gx, gy, gz], axis=1).astype(np.float32)
             col_combined = gem_col_arr.astype(np.float32)
-            size_combined = (self.gem_size * (1.1 + self.react_treble * 0.8)).astype(np.float32)
+            size_combined = (
+                self.gem_size
+                * (1.1 + self.react_treble * 0.8 + gem_flare * 1.4)
+            ).astype(np.float32)
             
         if len(aurora_pos) > 0:
             pos_combined = np.concatenate([pos_combined, np.array(aurora_pos, dtype=np.float32)], axis=0)
@@ -467,7 +580,15 @@ class TunnelModeMixin:
 
     def trigger_climax_tunnel(self, routine_name):
         get_bend_offsets = self.get_bend_offsets
-        if routine_name == "Lightning Flash":
+        if routine_name == "Spark Explosion":
+            self.tunnel_gem_explosion_timer = 2.2
+            for gem_index in range(len(self.gem_z)):
+                self.spawn_gem_sparks(gem_index, burst=True)
+        elif routine_name == "Rainbow Tunnel":
+            self.tunnel_rainbow_timer = 5.0
+        elif routine_name == "Aurora Borealis":
+            self.tunnel_aurora_timer = 5.0
+        elif routine_name == "Lightning Flash":
             self.lightning_active_timer = 0.4
             self.active_lightning_bolts = []
             for _ in range(2):
@@ -478,53 +599,3 @@ class TunnelModeMixin:
                     bx, by = get_bend_offsets(z_coord)
                     bolt.append([np.random.uniform(-2.5, 2.5) + bx, np.random.uniform(-2.5, 2.5) + by + 4.0, z_coord])
                 self.active_lightning_bolts.append(bolt)
-        if routine_name == "Supernova":
-            self.wormhole_supernova_active = True
-            self.wormhole_supernova_age = 0.0
-            for k in range(120):
-                idx = self.next_spark_idx
-                self.spark_pos[idx] = [0.0, 0.0, -15.0]
-                theta_v = np.random.uniform(0.0, 2.0 * np.pi)
-                phi_v = np.random.uniform(-np.pi / 2.0, np.pi / 2.0)
-                speed_v = np.random.uniform(10.0, 20.0)
-                vx = speed_v * np.cos(phi_v) * np.cos(theta_v)
-                vy = speed_v * np.cos(phi_v) * np.sin(theta_v)
-                vz = speed_v * np.sin(phi_v)
-                
-                self.spark_vel[idx] = [vx, vy, vz]
-                self.spark_col[idx] = [1.0, 0.9, 0.7, 1.0] if k % 2 == 0 else [0.2, 0.8, 1.0, 1.0]
-                self.spark_size[idx] = np.random.uniform(9.0, 15.0)
-                self.spark_age[idx] = 0.0
-                self.spark_max_age[idx] = np.random.uniform(1.2, 2.0)
-                self.spark_active[idx] = True
-                self.next_spark_idx = (self.next_spark_idx + 1) % len(self.spark_pos)
-        elif routine_name == "Shooting Star":
-            self.wormhole_shooting_star_active = True
-            self.wormhole_shooting_star_z = -55.0
-            self.wormhole_shooting_star_x = np.random.uniform(-3.0, 3.0)
-            self.wormhole_shooting_star_y = np.random.uniform(-3.0, 3.0)
-            for ss in range(6):
-                ss_x = np.random.uniform(-5.0, 5.0)
-                ss_y = np.random.uniform(-5.0, 5.0)
-                ss_z = -55.0
-                for k in range(15):
-                    idx = self.next_spark_idx
-                    self.spark_pos[idx] = [ss_x, ss_y, ss_z - k * 0.8]
-                    self.spark_vel[idx] = [0.0, 0.0, 35.0]
-                    self.spark_col[idx] = [1.0, 0.95, 0.8, 1.0]
-                    self.spark_size[idx] = np.random.uniform(8.0, 12.0) - k * 0.4
-                    self.spark_age[idx] = 0.0
-                    self.spark_max_age[idx] = np.random.uniform(1.5, 2.2)
-                    self.spark_active[idx] = True
-                    self.next_spark_idx = (self.next_spark_idx + 1) % len(self.spark_pos)
-        else:
-            near_gems = np.where((self.gem_z < 0.0) & (self.gem_z > -50.0))[0]
-            if len(near_gems) > 0:
-                for _ in range(25):
-                    g_idx = random.choice(near_gems)
-                    self.spawn_gem_sparks(g_idx)
-                    for s_offset in range(6):
-                        s_idx = (self.next_spark_idx - s_offset - 1) % len(self.spark_pos)
-                        if self.spark_active[s_idx]:
-                            self.spark_vel[s_idx] *= 1.8
-                            self.spark_size[s_idx] *= 1.6

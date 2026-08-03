@@ -151,6 +151,7 @@ class PlaylistMixin:
             while idx < len(self.script_events) and self.script_events[idx].get("time", 0.0) < elapsed:
                 idx += 1
             self.next_event_idx = idx
+            self.sync_tempo_to_playback_position(elapsed)
             print(f"Choreography synced to elapsed play time: {elapsed:.2f}s (starting at event index {idx})")
             
             self.check_pregenerate_next_track()
@@ -214,6 +215,48 @@ class PlaylistMixin:
         self.audio_path = self.playlist[self.playlist_idx]
         self.script_path = self.get_mangled_script_path(self.audio_path)
         self.load_and_play_track()
+
+    def set_script_bpm(self, bpm, *, reset_tempo=False):
+        """Apply a script tempo change and notify initialized visual modes."""
+        try:
+            bpm = float(bpm)
+        except (TypeError, ValueError):
+            bpm = 120.0
+        bpm = max(1.0, bpm)
+
+        previous_bpm = getattr(self, "script_bpm", bpm)
+        self.script_bpm = bpm
+        if reset_tempo:
+            self.tempo_phase = 0.0
+
+        self.on_script_bpm_changed(
+            previous_bpm,
+            bpm,
+            reset_tempo=reset_tempo,
+        )
+
+    def sync_tempo_to_playback_position(self, elapsed):
+        """Rebuild beat phase and active BPM after asynchronously loading a script."""
+        elapsed = max(0.0, float(elapsed))
+        bpm = getattr(self, "script_initial_bpm", self.script_bpm)
+        phase = 0.0
+        previous_time = 0.0
+
+        for event in self.script_events:
+            if event.get("type") != "bpm":
+                continue
+
+            event_time = max(previous_time, float(event.get("time", 0.0)))
+            if event_time > elapsed:
+                break
+
+            phase += (event_time - previous_time) * (bpm / 60.0)
+            bpm = event.get("bpm", bpm)
+            previous_time = event_time
+
+        phase += (elapsed - previous_time) * (bpm / 60.0)
+        self.tempo_phase = phase
+        self.set_script_bpm(bpm)
 
     def load_sync_script(self, filepath):
         import audio_analyzer
@@ -283,7 +326,8 @@ class PlaylistMixin:
             metadata = script.get("metadata", {})
             self.loaded_script_name = os.path.basename(filepath)
             self.script_duration = metadata.get("duration", 0.0)
-            self.script_bpm = metadata.get("bpm", 120.0)
+            self.script_initial_bpm = metadata.get("bpm", 120.0)
+            self.set_script_bpm(self.script_initial_bpm, reset_tempo=True)
             self.current_key = "N/A"
             self.current_section_name = "None"
             self.current_section_category = "None"
@@ -448,7 +492,7 @@ class PlaylistMixin:
             self.update_hud_labels()
             
         elif event_type == "bpm":
-            self.script_bpm = event.get("bpm", 120.0)
+            self.set_script_bpm(event.get("bpm", 120.0))
             self.update_hud_labels()
             
         elif event_type == "color_hint":

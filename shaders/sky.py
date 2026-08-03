@@ -18,10 +18,11 @@ void main() {
     vec3 col_top = vec3(0.0, 0.0, 0.005);
     vec3 base_color = mix(col_bottom, col_top, t_gradient);
     
-    // Multi-stroke stroboscopic lightning flash background glow (grand event)
-    if (uClimaxFlash > 0.05) {
+    // Aurora is an exterior particle effect, not a tunnel-wide flash.
+    float sky_flash = uClimaxFlash * (1.0 - uTunnelAurora);
+    if (sky_flash > 0.05) {
         float strobes = step(0.4, sin(uTime * 45.0) * cos(uTime * 30.0) * 0.5 + 0.5);
-        base_color += vec3(0.75, 0.90, 1.0) * uClimaxFlash * strobes * 0.55;
+        base_color += vec3(0.75, 0.90, 1.0) * sky_flash * strobes * 0.55;
     }
     
     // Twinkling procedural deep space starfield (Modulated stereoscopically and spectrally)

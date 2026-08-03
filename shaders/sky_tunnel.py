@@ -79,9 +79,24 @@ vec3 renderTunnelSky(vec2 vPos, vec3 base_color) {
         vec3 col = tunnel_base + subtle_glow;
         col += vec3(0.12, 0.32, 0.58) * q.x; // cyan smoke filament
         col += vec3(0.62, 0.12, 0.38) * r.y; // magenta smoke filament
+
+        float rainbow_phase = angle * 1.6 + p.z * 0.10 + uTime * 1.8;
+        vec3 pastel_rainbow = vec3(
+            0.5 + 0.5 * sin(rainbow_phase),
+            0.5 + 0.5 * sin(rainbow_phase + 2.094),
+            0.5 + 0.5 * sin(rainbow_phase + 4.188)
+        );
+        pastel_rainbow = mix(vec3(1.0), pastel_rainbow, 0.52);
+        float rainbow_flare = uTunnelRainbow * (
+            0.72 + 0.28 * sin(uTime * 5.5 + p.z * 0.18)
+        );
+        col = mix(col, pastel_rainbow * 2.15, rainbow_flare);
+
+        // Aurora is rendered as particles outside the tunnel by TunnelModeMixin;
+        // it deliberately does not alter the tunnel wall material.
         
         // The walls of the wormhole get significantly brighter/darker with the music (glowing/fading with the beat)
-        float wall_brightness = 0.8 + uReactBass * 1.6 + uReactMid * 0.8 + uReactTreble * 0.4;
+        float wall_brightness = 0.8 + uReactBass * 1.6 + uReactMid * 0.8 + uReactTreble * 0.4 + uTunnelRainbow * 2.4;
         col *= wall_brightness;
         
         // Elegant depth fog
@@ -93,17 +108,22 @@ vec3 renderTunnelSky(vec2 vPos, vec3 base_color) {
         // Climax flash dynamically increases tunnel plasma opacity and glows with white hot light
         // Under music, the walls get more opaque/solid on the beat, then fade back to faint transparency during silence
         float base_opacity = 0.04 + uReactBass * 0.16 + uReactMid * 0.08;
-        float opacity = smoke_mask * fog * (base_opacity + uClimaxFlash * 0.38);
-        vec3 flash_col = tunnel_color + vec3(0.82, 0.92, 1.0) * uClimaxFlash * 0.7;
+        float tunnel_flash = uClimaxFlash * (1.0 - uTunnelAurora);
+        float opacity = smoke_mask * fog * (
+            base_opacity
+            + tunnel_flash * 0.38
+            + uTunnelRainbow * 0.34
+        );
+        vec3 flash_col = tunnel_color + vec3(0.82, 0.92, 1.0) * tunnel_flash * 0.7;
         base_color = mix(base_color, flash_col, opacity);
         
         // Climax background deep space flare
-        base_color += vec3(0.38, 0.58, 0.95) * uClimaxFlash * 0.22;
+        base_color += vec3(0.38, 0.58, 0.95) * tunnel_flash * 0.22;
         
         // Multi-stroke stroboscopic lightning flash overlay on tunnel surface (grand event)
-        if (uClimaxFlash > 0.05) {
+        if (tunnel_flash > 0.05) {
             float strobes = step(0.4, sin(uTime * 45.0) * cos(uTime * 30.0) * 0.5 + 0.5);
-            base_color += vec3(0.85, 0.95, 1.0) * uClimaxFlash * strobes * 0.45;
+            base_color += vec3(0.85, 0.95, 1.0) * tunnel_flash * strobes * 0.45;
         }
     }
     

@@ -257,9 +257,12 @@ class SpaceInvadersModeMixin:
         self.invader_last_step_beat = int(np.floor(self.tempo_phase))
         self.invader_animation_frame = 0
         self.invader_march_flash = 0.0
+        self.invader_swap_routine_beats_remaining = 0
+        self.invader_swap_phase = 0
+        self.invader_swap_vertical = False
+        self.invader_swap_animations = []
         self.invader_scene_time = 0.0
         self.invader_glow_timer = 0.0
-        self.invader_supernova_timer = 0.0
 
         self.invader_defender_x = 0.0
         self.invader_defender_target_x = 0.0
@@ -304,6 +307,16 @@ class SpaceInvadersModeMixin:
             0.8, 2.2, star_count
         ).astype(np.float32)
 
+    def on_space_invaders_bpm_changed(self, previous_bpm, bpm, *, reset_tempo=False):
+        """Realign the march scheduler when the active track tempo changes."""
+        if not hasattr(self, "invader_last_step_beat"):
+            return
+
+        self.invader_last_step_beat = int(np.floor(self.tempo_phase))
+        self.invader_step_timer = 0.0
+        if reset_tempo or bpm != previous_bpm:
+            self.invader_march_flash = max(self.invader_march_flash, 0.25)
+
     def _reset_invader_formation(self):
         """Restore the formation after it reaches the defender."""
         self.invader_alive[:] = True
@@ -321,6 +334,86 @@ class SpaceInvadersModeMixin:
         self.invader_pending_top_row = None
         self.invader_next_drop_col = 0
         self.invader_dropping_aliens.clear()
+        self.invader_swap_routine_beats_remaining = 0
+        self.invader_swap_vertical = False
+        self.invader_swap_animations.clear()
+
+    def _begin_pairwise_invader_swap(self, beat_interval, vertical=False):
+        """Swap adjacent row or column cells, moving aliens through empty neighbors."""
+        if self.invader_swap_animations:
+            return
+
+        start_index = self.invader_swap_phase % 2
+        animations = []
+        if vertical:
+            pair_origins = (
+                ((top_row, col), (top_row + 1, col))
+                for col in range(self.invader_cols)
+                for top_row in range(start_index, self.invader_rows - 1, 2)
+            )
+        else:
+            pair_origins = (
+                ((row, left_col), (row, left_col + 1))
+                for row in range(self.invader_rows)
+                for left_col in range(start_index, self.invader_cols - 1, 2)
+            )
+
+        for first_cell, second_cell in pair_origins:
+            moving_aliens = []
+            for source_cell, target_cell in (
+                (first_cell, second_cell),
+                (second_cell, first_cell),
+            ):
+                source_row, source_col = source_cell
+                target_row, target_col = target_cell
+                if not self.invader_alive[source_row, source_col]:
+                    continue
+                moving_aliens.append(
+                    {
+                        "source": self._invader_position(source_row, source_col),
+                        "target": self._invader_position(target_row, target_col),
+                        "target_row": target_row,
+                        "target_col": target_col,
+                        "type": int(self.invader_types[source_row, source_col]),
+                    }
+                )
+
+            if not moving_aliens:
+                continue
+
+            first_row, first_col = first_cell
+            second_row, second_col = second_cell
+            self.invader_alive[first_row, first_col] = False
+            self.invader_alive[second_row, second_col] = False
+            animations.extend(moving_aliens)
+
+        if animations:
+            self.invader_swap_animations = [
+                {
+                    "aliens": animations,
+                    "age": 0.0,
+                    "duration": max(0.08, beat_interval * 0.78),
+                }
+            ]
+            self.invader_swap_phase += 1
+            self.invader_march_flash = 1.0
+
+    def _update_pairwise_invader_swaps(self, dt):
+        """Animate swaps and commit each alien to its new grid cell on arrival."""
+        remaining_animations = []
+        for animation in self.invader_swap_animations:
+            animation["age"] += dt
+            if animation["age"] < animation["duration"]:
+                remaining_animations.append(animation)
+                continue
+
+            for alien in animation["aliens"]:
+                row = alien["target_row"]
+                col = alien["target_col"]
+                self.invader_types[row, col] = alien["type"]
+                self.invader_alive[row, col] = True
+
+        self.invader_swap_animations = remaining_animations
 
     def _send_mothership(self, restock_row):
         """Send a carrier across the playfield in a random direction to seed a row."""
@@ -516,9 +609,8 @@ class SpaceInvadersModeMixin:
 
     def update_space_invaders(self, dt):
         self.invader_scene_time += dt
+        self._update_pairwise_invader_swaps(dt)
         self.invader_march_flash = max(0.0, self.invader_march_flash - dt * 5.5)
-        if self.invader_supernova_timer > 0.0:
-            self.invader_supernova_timer = max(0.0, self.invader_supernova_timer - dt)
         if self.invader_glow_timer > 0.0:
             self.invader_glow_timer = max(0.0, self.invader_glow_timer - dt)
 
@@ -530,7 +622,14 @@ class SpaceInvadersModeMixin:
         current_beat = int(np.floor(self.tempo_phase))
         if current_beat > self.invader_last_step_beat:
             self.invader_last_step_beat = current_beat
-            self._invader_step()
+            if self.invader_swap_routine_beats_remaining > 0:
+                self._begin_pairwise_invader_swap(
+                    beat_interval,
+                    vertical=self.invader_swap_vertical,
+                )
+                self.invader_swap_routine_beats_remaining -= 1
+            else:
+                self._invader_step()
 
         self.invader_defender_x += (
             self.invader_defender_target_x - self.invader_defender_x
@@ -601,11 +700,30 @@ class SpaceInvadersModeMixin:
             bomb["pos"] += bomb["velocity"] * dt
             bomb["velocity"][1] -= 1.9 * dt
             bomb["life"] -= dt
-            if (
-                bomb["life"] > 0.0
-                and bomb["pos"][1] >= -4.4
-                and not self._invader_hit_shield(bomb["pos"])
-            ):
+            if bomb["life"] <= 0.0:
+                continue
+            if self._invader_hit_shield(bomb["pos"]):
+                continue
+
+            target_y = bomb.get("target_y", -4.4)
+            if bomb["pos"][1] <= target_y:
+                self.invader_explosions.append(
+                    {
+                        "pos": np.array(
+                            [bomb["target_x"], target_y, 0.0],
+                            dtype=np.float32,
+                        ),
+                        "life": 1.0,
+                        "max_life": 1.0,
+                        "color": np.array(
+                            [1.0, 0.26, 0.04, 1.0],
+                            dtype=np.float32,
+                        ),
+                    }
+                )
+                continue
+
+            if bomb["pos"][1] >= -4.4:
                 remaining_bombs.append(bomb)
         self.invader_bombs = remaining_bombs
 
@@ -841,7 +959,12 @@ class SpaceInvadersModeMixin:
             colors.append([0.38, 0.43, 0.52, 0.28 * life_fraction * smoke_pulse])
             sizes.append(-puff["size"] * (1.0 + (1.0 - life_fraction) * 0.45))
 
-        pulse = np.clip(self.invader_glow_timer, 0.0, 1.0)
+        glow_beat_pulse = 0.5 + 0.5 * np.sin(self.tempo_phase * 2.0 * np.pi)
+        pulse = np.clip(
+            self.invader_glow_timer * (0.55 + 0.45 * glow_beat_pulse),
+            0.0,
+            1.0,
+        )
         alien_colors = (
             [0.20, 1.0, 0.42, 1.0],
             [0.95, 0.32, 0.86, 1.0],
@@ -854,7 +977,7 @@ class SpaceInvadersModeMixin:
         alive_centers = np.asarray(
             [self._invader_position(row, col) for row, col in alive_cells],
             dtype=np.float32,
-        )
+        ).reshape(-1, 3)
         alien_local_bands = self.sample_spatial_audio_space_invaders(alive_centers)
 
         for alien_index, (row, col) in enumerate(alive_cells):
@@ -913,7 +1036,10 @@ class SpaceInvadersModeMixin:
             )
             color = list(alien_colors[alien_type])
             if pulse > 0.0:
-                color[:3] = [1.0, 0.86, 0.30]
+                color[:3] = [
+                    channel + (1.0 - channel) * pulse
+                    for channel in color[:3]
+                ]
             sprite = self._INVADER_SPRITES[alien_type][self.invader_animation_frame]
             self._append_sprite(
                 positions,
@@ -923,7 +1049,7 @@ class SpaceInvadersModeMixin:
                 center,
                 0.078,
                 color,
-                4.0 + pulse * 1.8,
+                5.0 + pulse * 12.0,
                 pixel_density=2,
             )
 
@@ -961,6 +1087,28 @@ class SpaceInvadersModeMixin:
                     feature_size * 1.25,
                 )
             )
+
+        for animation in self.invader_swap_animations:
+            progress = min(1.0, animation["age"] / animation["duration"])
+            eased_progress = progress * progress * (3.0 - 2.0 * progress)
+            for alien in animation["aliens"]:
+                center = (
+                    alien["source"]
+                    + (alien["target"] - alien["source"]) * eased_progress
+                ).copy()
+                center[1] += np.sin(progress * np.pi) * 0.22
+                alien_type = alien["type"]
+                self._append_sprite(
+                    positions,
+                    colors,
+                    sizes,
+                    self._INVADER_SPRITES[alien_type][self.invader_animation_frame],
+                    center,
+                    0.078,
+                    alien_colors[alien_type],
+                    4.8,
+                    pixel_density=2,
+                )
 
         # Let the defender's individual pixels carry a travelling beat wave rather
         # than flashing together. The pixel geometry itself remains perfectly steady.
@@ -1180,19 +1328,6 @@ class SpaceInvadersModeMixin:
                     colors.append([0.45, 0.75, 1.0, 1.0 - trail_index / 9.0])
                     sizes.append(8.0 - trail_index * 0.55)
 
-        if self.invader_supernova_timer > 0.0:
-            life = self.invader_supernova_timer / 1.4
-            for angle in np.linspace(0.0, 2.0 * np.pi, 72, endpoint=False):
-                positions.append(
-                    [
-                        np.cos(angle) * (1.0 - life) * 10.0,
-                        2.0 + np.sin(angle) * (1.0 - life) * 7.0,
-                        0.0,
-                    ]
-                )
-                colors.append([1.0, 0.62, 0.16, life * 0.8])
-                sizes.append(5.0 + life * 7.0)
-
         return (
             np.asarray(positions, dtype=np.float32).reshape(-1, 3),
             np.asarray(colors, dtype=np.float32).reshape(-1, 4),
@@ -1240,21 +1375,24 @@ class SpaceInvadersModeMixin:
         if routine_name == "Alien Barrage":
             for row, col in alive:
                 self._invader_fire_enemy_bullet(row, col, speed=3.2)
+        elif routine_name in ("Pairwise Swap", "Vertical Pairwise Swap"):
+            self.invader_swap_routine_beats_remaining = 8
+            self.invader_swap_phase = 0
+            self.invader_swap_vertical = routine_name == "Vertical Pairwise Swap"
+            self.invader_march_flash = 1.0
         elif routine_name == "Side Bomb":
-            bomb_x = -7.8 if self.invader_defender_x > 0.0 else 7.8
+            target_x = -8.15 if np.random.random() < 0.5 else 8.45
             self.invader_bombs.append(
                 {
-                    "pos": np.array([bomb_x, 7.4, 0.0], dtype=np.float32),
-                    "velocity": np.array(
-                        [-np.sign(bomb_x) * 0.6, -0.7, 0.0], dtype=np.float32
-                    ),
+                    "pos": np.array([target_x, 7.4, 0.0], dtype=np.float32),
+                    "velocity": np.array([0.0, -3.2, 0.0], dtype=np.float32),
+                    "target_x": target_x,
+                    "target_y": -4.18,
                     "life": 4.0,
                 }
             )
-        elif routine_name == "Supernova":
-            self.invader_supernova_timer = 1.4
         elif routine_name == "Alien Glow":
-            self.invader_glow_timer = 1.0
+            self.invader_glow_timer = 1.35
         elif routine_name == "Defender Reset":
             alive = np.argwhere(self.invader_alive)
             if len(alive):

@@ -28,6 +28,8 @@ uniform float uReactTreble;
 uniform float uReactMid;
 uniform float uStereoPanning;
 uniform float uWormholeSpeedFactor;
+uniform float uTunnelRainbow;
+uniform float uTunnelAurora;
 uniform float uAspect;
 uniform mat4 uInvVP;
 uniform float uWindGust;

@@ -381,9 +381,36 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             return self.record_time
         return time.time() - self.start_time
 
+    def on_script_bpm_changed(self, previous_bpm, bpm, *, reset_tempo=False):
+        """Notify initialized BPM-sensitive modes about a script tempo update."""
+        mode_callbacks = (
+            "on_tunnel_bpm_changed",
+            "on_underwater_bpm_changed",
+            "on_mandala_bpm_changed",
+            "on_synaesthesia_bpm_changed",
+            "on_fire_bpm_changed",
+            "on_space_invaders_bpm_changed",
+            "on_pond_bpm_changed",
+        )
+        for callback_name in mode_callbacks:
+            callback = getattr(self, callback_name, None)
+            if callable(callback):
+                callback(previous_bpm, bpm, reset_tempo=reset_tempo)
+
     def trigger_climax_event(self, intensity=1.5, routine_name=""):
-        # Setup climax properties
-        self.climax_flash = intensity
+        # Spark, rainbow, and aurora routines have their own tunnel-local
+        # effects. They must not use the generic full-screen climax flash.
+        tunnel_local_routines = {
+            "Spark Explosion",
+            "Rainbow Tunnel",
+            "Aurora Borealis",
+        }
+        self.climax_flash = (
+            0.0
+            if self.major_mode == "TUNNEL Wormhole"
+            and routine_name in tunnel_local_routines
+            else intensity
+        )
         self.active_routine_name = routine_name or "Climax Burst!"
         self.routine_timer = 5.0
         
@@ -426,13 +453,10 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
                 ("Shooting Star", lambda: self.trigger_routine("Shooting Star", self.launch_shooting_star)),
             ],
             "TUNNEL Wormhole": [
-                ("Plasma Burst", lambda: self.trigger_climax_event(1.1, "Plasma Burst")),
-                ("Gravity Surge", lambda: self.trigger_climax_event(1.2, "Gravity Surge")),
-                ("Stardust Stream", lambda: self.trigger_climax_event(1.3, "Stardust Stream")),
-                ("Event Horizon", lambda: self.trigger_climax_event(1.4, "Event Horizon")),
                 ("Lightning Flash", lambda: self.trigger_climax_event(1.8, "Lightning Flash")),
-                ("Supernova", lambda: self.trigger_climax_event(2.0, "Supernova")),
-                ("Shooting Star", lambda: self.trigger_climax_event(1.6, "Shooting Star")),
+                ("Spark Explosion", lambda: self.trigger_climax_event(1.6, "Spark Explosion")),
+                ("Rainbow Tunnel", lambda: self.trigger_climax_event(1.5, "Rainbow Tunnel")),
+                ("Aurora Borealis", lambda: self.trigger_climax_event(1.5, "Aurora Borealis")),
             ],
             "UNDERWATER Lava": [
                 ("Coral Pulse", lambda: self.trigger_climax_event(1.1, "Coral Pulse")),
@@ -467,8 +491,9 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             ],
             "SPACE INVADERS": [
                 ("Alien Barrage", lambda: self.trigger_climax_event(1.3, "Alien Barrage")),
+                ("Pairwise Swap", lambda: self.trigger_climax_event(1.4, "Pairwise Swap")),
+                ("Vertical Pairwise Swap", lambda: self.trigger_climax_event(1.4, "Vertical Pairwise Swap")),
                 ("Side Bomb", lambda: self.trigger_climax_event(1.4, "Side Bomb")),
-                ("Supernova", lambda: self.trigger_climax_event(1.8, "Supernova")),
                 ("Alien Glow", lambda: self.trigger_climax_event(1.2, "Alien Glow")),
                 ("Defender Reset", lambda: self.trigger_climax_event(1.8, "Defender Reset")),
             ],
@@ -772,6 +797,8 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         self.sky_react_mid_loc = gl.glGetUniformLocation(self.sky_program, "uReactMid")
         self.sky_stereo_panning_loc = gl.glGetUniformLocation(self.sky_program, "uStereoPanning")
         self.sky_wormhole_speed_factor_loc = gl.glGetUniformLocation(self.sky_program, "uWormholeSpeedFactor")
+        self.sky_tunnel_rainbow_loc = gl.glGetUniformLocation(self.sky_program, "uTunnelRainbow")
+        self.sky_tunnel_aurora_loc = gl.glGetUniformLocation(self.sky_program, "uTunnelAurora")
         self.sky_aspect_loc = gl.glGetUniformLocation(self.sky_program, "uAspect")
         self.sky_inv_vp_loc = gl.glGetUniformLocation(self.sky_program, "uInvVP")
         self.sky_moon_tex_loc = gl.glGetUniformLocation(self.sky_program, "uMoonTex")
@@ -895,6 +922,16 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
                 
             if hasattr(self, 'sky_wormhole_speed_factor_loc') and self.sky_wormhole_speed_factor_loc != -1:
                 gl.glUniform1f(self.sky_wormhole_speed_factor_loc, speed_factor)
+            if hasattr(self, 'sky_tunnel_rainbow_loc') and self.sky_tunnel_rainbow_loc != -1:
+                gl.glUniform1f(
+                    self.sky_tunnel_rainbow_loc,
+                    min(1.0, getattr(self, 'tunnel_rainbow_timer', 0.0) / 5.0),
+                )
+            if hasattr(self, 'sky_tunnel_aurora_loc') and self.sky_tunnel_aurora_loc != -1:
+                gl.glUniform1f(
+                    self.sky_tunnel_aurora_loc,
+                    min(1.0, getattr(self, 'tunnel_aurora_timer', 0.0) / 5.0),
+                )
                 
             if hasattr(self, 'sky_bend_x_loc') and self.sky_bend_x_loc != -1:
                 gl.glUniform1f(self.sky_bend_x_loc, self.wormhole_bend_x if hasattr(self, 'wormhole_bend_x') else 0.0)
@@ -1092,7 +1129,12 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             line_col.extend(f_line_col)
         
         # Draw the reference grid only in 3D modes that use it as a spatial aid.
-        if self.major_mode not in ("UNDERWATER Lava", "SPACE INVADERS", "POND"):
+        if self.major_mode not in (
+            "TUNNEL Wormhole",
+            "UNDERWATER Lava",
+            "SPACE INVADERS",
+            "POND",
+        ):
             grid_y = -12.0
             grid_range = 30.0
             steps = 10
