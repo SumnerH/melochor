@@ -17,6 +17,7 @@ active_presets = [
         "opt_trailers": 0,
         "opt_gravity": 1.0,
         "opt_height_restrict": True,
+        "opt_particle_reactivity": 3,
         "opt_star_shape": 0
     },
     {
@@ -27,6 +28,7 @@ active_presets = [
         "opt_trailers": 10,
         "opt_gravity": 0.0,
         "opt_height_restrict": False,
+        "opt_particle_reactivity": 7,
         "opt_star_shape": 2 # small diamonds
     },
     {
