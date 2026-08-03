@@ -23,8 +23,14 @@ void main() {
     vStyle = aSize < 0.0 ? 1.0 : 0.0;
     
     if (uFireMode == 1) {
-        // Direct screen-space projection for flat 2D effects (e.g., procedural campfire)
+        // Direct screen-space projection for the procedural campfire.
         gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0);
+        gl_PointSize = abs(aSize) * 2.5;
+    } else if (uFireMode == 2) {
+        // Map the arcade playfield's actual vertical extent [-5, 9] to the
+        // complete fullscreen range [-1, 1]. The previous y / 10 mapping left
+        // the lower quarter of the screen unused.
+        gl_Position = vec4(aPos.x / 10.5, (aPos.y - 2.0) / 7.0, 0.0, 1.0);
         gl_PointSize = abs(aSize) * 2.5;
     } else {
         // 3D Perspective Projection for full space scenes

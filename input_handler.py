@@ -212,7 +212,8 @@ class InputHandlerMixin:
                 "TUNNEL Wormhole": ["PLANET", "GALAXY", "ASTEROIDS"],
                 "FIREWORKS": ["CATHERINE_WHEEL"],
                 "MANDALA Sacred": ["BIRD", "BUTTERFLY"],
-                "FIRE Plasma": ["SHOOTING_STAR", "BATS", "TUMBLEWEED"]
+                "FIRE Plasma": ["SHOOTING_STAR", "BATS", "TUMBLEWEED"],
+                "SPACE INVADERS": ["UFO", "INVADER_SHOOTING_STAR"]
             }
             if self.major_mode in mode_rarities:
                 r_list = mode_rarities[self.major_mode]

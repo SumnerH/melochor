@@ -1,5 +1,16 @@
 active_presets = [
     {
+        "name": "Space Invaders",
+        "major_mode": "SPACE INVADERS",
+        "show_rockets": False,
+        "opt_color_mode": "NEON",
+        "opt_trailers": 2,
+        "opt_gravity": 1.0,
+        "opt_height_restrict": True,
+        "opt_particle_reactivity": 5,
+        "opt_star_shape": 2
+    },
+    {
         "name": "Fire Plasma",
         "major_mode": "FIRE Plasma",
         "show_rockets": True,

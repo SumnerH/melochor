@@ -60,7 +60,8 @@ from modes import (
     UnderwaterModeMixin,
     MandalaModeMixin,
     SynaesthesiaModeMixin,
-    FireModeMixin
+    FireModeMixin,
+    SpaceInvadersModeMixin
 )
 from modes.fireworks_classic import FireworksClassicMixin
 from presets_mixin import PresetMixin
@@ -70,7 +71,8 @@ from ui import UIMixin
 from input_handler import InputHandlerMixin
 
 class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, SynaesthesiaModeMixin, FireModeMixin,
-                    FireworksClassicMixin, PresetMixin, RecordingMixin, PlaylistMixin, UIMixin, InputHandlerMixin):
+                    SpaceInvadersModeMixin, FireworksClassicMixin, PresetMixin, RecordingMixin, PlaylistMixin,
+                    UIMixin, InputHandlerMixin):
     def __init__(self, record_path=None, audio_path=None, playlist_files=None, random_mode=False, tmp_dir=None, shuffle_mode=False):
         import tempfile
         self.tmp_dir = tmp_dir if tmp_dir else tempfile.gettempdir()
@@ -179,7 +181,7 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         self.saved_auto_launch = True
 
         # Dynamic Psychedelic Modes
-        self.modes = ["FIREWORKS", "TUNNEL Wormhole", "MANDALA Sacred", "UNDERWATER Lava", "SYNAESTHESIA Classic", "FIRE Plasma"]
+        self.modes = ["FIREWORKS", "TUNNEL Wormhole", "MANDALA Sacred", "UNDERWATER Lava", "SYNAESTHESIA Classic", "FIRE Plasma", "SPACE INVADERS"]
         self.major_mode_idx = 0
         self.major_mode = self.modes[self.major_mode_idx]
         self.react_bass = 0.0
@@ -406,6 +408,8 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             self.trigger_syn_star_burst()
         elif self.major_mode == "FIRE Plasma":
             self.trigger_climax_fire(routine_name)
+        elif self.major_mode == "SPACE INVADERS":
+            self.trigger_climax_space_invaders(routine_name)
 
     def cycle_current_mode_routine(self):
         routines_by_mode = {
@@ -457,6 +461,13 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
                 ("Treble Spark Shower", lambda: self.trigger_climax_event(1.3, "Treble Spark Shower")),
                 ("Fire Eruption", lambda: self.trigger_climax_event(1.4, "Fire Eruption")),
                 ("Lightning Strike", lambda: self.trigger_climax_event(1.8, "Lightning Strike")),
+            ],
+            "SPACE INVADERS": [
+                ("Alien Barrage", lambda: self.trigger_climax_event(1.3, "Alien Barrage")),
+                ("Side Bomb", lambda: self.trigger_climax_event(1.4, "Side Bomb")),
+                ("Supernova", lambda: self.trigger_climax_event(1.8, "Supernova")),
+                ("Alien Glow", lambda: self.trigger_climax_event(1.2, "Alien Glow")),
+                ("Defender Reset", lambda: self.trigger_climax_event(1.8, "Defender Reset")),
             ],
         }
         routines = routines_by_mode.get(self.major_mode, [])
@@ -584,6 +595,10 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             self.spawn_rarity_mandala(r_type)
         elif r_type in ("SHOOTING_STAR", "BATS", "TUMBLEWEED"):
             self.spawn_rarity_fire(r_type)
+        elif r_type in ("UFO", "INVADER_SHOOTING_STAR"):
+            self.spawn_rarity_space_invaders(
+                "SHOOTING_STAR" if r_type == "INVADER_SHOOTING_STAR" else r_type
+            )
 
     def update_active_rarity(self, dt):
         r = self.active_rarity
@@ -792,6 +807,9 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         elif self.major_mode == "FIRE Plasma":
             if not hasattr(self, 'fire_spark_pos'):
                 self.init_fire_mode()
+        elif self.major_mode == "SPACE INVADERS":
+            if not hasattr(self, 'invader_alive'):
+                self.init_space_invaders_mode()
         
         # Open recording process if first frame
         if hasattr(self, 'is_recording') and self.is_recording and self.ffmpeg_process is None:
@@ -982,8 +1000,8 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             line_pos.extend(f_line_pos)
             line_col.extend(f_line_col)
         
-        # Draw Reference Ground Grid (unless in Underwater Mode)
-        if self.major_mode != "UNDERWATER Lava":
+        # Draw Reference Ground Grid outside self-contained scenic modes.
+        if self.major_mode not in ("UNDERWATER Lava", "SPACE INVADERS"):
             grid_y = -12.0
             grid_range = 30.0
             steps = 10
@@ -1155,6 +1173,13 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             part_pos.append(f_pos)
             part_col.append(f_col)
             part_size.append(f_size)
+        elif self.major_mode == "SPACE INVADERS":
+            if not hasattr(self, 'invader_alive'):
+                self.init_space_invaders_mode()
+            i_pos, i_col, i_size, h_pos, h_col = self.render_space_invaders()
+            part_pos.append(i_pos)
+            part_col.append(i_col)
+            part_size.append(i_size)
         else:
             h_pos = np.zeros((0, 3), dtype=np.float32)
             h_col = np.zeros((0, 4), dtype=np.float32)
@@ -1186,7 +1211,12 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
                 gl.glUniformMatrix4fv(self.part_view_loc, 1, gl.GL_TRUE, view_matrix)
                 gl.glUniform1i(self.part_star_shape_loc, self.opt_star_shape)
                 if hasattr(self, 'part_fire_mode_loc') and self.part_fire_mode_loc != -1:
-                    gl.glUniform1i(self.part_fire_mode_loc, 1 if self.major_mode == "FIRE Plasma" else 0)
+                    gl.glUniform1i(
+                        self.part_fire_mode_loc,
+                        1 if self.major_mode == "FIRE Plasma"
+                        else 2 if self.major_mode == "SPACE INVADERS"
+                        else 0,
+                    )
                 
                 gl.glBindVertexArray(self.particle_vao)
                 gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.particle_pos_vbo)
@@ -1403,6 +1433,10 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             if not hasattr(self, 'fire_spark_pos'):
                 self.init_fire_mode()
             self.update_fire(dt)
+        elif self.major_mode == "SPACE INVADERS":
+            if not hasattr(self, 'invader_alive'):
+                self.init_space_invaders_mode()
+            self.update_space_invaders(dt)
             
         self.update_rarity_system(dt)
         
@@ -1451,6 +1485,8 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             active_stars = len(self.syn_stars) * 20 + 300 if hasattr(self, 'syn_stars') else 0
         elif self.major_mode == "FIRE Plasma":
             active_stars = np.sum(self.fire_spark_active) if hasattr(self, 'fire_spark_active') else 0
+        elif self.major_mode == "SPACE INVADERS":
+            active_stars = int(np.sum(self.invader_alive)) if hasattr(self, 'invader_alive') else 0
             
         self.shell_lbl.set_text(f"Active Shells: {active_rockets}")
         self.part_lbl.set_text(f"Simulated Particles: {active_stars:,}")
