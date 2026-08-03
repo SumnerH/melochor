@@ -46,18 +46,24 @@ if getattr(sys, 'frozen', False):
             os.environ['GSETTINGS_SCHEMA_DIR'] = path
             break
 
-    # 3. Add base_dir and _internal to DLL search path on Windows for ctypes/LoadLibrary
-    if sys.platform == 'win32' and hasattr(os, 'add_dll_directory'):
-        try:
-            os.add_dll_directory(base_dir)
-        except Exception:
-            pass
+    # 3. Make bundled DLLs visible both to Windows LoadLibrary and to
+    # ctypes.util.find_library(). The latter is used by sounddevice to locate
+    # the bundled libportaudio-2.dll; add_dll_directory() alone is insufficient.
+    if sys.platform == 'win32':
         internal_dir = os.path.join(base_dir, '_internal')
+        dll_dirs = [base_dir]
         if os.path.exists(internal_dir):
-            try:
-                os.add_dll_directory(internal_dir)
-            except Exception:
-                pass
+            dll_dirs.append(internal_dir)
+
+        os.environ["PATH"] = os.pathsep.join(
+            dll_dirs + [os.environ.get("PATH", "")]
+        )
+        if hasattr(os, 'add_dll_directory'):
+            for dll_dir in dll_dirs:
+                try:
+                    os.add_dll_directory(dll_dir)
+                except OSError:
+                    pass
 
     # 4. Set GDK_PIXBUF_MODULE_FILE so GdkPixbuf can find bundled image loaders (PNG, SVG, etc.)
     possible_loaders_paths = [

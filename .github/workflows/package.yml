@@ -53,7 +53,12 @@ jobs:
           # sounddevice's _sounddevice_data package supplies its bundled
           # PortAudio DLL when ctypes cannot discover MSYS2's DLL directly.
           .venv/bin/python -m pip install cffi sounddevice soundfile audioread PyOpenGL
-          .venv/bin/python -c "import gi, numpy, scipy, sounddevice, soundfile, audioread, OpenGL.GL; gi.require_version('Gtk', '4.0'); from gi.repository import Gtk; print('Windows build environment imports validated.')"
+          # On MSYS2/Python 3.14, sounddevice cannot discover PortAudio via
+          # ctypes.util.find_library(), despite pacman providing libportaudio-2.dll.
+          # Validate the actual native DLL directly; sounddevice itself is exercised
+          # from the packaged application after main.py adds the bundle DLL directory
+          # to PATH.
+          .venv/bin/python -c "import ctypes, gi, numpy, scipy, soundfile, audioread, OpenGL.GL; ctypes.CDLL('/mingw64/bin/libportaudio-2.dll'); gi.require_version('Gtk', '4.0'); from gi.repository import Gtk; print('Windows build environment imports and PortAudio DLL validated.')"
 
       - name: Download Static FFmpeg (Windows)
         if: matrix.os == 'windows-latest'
