@@ -2,6 +2,14 @@
 
 Major changes are listed by tagged release, newest first.
 
+## v0.2.18
+
+- Win32 build fixes
+
+## v0.2.17
+
+- Win32 build fixes
+
 ## v0.2.16
 
 - Improved Wormhole routines with distinct Spark Explosion, Rainbow Tunnel, Aurora Borealis, and Lightning Flash effects.
