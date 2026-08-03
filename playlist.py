@@ -414,6 +414,9 @@ class PlaylistMixin:
                 self.react_treble = min(1.5, self.react_treble + 0.3)
             
             self.inject_spatial_audio_event(event)
+            if self.major_mode == "POND":
+                self.add_pond_music_ripple(event)
+                self._steer_pond_flock(event)
 
             fw = Firework(fw_type=fw_type, color=color_rgb, x_offset=x_offset)
             fw.secondary_color = sec_color_rgb

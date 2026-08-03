@@ -54,6 +54,19 @@ uniform float uFlameEnvTreble;
 uniform float uSpatialAudioEnabled;
 uniform vec3 uSpatialAudioZones[40];
 
+// Position in screen space, age in seconds, and strength for eight overlapping
+// music-triggered pond wave sources.
+uniform vec4 uPondRipples[8];
+
+// Screen-space x/y, flight heading, and wing phase for distant pond swallows.
+uniform vec4 uPondBirds[14];
+
+// Pond routine state: leaf-vortex bank position/timer, lightning timer, and
+// trout horizontal position, jump time, direction, and active state.
+uniform vec2 uPondLeafVortex;
+uniform float uPondLightning;
+uniform vec4 uPondTrout;
+
 // Noise helper functions for high-fidelity procedurals
 float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);

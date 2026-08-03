@@ -3,6 +3,7 @@ from shaders.sky_underwater import SKY_UNDERWATER_SOURCE
 from shaders.sky_tunnel import SKY_TUNNEL_SOURCE
 from shaders.sky_fire_common import SKY_FIRE_COMMON_SOURCE
 from shaders.sky_fire_flames import SKY_FIRE_FLAMES_SOURCE
+from shaders.sky_pond import SKY_POND_SOURCE
 
 # Thin assembler: builds the final SKY_FRAGMENT_SHADER by concatenating the shared header
 # (uniforms + noise helpers + starfield) with each mode's rendering function, then a small
@@ -25,7 +26,7 @@ void main() {
     
     // Twinkling procedural deep space starfield (Modulated stereoscopically and spectrally)
     vec3 stars = get_starfield(vPos, uAspect, t_gradient);
-    if (uRipple > 2.5) {
+    if (uRipple > 2.5 && uRipple < 3.5) {
         // Boost the stars in fire mode as requested
         base_color += stars * 2.2;
     } else {
@@ -38,7 +39,7 @@ void main() {
     else if (uRipple > 1.5 && uRipple < 2.5) {
         base_color = renderTunnelSky(vPos, base_color);
     }
-    else if (uRipple > 2.5) {
+    else if (uRipple > 2.5 && uRipple < 3.5) {
         base_color = renderFireMoonAndClouds(vPos, base_color);
 
         float bass, mid, treble;
@@ -47,6 +48,9 @@ void main() {
         float ground_height = renderFireGround(vPos, bass, mid, treble, base_color);
         base_color = renderFireFlames(vPos, ground_height, bass, mid, treble, base_color);
         base_color = renderFireRocks(vPos, bass, base_color);
+    }
+    else if (uRipple > 3.5) {
+        base_color = renderPondSky(vPos, base_color);
     }
     
     FragColor = vec4(base_color, 1.0);
@@ -59,5 +63,6 @@ SKY_FRAGMENT_SHADER = (
     + SKY_TUNNEL_SOURCE
     + SKY_FIRE_COMMON_SOURCE
     + SKY_FIRE_FLAMES_SOURCE
+    + SKY_POND_SOURCE
     + _SKY_MAIN_SOURCE
 )

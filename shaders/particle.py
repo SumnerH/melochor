@@ -32,6 +32,10 @@ void main() {
         // the lower quarter of the screen unused.
         gl_Position = vec4(aPos.x / 10.5, (aPos.y - 2.0) / 7.0, 0.0, 1.0);
         gl_PointSize = abs(aSize) * 2.5;
+    } else if (uFireMode == 3) {
+        // Pond mode shares the full-screen 2D playfield coordinate system.
+        gl_Position = vec4(aPos.x / 10.5, (aPos.y - 2.0) / 7.0, 0.0, 1.0);
+        gl_PointSize = abs(aSize) * 2.5;
     } else {
         // 3D Perspective Projection for full space scenes
         vec4 mvPos = view * vec4(aPos, 1.0);

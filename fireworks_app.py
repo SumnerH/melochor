@@ -61,7 +61,8 @@ from modes import (
     MandalaModeMixin,
     SynaesthesiaModeMixin,
     FireModeMixin,
-    SpaceInvadersModeMixin
+    SpaceInvadersModeMixin,
+    PondModeMixin
 )
 from modes.fireworks_classic import FireworksClassicMixin
 from presets_mixin import PresetMixin
@@ -71,7 +72,7 @@ from ui import UIMixin
 from input_handler import InputHandlerMixin
 
 class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, SynaesthesiaModeMixin, FireModeMixin,
-                    SpaceInvadersModeMixin, FireworksClassicMixin, PresetMixin, RecordingMixin, PlaylistMixin,
+                    SpaceInvadersModeMixin, PondModeMixin, FireworksClassicMixin, PresetMixin, RecordingMixin, PlaylistMixin,
                     UIMixin, InputHandlerMixin):
     def __init__(self, record_path=None, audio_path=None, playlist_files=None, random_mode=False, tmp_dir=None, shuffle_mode=False):
         import tempfile
@@ -181,7 +182,7 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         self.saved_auto_launch = True
 
         # Dynamic Psychedelic Modes
-        self.modes = ["FIREWORKS", "TUNNEL Wormhole", "MANDALA Sacred", "UNDERWATER Lava", "SYNAESTHESIA Classic", "FIRE Plasma", "SPACE INVADERS"]
+        self.modes = ["FIREWORKS", "TUNNEL Wormhole", "MANDALA Sacred", "UNDERWATER Lava", "SYNAESTHESIA Classic", "FIRE Plasma", "SPACE INVADERS", "POND"]
         self.major_mode_idx = 0
         self.major_mode = self.modes[self.major_mode_idx]
         self.react_bass = 0.0
@@ -410,6 +411,8 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             self.trigger_climax_fire(routine_name)
         elif self.major_mode == "SPACE INVADERS":
             self.trigger_climax_space_invaders(routine_name)
+        elif self.major_mode == "POND":
+            self.trigger_climax_pond(routine_name)
 
     def cycle_current_mode_routine(self):
         routines_by_mode = {
@@ -468,6 +471,11 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
                 ("Supernova", lambda: self.trigger_climax_event(1.8, "Supernova")),
                 ("Alien Glow", lambda: self.trigger_climax_event(1.2, "Alien Glow")),
                 ("Defender Reset", lambda: self.trigger_climax_event(1.8, "Defender Reset")),
+            ],
+            "POND": [
+                ("Leaf Vortex", lambda: self.trigger_climax_event(1.3, "Leaf Vortex")),
+                ("Lightning Strike", lambda: self.trigger_climax_event(1.8, "Lightning Strike")),
+                ("Fish Splash", lambda: self.trigger_climax_event(1.5, "Fish Splash")),
             ],
         }
         routines = routines_by_mode.get(self.major_mode, [])
@@ -775,6 +783,21 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         self.sky_spatial_audio_zones_loc = gl.glGetUniformLocation(
             self.sky_program, "uSpatialAudioZones[0]"
         )
+        self.sky_pond_ripples_loc = gl.glGetUniformLocation(
+            self.sky_program, "uPondRipples[0]"
+        )
+        self.sky_pond_birds_loc = gl.glGetUniformLocation(
+            self.sky_program, "uPondBirds[0]"
+        )
+        self.sky_pond_leaf_vortex_loc = gl.glGetUniformLocation(
+            self.sky_program, "uPondLeafVortex"
+        )
+        self.sky_pond_lightning_loc = gl.glGetUniformLocation(
+            self.sky_program, "uPondLightning"
+        )
+        self.sky_pond_trout_loc = gl.glGetUniformLocation(
+            self.sky_program, "uPondTrout"
+        )
 
     def on_render(self, area, context):
         if self.sky_program is None:
@@ -810,6 +833,9 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         elif self.major_mode == "SPACE INVADERS":
             if not hasattr(self, 'invader_alive'):
                 self.init_space_invaders_mode()
+        elif self.major_mode == "POND":
+            if not hasattr(self, 'pond_rain'):
+                self.init_pond_mode()
         
         # Open recording process if first frame
         if hasattr(self, 'is_recording') and self.is_recording and self.ffmpeg_process is None:
@@ -838,11 +864,13 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
                 gl.glUniform1f(self.sky_ripple_loc, 2.0)
             elif self.major_mode == "FIRE Plasma":
                 gl.glUniform1f(self.sky_ripple_loc, 3.0)
+            elif self.major_mode == "POND":
+                gl.glUniform1f(self.sky_ripple_loc, 4.0)
             else:
                 gl.glUniform1f(self.sky_ripple_loc, 0.0)
                 
         # Send full coordinates and audio parameters for continuous GPU raymarching/effects
-        if self.major_mode in ("TUNNEL Wormhole", "FIRE Plasma"):
+        if self.major_mode in ("TUNNEL Wormhole", "FIRE Plasma", "POND"):
             bpm = self.script_bpm if (hasattr(self, 'script_bpm') and self.script_bpm > 0.0) else 40.0
             bpm = np.clip(bpm, 40.0, 240.0)
             
@@ -880,6 +908,56 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
                     self.spatial_audio_zone_cols * self.spatial_audio_zone_rows,
                     self.spatial_audio_zones.reshape(-1, 3),
                 )
+            if hasattr(self, 'sky_pond_ripples_loc') and self.sky_pond_ripples_loc != -1:
+                pond_ripple_data = np.zeros((8, 4), dtype=np.float32)
+                if self.major_mode == "POND":
+                    for index, ripple in enumerate(self.pond_shader_ripples[-8:]):
+                        pond_ripple_data[index] = (
+                            ripple["position"][0],
+                            ripple["position"][1],
+                            ripple["age"],
+                            ripple["strength"],
+                        )
+                gl.glUniform4fv(
+                    self.sky_pond_ripples_loc,
+                    len(pond_ripple_data),
+                    pond_ripple_data,
+                )
+            if hasattr(self, 'sky_pond_birds_loc') and self.sky_pond_birds_loc != -1:
+                pond_bird_data = np.zeros((14, 4), dtype=np.float32)
+                if self.major_mode == "POND":
+                    bird_count = min(len(self.pond_bird_pos), len(pond_bird_data))
+                    pond_bird_data[:bird_count, :2] = self.pond_bird_pos[:bird_count]
+                    pond_bird_data[:bird_count, 2] = self.pond_bird_heading[:bird_count]
+                    pond_bird_data[:bird_count, 3] = self.pond_bird_phase[:bird_count]
+                gl.glUniform4fv(
+                    self.sky_pond_birds_loc,
+                    len(pond_bird_data),
+                    pond_bird_data,
+                )
+            if hasattr(self, 'sky_pond_leaf_vortex_loc') and self.sky_pond_leaf_vortex_loc != -1:
+                leaf_vortex_data = np.zeros(2, dtype=np.float32)
+                if self.major_mode == "POND":
+                    leaf_vortex_data[:] = (
+                        self.pond_leaf_vortex_center_x,
+                        self.pond_leaf_vortex_timer,
+                    )
+                gl.glUniform2fv(self.sky_pond_leaf_vortex_loc, 1, leaf_vortex_data)
+            if hasattr(self, 'sky_pond_lightning_loc') and self.sky_pond_lightning_loc != -1:
+                lightning_time = (
+                    self.pond_lightning_timer if self.major_mode == "POND" else 0.0
+                )
+                gl.glUniform1f(self.sky_pond_lightning_loc, lightning_time)
+            if hasattr(self, 'sky_pond_trout_loc') and self.sky_pond_trout_loc != -1:
+                trout_data = np.zeros(4, dtype=np.float32)
+                if self.major_mode == "POND" and self.pond_fish is not None:
+                    trout_data[:] = (
+                        self.pond_fish["pos"][0] / 10.5,
+                        self.pond_fish["time"],
+                        self.pond_fish["direction"],
+                        1.0,
+                    )
+                gl.glUniform4fv(self.sky_pond_trout_loc, 1, trout_data)
             if hasattr(self, 'sky_stereo_panning_loc') and self.sky_stereo_panning_loc != -1:
                 gl.glUniform1f(self.sky_stereo_panning_loc, self.current_stereo_panning)
             if hasattr(self, 'sky_aspect_loc') and self.sky_aspect_loc != -1:
@@ -1000,8 +1078,8 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             line_pos.extend(f_line_pos)
             line_col.extend(f_line_col)
         
-        # Draw Reference Ground Grid outside self-contained scenic modes.
-        if self.major_mode not in ("UNDERWATER Lava", "SPACE INVADERS"):
+        # Draw the reference grid only in 3D modes that use it as a spatial aid.
+        if self.major_mode not in ("UNDERWATER Lava", "SPACE INVADERS", "POND"):
             grid_y = -12.0
             grid_range = 30.0
             steps = 10
@@ -1180,6 +1258,13 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             part_pos.append(i_pos)
             part_col.append(i_col)
             part_size.append(i_size)
+        elif self.major_mode == "POND":
+            if not hasattr(self, 'pond_rain'):
+                self.init_pond_mode()
+            p_pos, p_col, p_size, h_pos, h_col = self.render_pond()
+            part_pos.append(p_pos)
+            part_col.append(p_col)
+            part_size.append(p_size)
         else:
             h_pos = np.zeros((0, 3), dtype=np.float32)
             h_col = np.zeros((0, 4), dtype=np.float32)
@@ -1215,6 +1300,7 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
                         self.part_fire_mode_loc,
                         1 if self.major_mode == "FIRE Plasma"
                         else 2 if self.major_mode == "SPACE INVADERS"
+                        else 3 if self.major_mode == "POND"
                         else 0,
                     )
                 
@@ -1437,6 +1523,10 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             if not hasattr(self, 'invader_alive'):
                 self.init_space_invaders_mode()
             self.update_space_invaders(dt)
+        elif self.major_mode == "POND":
+            if not hasattr(self, 'pond_rain'):
+                self.init_pond_mode()
+            self.update_pond(dt)
             
         self.update_rarity_system(dt)
         

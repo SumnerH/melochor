@@ -1,5 +1,16 @@
 active_presets = [
     {
+        "name": "Pond",
+        "major_mode": "POND",
+        "show_rockets": False,
+        "opt_color_mode": "TRANQUIL",
+        "opt_trailers": 2,
+        "opt_gravity": 1.0,
+        "opt_height_restrict": True,
+        "opt_particle_reactivity": 6,
+        "opt_star_shape": 0
+    },
+    {
         "name": "Space Invaders",
         "major_mode": "SPACE INVADERS",
         "show_rockets": False,
