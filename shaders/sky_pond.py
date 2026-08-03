@@ -529,6 +529,15 @@ vec3 renderPondSky(vec2 vPos, vec3 baseColor) {
         color += vec3(0.42, 0.68, 0.78) * (crown * 0.66 + ring * 0.36);
     }
 
+    // Thunderclap illumination is composited last so the complete sky, pond,
+    // treeline, and rain briefly flash even though those layers replace the
+    // initial background color during rendering.
+    if (uPondLightning > 0.0) {
+        float flashAge = 0.55 - uPondLightning;
+        float skyFlash = exp(-flashAge * 6.5) * 0.52;
+        color += vec3(0.58, 0.72, 0.88) * skyFlash;
+    }
+
     return color;
 }
 """

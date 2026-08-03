@@ -426,6 +426,11 @@ class PlaylistMixin:
             intensity = event.get("intensity", 1.5)
             self.trigger_climax_event(intensity=intensity, routine_name="Climax Burst!")
             
+        elif event_type == "mode_routine":
+            # Analyzer-generated climax cue: choose an appropriate routine at
+            # playback time so the same track works naturally in every mode.
+            self.trigger_random_current_mode_routine()
+            
         elif event_type == "climax_random_mode_change":
             if getattr(self, 'preset_random_mode', False):
                 self.pick_random_preset()

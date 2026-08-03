@@ -414,7 +414,7 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         elif self.major_mode == "POND":
             self.trigger_climax_pond(routine_name)
 
-    def cycle_current_mode_routine(self):
+    def cycle_current_mode_routine(self, randomize=False):
         routines_by_mode = {
             "FIREWORKS": [
                 ("American Flag", lambda: self.trigger_routine("American Flag", self.launch_american_flag)),
@@ -482,11 +482,24 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         if not routines:
             return
 
-        routine_idx = (self.mode_routine_indices.get(self.major_mode, -1) + 1) % len(routines)
+        previous_idx = self.mode_routine_indices.get(self.major_mode, -1)
+        if randomize and len(routines) > 1:
+            available_indices = [
+                index for index in range(len(routines)) if index != previous_idx
+            ]
+            routine_idx = random.choice(available_indices)
+        else:
+            routine_idx = (previous_idx + 1) % len(routines)
+
         self.mode_routine_indices[self.major_mode] = routine_idx
         routine_name, trigger = routines[routine_idx]
-        print(f"Cycling {self.major_mode} routine to: {routine_name}")
+        action = "Randomly triggering" if randomize else "Cycling"
+        print(f"{action} {self.major_mode} routine: {routine_name}")
         trigger()
+
+    def trigger_random_current_mode_routine(self):
+        """Play a non-repeating random routine for the active visual mode."""
+        self.cycle_current_mode_routine(randomize=True)
 
     def spawn_rarity(self, r_type):
         print(f"SPAWNING RARITY: {r_type}!")

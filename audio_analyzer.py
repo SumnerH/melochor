@@ -16,7 +16,7 @@ COLORS_KEYS = [
     "magnesium_white"
 ]
 
-ANALYZER_VERSION = 5
+ANALYZER_VERSION = 6
 
 def get_panning_vectorized(t_sec_arr, fs, y_left, y_right, window_duration=0.1):
     """Vectorized panning calculation for multiple time points."""
@@ -398,30 +398,33 @@ def analyze_audio(mp3_path, color_hints=None):
     else:
         q_palette, m_palette, l_palette = quiet_colors, medium_colors, loud_colors
         
-    # Trigger major choreographed routines at RMS climax peaks (LOUD sections only)
-    routines = ["American Flag", "Liberty Bell", "Statue of Liberty", "Flower Bouquet", "The Dragon"]
-    routine_idx = 0
+    # Mark major loud-section peaks as mode-independent routine cues. The
+    # visualizer selects a random routine from whichever mode is active when
+    # playback reaches the cue, rather than embedding Fireworks-only routines
+    # in the analysis output.
     climax_times = []
+    last_routine_time = -15.0
     
     for cp in climax_peaks:
         t_sec = float(t[cp])
-        if t_sec > safety_cutoff:
+        if t_sec > safety_cutoff or smoothed_classes[cp] != "LOUD":
             continue
-        if smoothed_classes[cp] != "LOUD":
+        if t_sec - last_routine_time < 12.0:
             continue
             
+        intensity = float(np.clip(1.15 + rms_norm[cp] * 0.75, 1.15, 1.8))
         climax_times.append(t_sec)
+        last_routine_time = t_sec
         events.append({
             "time": round(t_sec, 3),
             "type": "climax",
-            "intensity": 1.5
+            "intensity": round(intensity, 2)
         })
         events.append({
             "time": round(t_sec, 3),
-            "type": "routine",
-            "name": routines[routine_idx % len(routines)]
+            "type": "mode_routine",
+            "intensity": round(intensity, 2)
         })
-        routine_idx += 1
         
     def is_near_climax(t_sec):
         for ct in climax_times:
