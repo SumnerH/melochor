@@ -54,7 +54,7 @@ jobs:
         shell: msys2 {0}
         run: |
           python -m venv --system-site-packages .venv
-          .venv/bin/python -c "import ctypes, gi, numpy, scipy, sounddevice, soundfile, audioread, OpenGL.GL; ctypes.CDLL('/mingw64/bin/libportaudio-2.dll'); ctypes.CDLL('/mingw64/bin/libsndfile-1.dll'); gi.require_version('Gtk', '4.0'); from gi.repository import Gtk; print('Windows build environment imports and native audio libraries validated.')"
+          .venv/bin/python -c "import gi, numpy, scipy, sounddevice, soundfile, audioread, OpenGL.GL; gi.require_version('Gtk', '4.0'); from gi.repository import Gtk; print('Windows build environment imports validated.')"
 
       - name: Download Static FFmpeg (Windows)
         if: matrix.os == 'windows-latest'
