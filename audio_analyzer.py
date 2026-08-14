@@ -16,7 +16,7 @@ COLORS_KEYS = [
     "magnesium_white"
 ]
 
-ANALYZER_VERSION = 6
+ANALYZER_VERSION = 8
 
 def get_panning_vectorized(t_sec_arr, fs, y_left, y_right, window_duration=0.1):
     """Vectorized panning calculation for multiple time points."""
@@ -379,10 +379,18 @@ def analyze_audio(mp3_path, color_hints=None):
     bass_peaks, _ = scipy.signal.find_peaks(bass_norm, height=bass_thresholds, distance=int(0.50 * fps_audio))
     high_peaks, _ = scipy.signal.find_peaks(high_norm, height=high_thresholds, distance=int(0.35 * fps_audio))
     mid_peaks, _ = scipy.signal.find_peaks(mid_norm, height=mid_thresholds, distance=int(0.45 * fps_audio))
-    climax_peaks, _ = scipy.signal.find_peaks(rms_norm, height=0.68, distance=int(15.0 * fps_audio))
+
+    # Adaptive Climax & Routine Peak Detection: calibrated to track-relative dynamics
+    climax_threshold = max(0.45, float(np.percentile(rms_norm, 78)))
+    climax_peaks, _ = scipy.signal.find_peaks(rms_norm, height=climax_threshold, distance=int(9.0 * fps_audio))
+    if len(climax_peaks) == 0:
+        climax_peaks, _ = scipy.signal.find_peaks(rms_norm, height=0.35, distance=int(6.0 * fps_audio))
     
+    # Identify the single most energetic peak in the entire track (Global Peak)
+    global_max_rms = float(np.max(rms_norm)) if len(rms_norm) > 0 else 1.0
+    global_peak_index = int(np.argmax(rms_norm)) if len(rms_norm) > 0 else -1
+
     # 9. Dynamic Choreography & Artistic Palettes Mapping
-    # Setup section palettes
     quiet_colors = ["magnesium_white", "copper_blue", "potassium_purple"]
     medium_colors = ["magnesium_white", "copper_blue", "sodium_gold", "calcium_orange"]
     loud_colors = ["strontium_red", "magnesium_white", "copper_blue", "barium_green"]
@@ -398,32 +406,41 @@ def analyze_audio(mp3_path, color_hints=None):
     else:
         q_palette, m_palette, l_palette = quiet_colors, medium_colors, loud_colors
         
-    # Mark major loud-section peaks as mode-independent routine cues. The
-    # visualizer selects a random routine from whichever mode is active when
-    # playback reaches the cue, rather than embedding Fireworks-only routines
-    # in the analysis output.
     climax_times = []
     last_routine_time = -15.0
     
     for cp in climax_peaks:
         t_sec = float(t[cp])
-        if t_sec > safety_cutoff or smoothed_classes[cp] != "LOUD":
+        if t_sec > safety_cutoff:
             continue
-        if t_sec - last_routine_time < 12.0:
+        if t_sec - last_routine_time < 8.0:
             continue
             
-        intensity = float(np.clip(1.15 + rms_norm[cp] * 0.75, 1.15, 1.8))
+        intensity = float(np.clip(1.2 + rms_norm[cp] * 0.7, 1.2, 2.0))
+        is_global = bool((abs(cp - global_peak_index) < int(2.5 * fps_audio)) or (rms_norm[cp] >= global_max_rms * 0.95))
+        if is_global:
+            intensity = 2.4
+
         climax_times.append(t_sec)
         last_routine_time = t_sec
-        events.append({
-            "time": round(t_sec, 3),
-            "type": "climax",
-            "intensity": round(intensity, 2)
-        })
+
+        # Pre-emptive Drop Anticipation (Singularity Inward Pull) 2.0s before climax
+        anticipation_lead = min(2.0, max(0.8, t_sec - (t[cp - int(2.0 * fps_audio)] if cp >= int(2.0 * fps_audio) else 0.0)))
+        anticipation_start = max(0.0, t_sec - anticipation_lead)
+        if anticipation_start > 0.0:
+            events.append({
+                "time": round(anticipation_start, 3),
+                "type": "drop_anticipation",
+                "target_time": round(t_sec, 3),
+                "duration": round(anticipation_lead, 3),
+                "is_global": is_global
+            })
+
         events.append({
             "time": round(t_sec, 3),
             "type": "mode_routine",
-            "intensity": round(intensity, 2)
+            "intensity": round(intensity, 2),
+            "is_global": is_global
         })
         
     def is_near_climax(t_sec):
@@ -621,12 +638,17 @@ def analyze_audio(mp3_path, color_hints=None):
                 last_key_idx = k_idx
                 stable_count = 0
                 
+        # Circle of Fifths mapping for continuous harmonic color drift (0.0 to 1.0)
+        circle_of_fifths = ["C", "G", "D", "A", "E", "B", "F#", "C#", "G#", "D#", "A#", "F"]
         for t_sec, key_name in key_changes:
             if t_sec <= safety_cutoff:
+                fifth_idx = circle_of_fifths.index(key_name) if key_name in circle_of_fifths else 0
+                harmonic_angle = fifth_idx / 12.0
                 events.append({
                     "time": round(t_sec, 3),
                     "type": "key_change",
-                    "key": key_name
+                    "key": key_name,
+                    "harmonic_angle": round(harmonic_angle, 3)
                 })
                 
         # B. Sustained Dynamics (Crescendo / Diminuendo) Detection
@@ -661,6 +683,35 @@ def analyze_audio(mp3_path, color_hints=None):
                         })
                 state = current_state
                 start_idx = i
+
+        # C. Zero-G Negative Space Drop (Visual Vacuum) Detection: sudden volume drop to silence
+        short_win = int(0.4 * fps_audio)
+        for i in range(int(2.0 * fps_audio), len(rms_norm) - int(1.5 * fps_audio), int(0.2 * fps_audio)):
+            prior_energy = float(np.mean(rms_norm[max(0, i - short_win * 3):i]))
+            future_energy = float(np.mean(rms_norm[i:min(len(rms_norm), i + short_win * 2)]))
+            if prior_energy > 0.45 and future_energy < 0.12:
+                t_sec = float(t[i])
+                if t_sec <= safety_cutoff:
+                    if not any(ev["type"] == "visual_vacuum" and abs(ev["time"] - t_sec) < 6.0 for ev in events):
+                        events.append({
+                            "time": round(t_sec, 3),
+                            "type": "visual_vacuum",
+                            "duration": 1.5
+                        })
+
+        # D. Musical Bar / Measure Markers (every 4 beats based on estimated BPM)
+        seconds_per_beat = 60.0 / bpm if bpm > 0 else 0.5
+        seconds_per_bar = seconds_per_beat * 4.0
+        current_bar_time = 0.0
+        bar_number = 1
+        while current_bar_time < safety_cutoff:
+            events.append({
+                "time": round(current_bar_time, 3),
+                "type": "downbeat",
+                "bar": bar_number
+            })
+            current_bar_time += seconds_per_bar
+            bar_number += 1
     except Exception as d_err:
         print(f"Key/Dynamics detection skipped: {d_err}")
 

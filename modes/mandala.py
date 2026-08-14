@@ -58,6 +58,13 @@ class MandalaModeMixin:
         self.mandala_base_col[idx, 3] = np.random.uniform(0.6, 1.0)
         self.mandala_base_size[idx] = np.random.uniform(5.0, 11.0)
 
+    def on_measure_downbeat(self, bar_index):
+        # Rhythmically evolve mandala symmetry every 4 bars
+        if bar_index % 4 == 0:
+            slice_options = [4, 6, 8, 12, 16, 24]
+            current_idx = slice_options.index(self.mandala_slices) if self.mandala_slices in slice_options else 3
+            self.mandala_slices = slice_options[(current_idx + 1) % len(slice_options)]
+
     def update_mandala(self, dt):
         if self.mandala_fog_halo_timer > 0.0:
             self.mandala_fog_halo_timer = max(0.0, self.mandala_fog_halo_timer - dt)
@@ -77,7 +84,30 @@ class MandalaModeMixin:
                 self._launch_mandala_burst((12.0, 19.0))
             return
 
-        speed_factor = 1.0 + self.react_bass * 2.5
+        center = np.array([0.0, 4.0, 0.0], dtype=np.float32)
+        to_center = center[np.newaxis, :] - self.mandala_base_pos
+        dist_c = np.linalg.norm(to_center, axis=1, keepdims=True) + 1e-6
+        tangent_x = -to_center[:, 1] / dist_c[:, 0]
+        tangent_y = to_center[:, 0] / dist_c[:, 0]
+
+        # Pre-Analysis Feature 1: Anticipatory Inward Implosion (Spiraling vortex buildup toward singularity)
+        if getattr(self, 'drop_anticipation_timer', 0.0) > 0.0:
+            progress = 1.0 - (self.drop_anticipation_timer / max(0.1, self.drop_anticipation_duration))
+            inward_suction = (2.0 + progress * progress * 10.0)
+            spin_boost = (2.5 + progress * 12.0)
+            
+            self.mandala_base_pos += (center - self.mandala_base_pos) * min(0.65, dt * inward_suction)
+            self.mandala_base_pos[:, 0] += tangent_x * spin_boost * dt
+            self.mandala_base_pos[:, 1] += tangent_y * spin_boost * dt
+            self.mandala_base_vel *= max(0.0, 1.0 - dt * 4.0)
+            return
+
+        # Pre-Analysis Feature 7: Zero-G Negative Space Drop (Visual Vacuum)
+        if getattr(self, 'visual_vacuum_timer', 0.0) > 0.0:
+            self.mandala_base_vel *= max(0.0, 1.0 - dt * 12.0)
+            return
+
+        speed_factor = 1.0 + self.react_bass * 2.5 + getattr(self, 'structural_swell', 0.0) * 0.8
         if self.opt_gravity > 0.0:
             self.mandala_base_vel[:, 1] -= 9.81 * self.opt_gravity * dt
         self.mandala_base_pos += self.mandala_base_vel * speed_factor * dt
@@ -91,13 +121,7 @@ class MandalaModeMixin:
                 self.mandala_history.pop(0)
         else:
             self.mandala_history = None
-        
-        center = np.array([0.0, 4.0, 0.0], dtype=np.float32)
-        to_center = center[np.newaxis, :] - self.mandala_base_pos
-        dist_c = np.linalg.norm(to_center, axis=1, keepdims=True) + 1e-6
-        
-        tangent_x = -to_center[:, 1] / dist_c[:, 0]
-        tangent_y = to_center[:, 0] / dist_c[:, 0]
+
         self.mandala_base_pos[:, 0] += tangent_x * (0.8 + self.react_mid * 2.0) * dt
         self.mandala_base_pos[:, 1] += tangent_y * (0.8 + self.react_mid * 2.0) * dt
         
@@ -133,10 +157,26 @@ class MandalaModeMixin:
         max_ages_rep = np.repeat(self.mandala_base_max_ages, S)
         life_ratio = ages_rep / max_ages_rep
         col_arr[:, 3] *= np.clip(1.0 - life_ratio, 0.0, 1.0)
+
+        # Apply Visual Vacuum blackout
+        if getattr(self, 'visual_vacuum_timer', 0.0) > 0.0:
+            col_arr[:, 3] *= 0.05
+
+        # Circle-of-Fifths harmonic color rotation
+        harmonic_shift = getattr(self, 'harmonic_color_shift', 0.0)
+        if harmonic_shift > 0.0:
+            col_arr[:, 0] = (col_arr[:, 0] + harmonic_shift) % 1.0
+            col_arr[:, 1] = (col_arr[:, 1] + harmonic_shift * 0.5) % 1.0
         
         reactivity = self.opt_particle_reactivity / 10.0
         beat_level = np.clip(max(self.react_bass, self.react_mid, self.react_treble), 0.0, 1.5)
         particle_pulse = 1.0 + reactivity * beat_level * 1.5
+
+        if getattr(self, 'drop_anticipation_timer', 0.0) > 0.0:
+            anticipation_prog = 1.0 - (self.drop_anticipation_timer / max(0.1, self.drop_anticipation_duration))
+            particle_pulse += anticipation_prog * 1.8
+            col_arr[:, :3] += (1.0 - col_arr[:, :3]) * (anticipation_prog * 0.65)
+
         current_size_arr = np.repeat(self.mandala_base_size, S) * particle_pulse
         
         all_pos_list = [pos_arr]
@@ -455,28 +495,25 @@ class MandalaModeMixin:
     def trigger_climax_mandala(self, routine_name):
         if routine_name == "Peace Symbol":
             self.peace_symbol_timer = 5.0
-            for idx in range(len(self.mandala_base_pos)):
-                self.mandala_base_pos[idx] = [0.0, 4.0, 0.0]
-                angle = (idx / len(self.mandala_base_pos)) * 2.0 * np.pi
-                speed = np.random.uniform(9.0, 14.0)
-                self.mandala_base_vel[idx, 0] = speed * np.cos(angle)
-                self.mandala_base_vel[idx, 1] = speed * np.sin(angle)
-                self.mandala_base_vel[idx, 2] = np.random.uniform(-0.5, 0.5)
-                self.mandala_base_ages[idx] = 0.0
-                self.mandala_base_max_ages[idx] = np.random.uniform(2.0, 3.0)
-                self.mandala_base_col[idx] = [1.0, 0.8, 0.1, 1.0] if idx % 2 == 0 else [1.0, 0.3, 0.2, 1.0]
-                self.mandala_base_size[idx] = np.random.uniform(10.0, 16.0)
+            self._launch_mandala_burst((9.0, 15.0))
         elif routine_name == "Ring Effect":
             self.ring_effect_timer = 5.0
             self._launch_mandala_burst((11.0, 17.0))
         elif routine_name == "Halo Effect":
             self.mandala_fog_halo_timer = 5.0
+            self._launch_mandala_burst((10.0, 16.0))
         elif routine_name == "Smoke!":
             self.active_rarity = None
             self.spawn_rarity_mandala("SMOKE")
-        elif routine_name == "Star Burst":
+            self._launch_mandala_burst((9.0, 15.0))
+        elif routine_name in ("Star Burst", "Sun Burst"):
             self.active_rarity = None
             self.spawn_rarity_mandala("SUN_BURST")
+            self._launch_mandala_burst((12.0, 18.0))
+        elif routine_name == "Lotus Bloom":
+            self._launch_mandala_burst((13.0, 20.0))
+        elif routine_name == "Cosmic Spin":
+            self._launch_mandala_burst((14.0, 22.0))
         elif routine_name == "Starburst Effect":
             center = np.array([0.0, 4.0, 0.0], dtype=np.float32)
             outward = self.mandala_base_pos - center
@@ -494,3 +531,7 @@ class MandalaModeMixin:
             self.mandala_black_hole_timer = 1.25
         elif routine_name == "Squiggles":
             self.mandala_squiggle_timer = 5.0
+            self._launch_mandala_burst((10.0, 16.0))
+        else:
+            # Grand Finale, Climax Burst!, or any analyzer-driven musical drop
+            self._launch_mandala_burst((14.0, 22.0))

@@ -209,6 +209,12 @@ class UnderwaterModeMixin:
         return lower * (1.0 - y_fraction) + upper * y_fraction
 
     def update_underwater(self, dt):
+        # Visual vacuum: instant silence calms all spouts
+        if getattr(self, 'visual_vacuum_timer', 0.0) > 0.0:
+            self.bubble_vel *= max(0.0, 1.0 - dt * 6.0)
+            self.algae_col[:, 3] *= max(0.0, 1.0 - dt * 4.0)
+            return
+
         # Spawn bubbles based on volume hits and frequencies
         num_to_spawn = 0
         is_treble_heavy = False

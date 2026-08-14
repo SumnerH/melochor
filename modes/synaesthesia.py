@@ -23,6 +23,15 @@ class SynaesthesiaModeMixin:
         self.syn_stars = []
 
     def update_synaesthesia(self, dt):
+        # Anticipatory implosion: stars pull inward before major drops
+        if getattr(self, 'drop_anticipation_timer', 0.0) > 0.0:
+            progress = 1.0 - (self.drop_anticipation_timer / max(0.1, self.drop_anticipation_duration))
+            center = np.array([0.0, 4.0, 0.0], dtype=np.float32)
+            for star in self.syn_stars:
+                star['pos'] += (center - star['pos']) * min(1.0, dt * (5.0 + progress * 15.0))
+                star['vel'] *= max(0.0, 1.0 - dt * 8.0)
+            return
+
         # Move and filter active stars
         active_stars = []
         for star in self.syn_stars:

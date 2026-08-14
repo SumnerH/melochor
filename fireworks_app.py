@@ -172,6 +172,8 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         
         self.drag_base_theta = 0.0
         self.drag_base_phi = 0.0
+        self.last_mouse_move_time = time.time()
+        self.cursor_hidden = False
         
         # VAO / VBO / Shader Program references
         self.sky_program = None
@@ -221,6 +223,16 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         self.climax_flash = 0.0
         self.last_climax_trigger_time = 0.0
         self.tempo_phase = 0.0
+
+        # Offline Pre-Analysis Lookahead & Structural State
+        self.drop_anticipation_timer = 0.0
+        self.drop_anticipation_duration = 1.0
+        self.drop_anticipation_is_global = False
+        self.visual_vacuum_timer = 0.0
+        self.structural_swell = 0.0
+        self.harmonic_color_shift = 0.0
+        self.current_bar_index = 0
+        self.is_grand_finale = False
         
         # Rarity system properties
         self.rarity_cooldown = random.randint(0, int(RARITY_INTERVAL))
@@ -1469,6 +1481,13 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         # Decay climax flash and advance tempo phase
         self.climax_flash = max(0.0, self.climax_flash - 2.0 * dt)
         self.tempo_phase += dt * (self.script_bpm / 60.0)
+
+        # Update lookahead states
+        if self.drop_anticipation_timer > 0.0:
+            self.drop_anticipation_timer = max(0.0, self.drop_anticipation_timer - dt)
+        if self.visual_vacuum_timer > 0.0:
+            self.visual_vacuum_timer = max(0.0, self.visual_vacuum_timer - dt)
+        self.structural_swell = max(-1.0, min(1.0, self.structural_swell * (1.0 - 0.25 * dt)))
         
         # Update active timers and state variables
         if self.lightning_active_timer > 0.0:
@@ -1624,6 +1643,16 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
             
         self.update_rarity_system(dt)
         
+        # Auto-hide cursor after 5 seconds of inactivity
+        if not getattr(self, 'cursor_hidden', False):
+            if now - getattr(self, 'last_mouse_move_time', now) >= 5.0:
+                self.cursor_hidden = True
+                if hasattr(self, 'win') and self.win:
+                    if hasattr(self.win, 'set_cursor_from_name'):
+                        self.win.set_cursor_from_name("none")
+                    else:
+                        self.win.set_cursor(Gdk.Cursor.new_from_name("none", None))
+
         self.fps_lbl.set_text(f"FPS: {self.fps:.1f}")
         self.update_hud_labels()
         if self.active_routine_name:

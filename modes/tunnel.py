@@ -62,6 +62,12 @@ class TunnelModeMixin:
         else:
             speed_factor = 1.0 + 3.0 * ((bpm - 120.0) / 120.0) ** 1.5
         
+        # Pre-Analysis Feature 1 & 7: Drop anticipation speed-up and visual vacuum freeze
+        if getattr(self, 'drop_anticipation_timer', 0.0) > 0.0:
+            speed_factor *= 2.4
+        elif getattr(self, 'visual_vacuum_timer', 0.0) > 0.0:
+            speed_factor *= 0.15
+
         # Constant, elegant forward travel camera speed, scaled dynamically and non-linearly by tempo BPM
         speed = 8.5 * speed_factor * dt
         self.gem_z += speed
@@ -580,6 +586,16 @@ class TunnelModeMixin:
 
     def trigger_climax_tunnel(self, routine_name):
         get_bend_offsets = self.get_bend_offsets
+        # Feature 3: Global Climax Hierarchy (#1 Grand Finale scaling)
+        is_global = getattr(self, 'drop_anticipation_is_global', False)
+        if is_global or routine_name == "Grand Finale":
+            self.tunnel_rainbow_timer = 7.0
+            self.tunnel_aurora_timer = 7.0
+            self.tunnel_gem_explosion_timer = 3.5
+            for gem_index in range(len(self.gem_z)):
+                self.spawn_gem_sparks(gem_index, burst=True)
+            return
+
         if routine_name == "Spark Explosion":
             self.tunnel_gem_explosion_timer = 2.2
             for gem_index in range(len(self.gem_z)):

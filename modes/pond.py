@@ -369,6 +369,11 @@ class PondModeMixin:
         )
 
     def update_pond(self, dt):
+        # Visual Vacuum: glass calm surface
+        if getattr(self, 'visual_vacuum_timer', 0.0) > 0.0:
+            self.pond_rain.clear()
+            return
+
         active_shader_ripples = []
         for ripple in self.pond_shader_ripples:
             ripple["age"] += dt

@@ -98,7 +98,7 @@ class InputHandlerMixin:
             if self.major_mode == "FIREWORKS":
                 self.trigger_routine("Supernova", self.launch_supernova)
             elif self.major_mode == "MANDALA Sacred":
-                self.trigger_climax_event(intensity=1.6, routine_name="Starburst Effect")
+                self.trigger_climax_event(intensity=1.6, routine_name="Peace Symbol")
             elif self.major_mode == "FIRE Plasma":
                 pass
             else:
@@ -108,7 +108,7 @@ class InputHandlerMixin:
             if self.major_mode == "FIREWORKS":
                 self.trigger_routine("Shooting Star", self.launch_shooting_star)
             elif self.major_mode == "MANDALA Sacred":
-                self.trigger_climax_event(intensity=1.8, routine_name="Black Hole Effect")
+                self.trigger_climax_event(intensity=1.8, routine_name="Ring Effect")
             elif self.major_mode == "FIRE Plasma":
                 pass
             else:

@@ -607,8 +607,17 @@ class SpaceInvadersModeMixin:
         ) % len(self._INVADER_SPRITES)
         self._send_mothership(restock_row)
 
+    def on_measure_downbeat(self, bar_index):
+        # Feature 8: Bar-aligned shield pulses every 4 bars
+        if bar_index % 4 == 0:
+            self.invader_glow_timer = 0.85
+
     def update_space_invaders(self, dt):
         self.invader_scene_time += dt
+
+        # Visual Vacuum: retro freeze frame
+        if getattr(self, 'visual_vacuum_timer', 0.0) > 0.0:
+            return
         self._update_pairwise_invader_swaps(dt)
         self.invader_march_flash = max(0.0, self.invader_march_flash - dt * 5.5)
         if self.invader_glow_timer > 0.0:

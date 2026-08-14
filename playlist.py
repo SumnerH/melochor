@@ -501,13 +501,11 @@ class PlaylistMixin:
             fw.secondary_color = sec_color_rgb
             self.fireworks.append(fw)
             
-        elif event_type == "climax":
-            intensity = event.get("intensity", 1.5)
-            self.trigger_climax_event(intensity=intensity, routine_name="Climax Burst!")
-            
-        elif event_type == "mode_routine":
-            # Analyzer-generated climax cue: choose an appropriate routine at
-            # playback time so the same track works naturally in every mode.
+        elif event_type in ("climax", "mode_routine"):
+            # End any anticipation lead-in immediately upon detonation
+            self.drop_anticipation_timer = 0.0
+            # Analyzer-generated climax / drop cue: choose an appropriate routine at
+            # playback time for whichever mode is active.
             self.trigger_random_current_mode_routine()
             
         elif event_type == "climax_random_mode_change":
@@ -522,13 +520,38 @@ class PlaylistMixin:
             if hasattr(self, 'music_section_lbl') and self.music_section_lbl:
                 self.music_section_lbl.set_text(f"Section: {self.current_section_name} ({self.current_section_category})")
                 
-        elif event_type == "key":
+        elif event_type in ("key", "key_change"):
             self.current_key = event.get("key", "N/A")
+            self.harmonic_color_shift = float(event.get("harmonic_angle", 0.0))
             self.update_hud_labels()
             
         elif event_type == "bpm":
             self.set_script_bpm(event.get("bpm", 120.0))
             self.update_hud_labels()
+
+        elif event_type == "drop_anticipation":
+            duration = float(event.get("duration", 2.0))
+            self.drop_anticipation_duration = max(0.1, duration)
+            self.drop_anticipation_timer = self.drop_anticipation_duration
+            self.drop_anticipation_is_global = bool(event.get("is_global", False))
+            print(f"[Lookahead] Drop anticipation active: {self.drop_anticipation_duration:.2f}s buildup (Global #1: {self.drop_anticipation_is_global})")
+
+        elif event_type == "visual_vacuum":
+            self.visual_vacuum_timer = float(event.get("duration", 1.5))
+            print(f"[Lookahead] Visual vacuum triggered for {self.visual_vacuum_timer:.2f}s")
+
+        elif event_type == "dynamics":
+            direction = event.get("direction", "none")
+            if direction == "crescendo":
+                self.structural_swell = 0.85
+            elif direction == "diminuendo":
+                self.structural_swell = -0.65
+
+        elif event_type == "downbeat":
+            self.current_bar_index = int(event.get("bar", 1))
+            # Notify active mode mixin if it implements bar alignment
+            if hasattr(self, 'on_measure_downbeat'):
+                self.on_measure_downbeat(self.current_bar_index)
             
         elif event_type == "color_hint":
             hint = event.get("hint", "")

@@ -889,6 +889,12 @@ class FireModeMixin:
     # -------------------------------------------------------------------------
     # Update
     # -------------------------------------------------------------------------
+    def on_measure_downbeat(self, bar_index):
+        # Feature 8: Bar-aligned wind gust shifts every 2 bars
+        if bar_index % 2 == 0:
+            target_direction = 1.0 if (bar_index // 2) % 2 == 0 else -1.0
+            self.fire_wind_targets[:] = target_direction * np.random.uniform(0.7, 1.2, 3)
+
     def update_fire(self, dt):
         # Update lightning bolts
         active_bolts = []

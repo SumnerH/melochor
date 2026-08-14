@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import json
 import numpy as np
 import gi
@@ -319,10 +320,19 @@ class UIMixin:
         
         self.win.set_child(overlay)
         
-        key_controller = Gtk.EventControllerKey()
+        key_controller = Gtk.EventControllerKey.new()
+        key_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         key_controller.connect("key-pressed", self.on_key_pressed)
         self.win.add_controller(key_controller)
         
+        motion_controller = Gtk.EventControllerMotion.new()
+        motion_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        motion_controller.connect("motion", self.on_mouse_motion)
+        self.win.add_controller(motion_controller)
+
+        self.gl_area.set_focusable(True)
+        self.gl_area.grab_focus()
+
         drag_gesture = Gtk.GestureDrag()
         drag_gesture.connect("drag-begin", self.on_drag_begin)
         drag_gesture.connect("drag-update", self.on_drag_update)
@@ -467,10 +477,10 @@ class UIMixin:
                 self.lbl_r5.set_text("[5]  - Bioluminescent Rainbow")
             elif self.major_mode == "MANDALA Sacred":
                 self.lbl_r1.set_text("[1]  - Lotus Bloom")
-                self.lbl_r2.set_text("[2]  - Cosmic Spin")
-                self.lbl_r3.set_text("[3]  - Infinite Pulse")
-                self.lbl_r4.set_text("[4]  - Geometric Collapse")
-                self.lbl_r5.set_text("[5]  - Astral Projection")
+                self.lbl_r2.set_text("[2]  - Ring Effect")
+                self.lbl_r3.set_text("[3]  - Halo Effect")
+                self.lbl_r4.set_text("[4]  - Smoke!")
+                self.lbl_r5.set_text("[5]  - Star Burst")
             elif self.major_mode == "SYNAESTHESIA Classic":
                 shape_name = "Diamond" if getattr(self, 'syn_points_are_diamonds', True) else "Star"
                 self.lbl_r1.set_text(f"[1]  - Shape: {shape_name}")
@@ -494,13 +504,25 @@ class UIMixin:
                 self.lbl_r6.set_text("[6]  - Supernova")
         if hasattr(self, 'lbl_r7'):
             if self.major_mode == "MANDALA Sacred":
-                self.lbl_r7.set_text("[7]  - Halo & Outward Sparks")
+                self.lbl_r7.set_text("[7]  - Ring Outward Sparks")
             elif self.major_mode in ("SYNAESTHESIA Classic", "FIRE Plasma"):
                 self.lbl_r7.set_text("")
             else:
                 self.lbl_r7.set_text("[7]  - Shooting Star")
 
+    def on_mouse_motion(self, controller, x, y):
+        self.last_mouse_move_time = time.time()
+        if getattr(self, 'cursor_hidden', False):
+            self.cursor_hidden = False
+            if hasattr(self, 'win') and self.win:
+                self.win.set_cursor(None)
+
     def on_drag_begin(self, gesture, x, y):
+        self.last_mouse_move_time = time.time()
+        if getattr(self, 'cursor_hidden', False):
+            self.cursor_hidden = False
+            if hasattr(self, 'win') and self.win:
+                self.win.set_cursor(None)
         self.drag_base_theta = self.camera_theta
         self.drag_base_phi = self.camera_phi
 
