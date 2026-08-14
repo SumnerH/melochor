@@ -4,6 +4,7 @@ import time
 import subprocess
 import threading
 import shutil
+import numpy as np
 
 class UnifiedAudioPlayer:
     def __init__(self):
@@ -26,11 +27,21 @@ class UnifiedAudioPlayer:
         self.audio_path = filepath
         
         # 1. Try playing with MPV
-        import shutil
-        has_mpv = shutil.which("mpv") or os.path.exists("/usr/bin/mpv")
-        if has_mpv:
+        mpv_bin = shutil.which("mpv") or shutil.which("mpv.exe")
+        if not mpv_bin:
+            for candidate in [
+                "/usr/bin/mpv",
+                "/usr/local/bin/mpv",
+                "/opt/homebrew/bin/mpv",
+                "C:\\mpv\\mpv.exe",
+            ]:
+                if os.path.exists(candidate):
+                    mpv_bin = candidate
+                    break
+
+        if mpv_bin:
             try:
-                cmd = ["mpv" if shutil.which("mpv") else "/usr/bin/mpv", "--no-video", "--volume=100", filepath]
+                cmd = [mpv_bin, "--no-video", "--volume=100", filepath]
                 creationflags = 0x08000000 if sys.platform == 'win32' else 0
                 self.mpv_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creationflags)
                 self.player_type = 'mpv'
