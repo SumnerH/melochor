@@ -23,6 +23,9 @@ class SynaesthesiaModeMixin:
         self.syn_stars = []
 
     def update_synaesthesia(self, dt):
+        if not hasattr(self, 'syn_stars'):
+            self.init_synaesthesia_mode()
+
         # Anticipatory implosion: stars pull inward before major drops
         if getattr(self, 'drop_anticipation_timer', 0.0) > 0.0:
             progress = 1.0 - (self.drop_anticipation_timer / max(0.1, self.drop_anticipation_duration))
@@ -86,6 +89,9 @@ class SynaesthesiaModeMixin:
             self.update_active_rarity(dt)
 
     def spawn_syn_star(self, band, reaction_val):
+        if not hasattr(self, 'syn_stars'):
+            self.init_synaesthesia_mode()
+
         pan_x = self.current_stereo_panning * 8.0
 
         if band == "bass":
@@ -129,6 +135,9 @@ class SynaesthesiaModeMixin:
         })
 
     def trigger_syn_star_burst(self):
+        if not hasattr(self, 'syn_stars'):
+            self.init_synaesthesia_mode()
+
         print("TRIGGERING SYNAESTHESIA STAR BURST!")
         for _ in range(45):
             angle = np.random.uniform(0.0, 2.0 * np.pi)

@@ -35,6 +35,8 @@ class PresetMixin:
         self.opt_particle_reactivity = preset.get("opt_particle_reactivity", 0)
         
         if self.major_mode == "SYNAESTHESIA Classic":
+            if not hasattr(self, 'syn_stars'):
+                self.init_synaesthesia_mode()
             if self.opt_star_shape in (1, 2, 3):
                 self.syn_points_are_diamonds = True
             elif self.opt_star_shape in (4, 5, 6):
