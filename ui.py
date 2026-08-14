@@ -104,7 +104,8 @@ class UIMixin:
         title_lbl.set_halign(Gtk.Align.START)
         self.hud_box.append(title_lbl)
         
-        sub_lbl = Gtk.Label(label="Interactive OpenGL Audio Visualizer & Screensaver")
+        sub_text = "Kodi Live Follower Visualizer" if getattr(self, 'kodi_mode', False) else "Interactive OpenGL Audio Visualizer & Screensaver"
+        sub_lbl = Gtk.Label(label=sub_text)
         sub_lbl.add_css_class("hud-subtitle")
         sub_lbl.set_halign(Gtk.Align.START)
         self.hud_box.append(sub_lbl)
@@ -160,7 +161,8 @@ class UIMixin:
         music_box.set_margin_top(15)
         music_box.set_halign(Gtk.Align.START)
         
-        music_hdr = Gtk.Label(label="MUSIC SYNCHRONIZER:")
+        hdr_text = "KODI MUSIC SYNCHRONIZER:" if getattr(self, 'kodi_mode', False) else "MUSIC SYNCHRONIZER:"
+        music_hdr = Gtk.Label(label=hdr_text)
         music_hdr.add_css_class("hud-legend-title")
         music_hdr.set_halign(Gtk.Align.START)
         music_box.append(music_hdr)
@@ -196,7 +198,7 @@ class UIMixin:
         leg_title.set_halign(Gtk.Align.START)
         self.legend_box.append(leg_title)
         
-        lbl_space = Gtk.Label(label="[SPACE]  - Play/Pause Sync Playback")
+        lbl_space = Gtk.Label(label="[SPACE]  - Kodi Play/Pause" if getattr(self, 'kodi_mode', False) else "[SPACE]  - Play/Pause Sync Playback")
         lbl_space.set_halign(Gtk.Align.START)
         self.legend_box.append(lbl_space)
 
@@ -353,7 +355,9 @@ class UIMixin:
         if self.preset_random_mode:
             self.apply_preset(len(self.active_presets) - 1)
 
-        if self.is_recording:
+        if getattr(self, 'kodi_mode', False):
+            self.start_kodi_sync()
+        elif self.is_recording:
             if not os.path.exists(self.script_path):
                 print(f"No display script found for recording. Generating synchronously: {self.script_path}...")
                 try:
@@ -412,7 +416,15 @@ class UIMixin:
 
         self.lbl_auto_launch.set_text(f"[A]      - Toggle Auto-Launcher ({'ON' if self.auto_launch else 'OFF'})")
         self.lbl_auto_rotate.set_text(f"[R]      - Toggle Camera Auto-Rotation ({'ON' if self.auto_rotate else 'OFF'})")
-        if self.music_playing:
+        
+        if getattr(self, 'kodi_mode', False):
+            if getattr(self, 'kodi_is_playing', False):
+                self.lbl_music.set_text("[M/SPACE]- Kodi Playback: PLAYING")
+            elif getattr(self, 'kodi_connected', False):
+                self.lbl_music.set_text("[M/SPACE]- Kodi Playback: PAUSED/IDLE")
+            else:
+                self.lbl_music.set_text(f"[M/SPACE]- Kodi Status: CONNECTING ({self.kodi_host}:{self.kodi_port})")
+        elif self.music_playing:
             self.lbl_music.set_text("[M]      - Toggle Music Sync (PLAYING)")
         elif len(self.script_events) > 0:
             self.lbl_music.set_text("[M]      - Toggle Music Sync (READY)")
@@ -597,16 +609,28 @@ class UIMixin:
             btn.connect("clicked", lambda b: (popover.popdown(), callback()))
             return btn
             
-        # File Open
-        menu_box.append(make_menu_item("📂 Open Audio...", self.show_file_chooser))
-        
-        # Play / Pause
-        play_label = "⏸ Pause Sync" if self.music_playing else "▶ Play Sync"
-        menu_box.append(make_menu_item(play_label, self.toggle_sync_playback))
-        
-        # Next / Prev Track
-        menu_box.append(make_menu_item("⏭ Next Track", self.play_next_track))
-        menu_box.append(make_menu_item("⏮ Previous Track", self.play_previous_track))
+        if getattr(self, 'kodi_mode', False):
+            kodi_lbl = Gtk.Label(label="KODI CONTROLS:")
+            kodi_lbl.add_css_class("hud-legend-title")
+            kodi_lbl.set_halign(Gtk.Align.START)
+            kodi_lbl.set_margin_start(4)
+            menu_box.append(kodi_lbl)
+            
+            play_label = "⏸ Pause Kodi" if getattr(self, 'kodi_is_playing', False) else "▶ Play Kodi"
+            menu_box.append(make_menu_item(play_label, self.kodi_play_pause))
+            menu_box.append(make_menu_item("⏭ Next Kodi Track", self.kodi_next_track))
+            menu_box.append(make_menu_item("⏮ Previous Kodi Track", self.kodi_previous_track))
+        else:
+            # File Open
+            menu_box.append(make_menu_item("📂 Open Audio...", self.show_file_chooser))
+            
+            # Play / Pause
+            play_label = "⏸ Pause Sync" if self.music_playing else "▶ Play Sync"
+            menu_box.append(make_menu_item(play_label, self.toggle_sync_playback))
+            
+            # Next / Prev Track
+            menu_box.append(make_menu_item("⏭ Next Track", self.play_next_track))
+            menu_box.append(make_menu_item("⏮ Previous Track", self.play_previous_track))
         
         # Separator
         sep1 = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)

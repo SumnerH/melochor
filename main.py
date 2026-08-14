@@ -112,11 +112,24 @@ if __name__ == "__main__":
     parser.add_argument("--record", type=str, default=None, help="Output file path to record the MP4 to")
     parser.add_argument("--audio", type=str, default=None, help="Audio file to run against")
     parser.add_argument("--tmpdir", type=str, default=None, help="Optional custom temporary directory for display scripts")
+    parser.add_argument("--kodi", action="store_true", default=False, help="Connect to Kodi JSON-RPC to visualize music playing in Kodi")
+    parser.add_argument("--kodi-host", type=str, default="127.0.0.1", help="Kodi JSON-RPC hostname or IP (default: 127.0.0.1)")
+    parser.add_argument("--kodi-port", type=int, default=8080, help="Kodi JSON-RPC HTTP port (default: 8080)")
     parser.add_argument("playlist_files", nargs="*", help="Audio files or m3u playlist to play")
     args, unknown = parser.parse_known_args()
     
     app = Gtk.Application(application_id="org.melochor.visualizer")
-    pyro_app = FireworksApp(record_path=args.record, audio_path=args.audio, playlist_files=args.playlist_files, random_mode=args.random, tmp_dir=args.tmpdir, shuffle_mode=args.shuffle)
+    pyro_app = FireworksApp(
+        record_path=args.record,
+        audio_path=args.audio,
+        playlist_files=args.playlist_files,
+        random_mode=args.random,
+        tmp_dir=args.tmpdir,
+        shuffle_mode=args.shuffle,
+        kodi_mode=args.kodi,
+        kodi_host=args.kodi_host,
+        kodi_port=args.kodi_port
+    )
     app.connect("activate", pyro_app.on_activate)
     
     gtk_args = [sys.argv[0]] + unknown

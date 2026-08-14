@@ -2,6 +2,9 @@ import os
 import time
 import json
 import random
+import threading
+import urllib.request
+import urllib.parse
 import numpy as np
 from gi.repository import GLib
 from constants import COLORS, COLOR_LIST
@@ -94,22 +97,26 @@ class PlaylistMixin:
             except Exception as e:
                 print(f"Error checking JSON validity: {e}")
                 
-        # 3. Play audio IMMEDIATELY
+        # 3. Play audio IMMEDIATELY (unless in Kodi follower mode)
         self.saved_auto_launch = self.auto_launch
         self.auto_launch = False
         self.fireworks.clear()
         
-        try:
-            if self.audio_player.play(self.audio_path):
-                self.music_playing = True
-                self.playback_start_time = time.time()
-            else:
-                raise RuntimeError("UnifiedAudioPlayer failed to play track")
-        except Exception as e:
-            print(f"Failed to start audio playback: {e}")
-            self.auto_launch = self.saved_auto_launch
-            self.update_legend_labels()
-            return
+        if not getattr(self, 'kodi_mode', False):
+            try:
+                if self.audio_player.play(self.audio_path):
+                    self.music_playing = True
+                    self.playback_start_time = time.time()
+                else:
+                    raise RuntimeError("UnifiedAudioPlayer failed to play track")
+            except Exception as e:
+                print(f"Failed to start audio playback: {e}")
+                self.auto_launch = self.saved_auto_launch
+                self.update_legend_labels()
+                return
+        else:
+            self.music_playing = True
+            self.playback_start_time = time.time()
 
         # 4. If JSON is valid, load it immediately and start sync
         if json_exists:
@@ -120,7 +127,6 @@ class PlaylistMixin:
         else:
             # 5. Otherwise, start asynchronous background generation
             print("No up-to-date JSON found. Starting background analysis thread...")
-            import threading
             threading.Thread(target=self.async_analyze_and_activate, daemon=True).start()
 
     def async_analyze_and_activate(self):
@@ -146,7 +152,10 @@ class PlaylistMixin:
             
         print(f"Activating asynchronously generated JSON: {filepath}")
         if self.load_sync_script(filepath):
-            elapsed = time.time() - self.playback_start_time
+            if getattr(self, 'kodi_mode', False):
+                elapsed = max(0.0, getattr(self, 'kodi_elapsed', 0.0))
+            else:
+                elapsed = time.time() - self.playback_start_time
             idx = 0
             while idx < len(self.script_events) and self.script_events[idx].get("time", 0.0) < elapsed:
                 idx += 1
@@ -154,7 +163,8 @@ class PlaylistMixin:
             self.sync_tempo_to_playback_position(elapsed)
             print(f"Choreography synced to elapsed play time: {elapsed:.2f}s (starting at event index {idx})")
             
-            self.check_pregenerate_next_track()
+            if not getattr(self, 'kodi_mode', False):
+                self.check_pregenerate_next_track()
             
         return False
 
@@ -181,7 +191,6 @@ class PlaylistMixin:
         if not json_exists:
             print(f"Pre-emptive Cache: Next track '{os.path.basename(next_audio_path)}' has no up-to-date JSON.")
             print(f"Starting pre-emptive background analysis for next track...")
-            import threading
             threading.Thread(target=self.async_pregenerate_track, args=(next_audio_path, next_script_path), daemon=True).start()
         else:
             print(f"Pre-emptive Cache: Next track '{os.path.basename(next_audio_path)}' already has up-to-date JSON.")
@@ -199,6 +208,9 @@ class PlaylistMixin:
             print(f"[Pre-emptive Analyzer] Error pre-generating JSON for {audio_path}: {e}")
 
     def play_next_track(self):
+        if getattr(self, 'kodi_mode', False):
+            self.kodi_next_track()
+            return
         if not self.playlist:
             return
         next_idx = (self.playlist_idx + 1) % len(self.playlist)
@@ -208,6 +220,9 @@ class PlaylistMixin:
         self.load_and_play_track()
 
     def play_previous_track(self):
+        if getattr(self, 'kodi_mode', False):
+            self.kodi_previous_track()
+            return
         if not self.playlist:
             return
         prev_idx = (self.playlist_idx - 1) % len(self.playlist)
@@ -342,6 +357,10 @@ class PlaylistMixin:
             return False
 
     def start_sync_playback(self):
+        if getattr(self, 'kodi_mode', False):
+            self.kodi_play_pause()
+            return
+
         if not self.script_events:
             print("No synchronized script loaded!")
             return
@@ -374,6 +393,18 @@ class PlaylistMixin:
             self.update_legend_labels()
 
     def stop_sync_playback(self):
+        if getattr(self, 'kodi_mode', False):
+            self.music_playing = False
+            self.script_events = []
+            self.next_event_idx = 0
+            self.current_key = "N/A"
+            self.current_section_name = "None"
+            self.current_section_category = "None"
+            self.update_hud_labels()
+            if hasattr(self, 'music_section_lbl') and self.music_section_lbl:
+                self.music_section_lbl.set_text("Section: None")
+            return
+
         if self.music_playing:
             self.music_playing = False
             self.audio_player.stop()
@@ -390,6 +421,10 @@ class PlaylistMixin:
             print("Synchronized playback stopped.")
 
     def toggle_sync_playback(self):
+        if getattr(self, 'kodi_mode', False):
+            self.kodi_play_pause()
+            return
+
         if self.music_playing:
             self.stop_sync_playback()
         else:
@@ -518,3 +553,218 @@ class PlaylistMixin:
                 self.trigger_routine("Shooting Star", self.launch_shooting_star)
             else:
                 print(f"Unknown routine: {routine_name}")
+
+    # =========================================================================
+    # KODI JSON-RPC INTEGRATION & FOLLOWER MODE
+    # =========================================================================
+
+    def kodi_json_rpc(self, method, params=None, timeout=1.2):
+        """Execute a JSON-RPC method against Kodi."""
+        url = f"http://{self.kodi_host}:{self.kodi_port}/jsonrpc"
+        payload = {
+            "jsonrpc": "2.0",
+            "method": method,
+            "id": 1
+        }
+        if params is not None:
+            payload["params"] = params
+
+        try:
+            req_data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=req_data,
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                return data.get("result")
+        except Exception:
+            return None
+
+    def kodi_resolve_filepath(self, kodi_file):
+        """Translate a file URI or path returned by Kodi to a readable local path."""
+        if not kodi_file:
+            return None
+        cleaned = urllib.parse.unquote(kodi_file)
+        if cleaned.startswith("file://localhost/"):
+            cleaned = "/" + cleaned[len("file://localhost/"):]
+        elif cleaned.startswith("file:///"):
+            cleaned = "/" + cleaned[len("file:///"):]
+        elif cleaned.startswith("file://"):
+            cleaned = cleaned[len("file://"):]
+
+        if os.path.exists(cleaned):
+            return os.path.abspath(cleaned)
+        if os.path.exists(kodi_file):
+            return os.path.abspath(kodi_file)
+        return cleaned
+
+    def kodi_play_pause(self):
+        """Send a Play/Pause command to Kodi's active player."""
+        if not getattr(self, 'kodi_mode', False):
+            return
+        threading.Thread(
+            target=lambda: self.kodi_json_rpc("Player.PlayPause", {"playerid": getattr(self, 'kodi_player_id', 0)}),
+            daemon=True
+        ).start()
+
+    def kodi_next_track(self):
+        """Send a Next Track command to Kodi."""
+        if not getattr(self, 'kodi_mode', False):
+            return
+        threading.Thread(
+            target=lambda: self.kodi_json_rpc("Player.GoTo", {"playerid": getattr(self, 'kodi_player_id', 0), "to": "next"}),
+            daemon=True
+        ).start()
+
+    def kodi_previous_track(self):
+        """Send a Previous Track command to Kodi."""
+        if not getattr(self, 'kodi_mode', False):
+            return
+        threading.Thread(
+            target=lambda: self.kodi_json_rpc("Player.GoTo", {"playerid": getattr(self, 'kodi_player_id', 0), "to": "previous"}),
+            daemon=True
+        ).start()
+
+    def start_kodi_sync(self):
+        """Spawn background poller thread to monitor Kodi player state."""
+        print(f"[Kodi Mode] Initializing Kodi JSON-RPC follower at http://{self.kodi_host}:{self.kodi_port}/jsonrpc")
+        self.kodi_poll_thread = threading.Thread(target=self._kodi_poll_worker, daemon=True)
+        self.kodi_poll_thread.start()
+
+    def _kodi_poll_worker(self):
+        """Background thread polling Kodi for active players, position, and upcoming items."""
+        while True:
+            try:
+                active_players = self.kodi_json_rpc("Player.GetActivePlayers", timeout=0.8)
+                if active_players is None:
+                    self.kodi_connected = False
+                    self.kodi_is_playing = False
+                    time.sleep(1.0)
+                    continue
+
+                self.kodi_connected = True
+                audio_player = None
+                for p in active_players:
+                    if p.get("type") in ("audio", "video"):
+                        audio_player = p
+                        break
+
+                if not audio_player:
+                    self.kodi_is_playing = False
+                    self.kodi_speed = 0
+                    time.sleep(0.5)
+                    continue
+
+                player_id = audio_player.get("playerid", 0)
+                self.kodi_player_id = player_id
+
+                props = self.kodi_json_rpc("Player.GetProperties", {
+                    "playerid": player_id,
+                    "properties": ["time", "totaltime", "speed", "position", "playlistid"]
+                }, timeout=0.8)
+
+                item = self.kodi_json_rpc("Player.GetItem", {
+                    "playerid": player_id,
+                    "properties": ["title", "artist", "album", "file", "duration"]
+                }, timeout=0.8)
+
+                if props and item:
+                    item_data = item.get("item", {})
+                    raw_file = item_data.get("file", "")
+                    title = item_data.get("title") or item_data.get("label", "Unknown Title")
+                    artist_list = item_data.get("artist", [])
+                    artist = ", ".join(artist_list) if isinstance(artist_list, list) else str(artist_list)
+                    album = item_data.get("album", "")
+
+                    t_obj = props.get("time", {})
+                    elapsed = (
+                        t_obj.get("hours", 0) * 3600.0
+                        + t_obj.get("minutes", 0) * 60.0
+                        + t_obj.get("seconds", 0)
+                        + t_obj.get("milliseconds", 0) / 1000.0
+                    )
+
+                    tot_obj = props.get("totaltime", {})
+                    duration = (
+                        tot_obj.get("hours", 0) * 3600.0
+                        + tot_obj.get("minutes", 0) * 60.0
+                        + tot_obj.get("seconds", 0)
+                        + tot_obj.get("milliseconds", 0) / 1000.0
+                    )
+
+                    speed = props.get("speed", 0)
+
+                    self.kodi_is_playing = (speed > 0)
+                    self.kodi_speed = speed
+                    self.kodi_elapsed = elapsed
+                    self.kodi_duration = duration
+                    self.kodi_title = title
+                    self.kodi_artist = artist
+                    self.kodi_album = album
+                    self.kodi_last_poll_time = time.time()
+
+                    resolved_path = self.kodi_resolve_filepath(raw_file)
+
+                    if resolved_path and resolved_path != getattr(self, 'kodi_last_seen_track', None):
+                        self.kodi_last_seen_track = resolved_path
+                        print(f"[Kodi Mode] New track detected from Kodi: {resolved_path}")
+                        GLib.idle_add(self.load_kodi_track, resolved_path, item_data)
+
+                        # Check upcoming items in Kodi playlist to pre-generate JSON analysis
+                        playlist_id = props.get("playlistid", 0)
+                        cur_pos = props.get("position", 0)
+                        threading.Thread(
+                            target=self.check_kodi_pregenerate_queue,
+                            args=(playlist_id, cur_pos),
+                            daemon=True
+                        ).start()
+
+                time.sleep(0.25)
+            except Exception as e:
+                time.sleep(1.0)
+
+    def load_kodi_track(self, resolved_path, item_data):
+        """Called on main UI thread when Kodi switches track."""
+        self.audio_path = resolved_path
+        self.script_path = self.get_mangled_script_path(self.audio_path)
+        print(f"[Kodi Mode] Setting active visualizer track: {self.audio_path}")
+        self.load_and_play_track()
+        return False
+
+    def check_kodi_pregenerate_queue(self, playlist_id, current_position):
+        """Query Kodi audio playlist and pre-generate JSON analysis for upcoming tracks."""
+        try:
+            pl_result = self.kodi_json_rpc("Playlist.GetItems", {
+                "playlistid": playlist_id,
+                "properties": ["file", "title", "artist"]
+            }, timeout=1.5)
+
+            if not pl_result:
+                return
+
+            items = pl_result.get("items", [])
+            for i in range(current_position + 1, min(len(items), current_position + 4)):
+                item_file = items[i].get("file")
+                if not item_file:
+                    continue
+                loc_path = self.kodi_resolve_filepath(item_file)
+                if loc_path and os.path.exists(loc_path):
+                    script_path = self.get_mangled_script_path(loc_path)
+                    json_exists = False
+                    import audio_analyzer
+                    if os.path.exists(script_path):
+                        try:
+                            with open(script_path, 'r') as f:
+                                data = json.load(f)
+                            ver = data.get("metadata", {}).get("analyzer_version", 0)
+                            if ver >= audio_analyzer.ANALYZER_VERSION:
+                                json_exists = True
+                        except Exception:
+                            pass
+                    if not json_exists:
+                        print(f"[Kodi Mode Pre-Cache] Pre-generating JSON for upcoming queue item: {loc_path}")
+                        self.async_pregenerate_track(loc_path, script_path)
+        except Exception as e:
+            print(f"[Kodi Mode Pre-Cache] Error inspecting queue: {e}")

@@ -74,7 +74,8 @@ from input_handler import InputHandlerMixin
 class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, SynaesthesiaModeMixin, FireModeMixin,
                     SpaceInvadersModeMixin, PondModeMixin, FireworksClassicMixin, PresetMixin, RecordingMixin, PlaylistMixin,
                     UIMixin, InputHandlerMixin):
-    def __init__(self, record_path=None, audio_path=None, playlist_files=None, random_mode=False, tmp_dir=None, shuffle_mode=False):
+    def __init__(self, record_path=None, audio_path=None, playlist_files=None, random_mode=False, tmp_dir=None, shuffle_mode=False,
+                 kodi_mode=False, kodi_host="127.0.0.1", kodi_port=8080):
         import tempfile
         self.tmp_dir = tmp_dir if tmp_dir else tempfile.gettempdir()
         self.audio_player = UnifiedAudioPlayer()
@@ -83,6 +84,22 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         self.fire_flame_names = ["Current", "Candle", "Bonfire", "Gas Jet"]
         Firework.app = self
         self.shuffle_mode = shuffle_mode
+        self.kodi_mode = kodi_mode
+        self.kodi_host = kodi_host
+        self.kodi_port = kodi_port
+        self.kodi_connected = False
+        self.kodi_is_playing = False
+        self.kodi_player_id = 0
+        self.kodi_speed = 0
+        self.kodi_elapsed = 0.0
+        self.kodi_duration = 0.0
+        self.kodi_title = "None"
+        self.kodi_artist = ""
+        self.kodi_album = ""
+        self.kodi_last_poll_time = time.time()
+        self.kodi_last_seen_track = None
+        self.kodi_last_dispatched_elapsed = 0.0
+
         self.opt_trailers = 0        # 0: off, 1..10 range
         self.opt_gravity = 1.0       # 0.0 to 10.0 range
         self.opt_star_shape = 0      # 0: default, 1..6 shapes
@@ -1261,7 +1278,6 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
                             part_pos.append(fw.history[h])
                             part_col.append(step_colors)
                             part_size.append(step_sizes)
-                            
 
             # Draw Catherine Wheel Nozzle sparks & Pinwheel
             if self.active_rarity is not None and self.active_rarity['type'] == 'CATHERINE_WHEEL':
@@ -1473,8 +1489,31 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         
         # Playback sync event handler
         elapsed = 0.0
-        if self.music_playing:
-            # Check if player has stopped or finished
+        if getattr(self, 'kodi_mode', False):
+            # Kodi follower mode
+            if self.kodi_is_playing:
+                self.music_playing = True
+                extrapolated = self.kodi_elapsed + (now - self.kodi_last_poll_time) * self.kodi_speed
+                elapsed = max(0.0, extrapolated)
+
+                # Check if user sought significantly in Kodi
+                if abs(elapsed - self.kodi_last_dispatched_elapsed) > 1.2 or elapsed < self.kodi_last_dispatched_elapsed - 0.5:
+                    idx = 0
+                    while idx < len(self.script_events) and self.script_events[idx]["time"] < elapsed:
+                        idx += 1
+                    self.next_event_idx = idx
+
+                self.kodi_last_dispatched_elapsed = elapsed
+
+                while (self.next_event_idx < len(self.script_events) and 
+                       self.script_events[self.next_event_idx]["time"] <= elapsed):
+                    event = self.script_events[self.next_event_idx]
+                    self.trigger_script_event(event)
+                    self.next_event_idx += 1
+            else:
+                self.music_playing = False
+                elapsed = self.kodi_elapsed
+        elif self.music_playing:
             if not self.audio_player.is_playing():
                 if self.playlist and len(self.playlist) > 0:
                     self.play_next_track()
@@ -1592,7 +1631,29 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         else:
             self.routine_lbl.set_text("Routine: None")
             
-        if self.music_playing:
+        if getattr(self, 'kodi_mode', False):
+            if self.kodi_connected:
+                if self.kodi_is_playing:
+                    track_display = f"{self.kodi_title}"
+                    if self.kodi_artist:
+                        track_display = f"{self.kodi_artist} - {self.kodi_title}"
+                    bpm_str = f" ({self.script_bpm:.1f} BPM)" if self.script_events else " (Analyzing...)"
+                    self.music_track_lbl.set_text(f"Track: {track_display}{bpm_str}")
+                else:
+                    self.music_track_lbl.set_text("Track: [Kodi Paused / Idle]")
+            else:
+                self.music_track_lbl.set_text(f"Track: [Connecting to Kodi at {self.kodi_host}:{self.kodi_port}...]")
+
+            m_sec = int(elapsed) % 60
+            m_min = int(elapsed) // 60
+            tot_duration = self.script_duration if self.script_duration > 0 else getattr(self, 'kodi_duration', 0.0)
+            if tot_duration > 0:
+                total_sec = int(tot_duration) % 60
+                total_min = int(tot_duration) // 60
+                self.music_time_lbl.set_text(f"Time: {m_min:02d}:{m_sec:02d} / {total_min:02d}:{total_sec:02d}")
+            else:
+                self.music_time_lbl.set_text(f"Time: {m_min:02d}:{m_sec:02d} / --:--")
+        elif self.music_playing:
             if self.script_events:
                 self.music_track_lbl.set_text(f"Track: {self.loaded_script_name} ({self.script_bpm:.1f} BPM)")
             else:

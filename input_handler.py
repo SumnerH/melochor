@@ -20,7 +20,10 @@ class InputHandlerMixin:
             self.win.close()
             return True
         elif keyval in (Gdk.KEY_space, getattr(Gdk, 'KEY_AudioPlay', -1), getattr(Gdk, 'KEY_AudioPlayPause', -1)):
-            self.toggle_sync_playback()
+            if getattr(self, 'kodi_mode', False):
+                self.kodi_play_pause()
+            else:
+                self.toggle_sync_playback()
             return True
         elif keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
             self.fireworks.append(Firework())
@@ -134,7 +137,10 @@ class InputHandlerMixin:
             self.cycle_current_mode_routine()
             return True
         elif keyval in (Gdk.KEY_m, Gdk.KEY_M):
-            self.toggle_sync_playback()
+            if getattr(self, 'kodi_mode', False):
+                self.kodi_play_pause()
+            else:
+                self.toggle_sync_playback()
             return True
         elif keyval in (Gdk.KEY_o, Gdk.KEY_O):
             modes = ['REALISTIC', 'NEON', 'TRANQUIL', 'METAL']
@@ -186,10 +192,16 @@ class InputHandlerMixin:
                 self.update_legend_labels()
             return True
         elif keyval == Gdk.KEY_Left or keyval == getattr(Gdk, 'KEY_AudioPrev', -1):
-            self.play_previous_track()
+            if getattr(self, 'kodi_mode', False):
+                self.kodi_previous_track()
+            else:
+                self.play_previous_track()
             return True
         elif keyval == Gdk.KEY_Right or keyval == getattr(Gdk, 'KEY_AudioNext', -1):
-            self.play_next_track()
+            if getattr(self, 'kodi_mode', False):
+                self.kodi_next_track()
+            else:
+                self.play_next_track()
             return True
         elif keyval in (Gdk.KEY_h, Gdk.KEY_H):
             self.show_legend = not self.show_legend
