@@ -658,13 +658,19 @@ class PlaylistMixin:
 
     def _kodi_poll_worker(self):
         """Background thread polling Kodi for active players, position, and upcoming items."""
+        last_item_pos = None
+        last_playlist_id = None
+        cached_item_data = None
+
         while True:
             try:
                 active_players = self.kodi_json_rpc("Player.GetActivePlayers", timeout=0.8)
                 if active_players is None:
                     self.kodi_connected = False
                     self.kodi_is_playing = False
-                    time.sleep(1.0)
+                    last_item_pos = None
+                    last_playlist_id = None
+                    time.sleep(1.5)
                     continue
 
                 self.kodi_connected = True
@@ -677,7 +683,9 @@ class PlaylistMixin:
                 if not audio_player:
                     self.kodi_is_playing = False
                     self.kodi_speed = 0
-                    time.sleep(0.5)
+                    last_item_pos = None
+                    last_playlist_id = None
+                    time.sleep(1.0)
                     continue
 
                 player_id = audio_player.get("playerid", 0)
@@ -688,65 +696,74 @@ class PlaylistMixin:
                     "properties": ["time", "totaltime", "speed", "position", "playlistid"]
                 }, timeout=0.8)
 
-                item = self.kodi_json_rpc("Player.GetItem", {
-                    "playerid": player_id,
-                    "properties": ["title", "artist", "album", "file", "duration"]
-                }, timeout=0.8)
+                if props:
+                    cur_pos = props.get("position", 0)
+                    cur_pl_id = props.get("playlistid", 0)
 
-                if props and item:
-                    item_data = item.get("item", {})
-                    raw_file = item_data.get("file", "")
-                    title = item_data.get("title") or item_data.get("label", "Unknown Title")
-                    artist_list = item_data.get("artist", [])
-                    artist = ", ".join(artist_list) if isinstance(artist_list, list) else str(artist_list)
-                    album = item_data.get("album", "")
+                    # Only query Kodi/MySQL for item metadata when the track actually changes
+                    if cur_pos != last_item_pos or cur_pl_id != last_playlist_id or cached_item_data is None:
+                        item = self.kodi_json_rpc("Player.GetItem", {
+                            "playerid": player_id,
+                            "properties": ["title", "artist", "album", "file", "duration"]
+                        }, timeout=0.8)
+                        if item:
+                            cached_item_data = item.get("item", {})
+                            last_item_pos = cur_pos
+                            last_playlist_id = cur_pl_id
+                        else:
+                            cached_item_data = None
 
-                    t_obj = props.get("time", {})
-                    elapsed = (
-                        t_obj.get("hours", 0) * 3600.0
-                        + t_obj.get("minutes", 0) * 60.0
-                        + t_obj.get("seconds", 0)
-                        + t_obj.get("milliseconds", 0) / 1000.0
-                    )
+                    if cached_item_data is not None:
+                        raw_file = cached_item_data.get("file", "")
+                        title = cached_item_data.get("title") or cached_item_data.get("label", "Unknown Title")
+                        artist_list = cached_item_data.get("artist", [])
+                        artist = ", ".join(artist_list) if isinstance(artist_list, list) else str(artist_list)
+                        album = cached_item_data.get("album", "")
 
-                    tot_obj = props.get("totaltime", {})
-                    duration = (
-                        tot_obj.get("hours", 0) * 3600.0
-                        + tot_obj.get("minutes", 0) * 60.0
-                        + tot_obj.get("seconds", 0)
-                        + tot_obj.get("milliseconds", 0) / 1000.0
-                    )
+                        t_obj = props.get("time", {})
+                        elapsed = (
+                            t_obj.get("hours", 0) * 3600.0
+                            + t_obj.get("minutes", 0) * 60.0
+                            + t_obj.get("seconds", 0)
+                            + t_obj.get("milliseconds", 0) / 1000.0
+                        )
 
-                    speed = props.get("speed", 0)
+                        tot_obj = props.get("totaltime", {})
+                        duration = (
+                            tot_obj.get("hours", 0) * 3600.0
+                            + tot_obj.get("minutes", 0) * 60.0
+                            + tot_obj.get("seconds", 0)
+                            + tot_obj.get("milliseconds", 0) / 1000.0
+                        )
 
-                    self.kodi_is_playing = (speed > 0)
-                    self.kodi_speed = speed
-                    self.kodi_elapsed = elapsed
-                    self.kodi_duration = duration
-                    self.kodi_title = title
-                    self.kodi_artist = artist
-                    self.kodi_album = album
-                    self.kodi_last_poll_time = time.time()
+                        speed = props.get("speed", 0)
 
-                    resolved_path = self.kodi_resolve_filepath(raw_file)
+                        self.kodi_is_playing = (speed > 0)
+                        self.kodi_speed = speed
+                        self.kodi_elapsed = elapsed
+                        self.kodi_duration = duration
+                        self.kodi_title = title
+                        self.kodi_artist = artist
+                        self.kodi_album = album
+                        self.kodi_last_poll_time = time.time()
 
-                    if resolved_path and resolved_path != getattr(self, 'kodi_last_seen_track', None):
-                        self.kodi_last_seen_track = resolved_path
-                        print(f"[Kodi Mode] New track detected from Kodi: {resolved_path}")
-                        GLib.idle_add(self.load_kodi_track, resolved_path, item_data)
+                        resolved_path = self.kodi_resolve_filepath(raw_file)
 
-                        # Check upcoming items in Kodi playlist to pre-generate JSON analysis
-                        playlist_id = props.get("playlistid", 0)
-                        cur_pos = props.get("position", 0)
-                        threading.Thread(
-                            target=self.check_kodi_pregenerate_queue,
-                            args=(playlist_id, cur_pos),
-                            daemon=True
-                        ).start()
+                        if resolved_path and resolved_path != getattr(self, 'kodi_last_seen_track', None):
+                            self.kodi_last_seen_track = resolved_path
+                            print(f"[Kodi Mode] New track detected from Kodi: {resolved_path}")
+                            GLib.idle_add(self.load_kodi_track, resolved_path, cached_item_data)
 
-                time.sleep(0.25)
-            except Exception as e:
+                            # Check upcoming items in Kodi playlist to pre-generate JSON analysis
+                            threading.Thread(
+                                target=self.check_kodi_pregenerate_queue,
+                                args=(cur_pl_id, cur_pos),
+                                daemon=True
+                            ).start()
+
                 time.sleep(1.0)
+            except Exception as e:
+                time.sleep(1.5)
 
     def load_kodi_track(self, resolved_path, item_data):
         """Called on main UI thread when Kodi switches track."""
