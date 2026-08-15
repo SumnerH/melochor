@@ -419,8 +419,14 @@ class UIMixin:
             height_desc = "ON" if self.opt_height_restrict else "OFF"
             self.lbl_opt_height.set_text(f"[Y]      - Height Restriction: {height_desc}")
         if hasattr(self, 'lbl_flame_algo') and self.lbl_flame_algo:
-            algo_name = self.fire_flame_names[self.fire_flame_algorithm] if hasattr(self, 'fire_flame_names') else "Current"
-            self.lbl_flame_algo.set_text(f"[U]      - Flame Algorithm: {algo_name}")
+            if self.major_mode == "FIRE Plasma":
+                algo_name = self.fire_flame_names[self.fire_flame_algorithm] if hasattr(self, 'fire_flame_names') else "Current"
+                self.lbl_flame_algo.set_text(f"[U]      - Flame Algorithm: {algo_name}")
+            elif self.major_mode == "POND":
+                algo_name = self.pond_ripple_names[getattr(self, 'pond_ripple_algorithm', 2)] if hasattr(self, 'pond_ripple_names') else "Resonant Cymatics"
+                self.lbl_flame_algo.set_text(f"[U]      - Ripple Style: {algo_name}")
+            else:
+                self.lbl_flame_algo.set_text("")
         if hasattr(self, 'lbl_mandala_slices') and self.lbl_mandala_slices:
             self.lbl_mandala_slices.set_text(f"[S]      - Mandala Slices: {self.mandala_slices}")
 

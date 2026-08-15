@@ -16,6 +16,22 @@ class PondModeMixin:
         self.pond_lightning_timer = 0.0
         self.pond_rain_spawn_accumulator = 0.0
         self.pond_cloud_drift = 0.0
+        self.pond_ripple_seq_idx = 0
+
+        # Ripple algorithm options (cycled with [U]):
+        # 0 = Interference Hologram (coherent harmonic interference & Moiré fringes)
+        # 1 = Chromatic Caustics (dispersive prism refraction & focused light caustics)
+        # 2 = Resonant Cymatics (Default: geometric standing-wave modal patterns)
+        # 3 = Capillary Dispersion (multi-scale bass swells & high-frequency capillary chatter)
+        # 4 = Neon Phosphor (bioluminescent glowing shockwaves & water illumination)
+        self.pond_ripple_algorithm = 2
+        self.pond_ripple_names = [
+            "Interference Hologram",
+            "Chromatic Caustics",
+            "Resonant Cymatics",
+            "Capillary Dispersion",
+            "Neon Phosphor"
+        ]
 
         # Keep two separate distant flocks. They share the pond sky but never
         # use one another as boid neighbors, leaders, or music-turn targets.
@@ -115,6 +131,19 @@ class PondModeMixin:
             np.zeros(pond_x.size),
         )).astype(np.float32)
 
+    def cycle_pond_ripple_algorithm(self):
+        """Cycle through the 5 water ripple algorithms."""
+        if not hasattr(self, 'pond_ripple_names'):
+            self.pond_ripple_names = [
+                "Interference Hologram",
+                "Chromatic Caustics",
+                "Resonant Cymatics",
+                "Capillary Dispersion",
+                "Neon Phosphor"
+            ]
+        self.pond_ripple_algorithm = (getattr(self, 'pond_ripple_algorithm', 0) + 1) % len(self.pond_ripple_names)
+        print(f"[Pond Mode] Ripple algorithm: {self.pond_ripple_names[self.pond_ripple_algorithm]}")
+
     def _sync_pond_bird_shader_data(self):
         """Pack independent flock state into the flat arrays used by the shader."""
         self.pond_bird_pos = np.concatenate(
@@ -148,25 +177,45 @@ class PondModeMixin:
         if band_type != "bass" and band_energy < 0.55:
             return
 
-        x_offset = event.get("x_offset")
-        if x_offset is None:
-            x_position = float(
-                np.clip(self.current_stereo_panning, -0.82, 0.82)
-            )
-        else:
-            x_position = float(np.clip(float(x_offset) / 11.0, -0.82, 0.82))
+        # Golden-ratio low-discrepancy sequence: consecutive beats disperse across
+        # the pond rather than clumping onto a single center line.
+        phi = 0.618033988749895
+        self.pond_ripple_seq_idx = getattr(self, 'pond_ripple_seq_idx', 0) + 1
+        seq = self.pond_ripple_seq_idx
+        golden_x = (((seq * phi) % 1.0) * 2.0 - 1.0) * 0.65
 
-        # These positions correspond to the lowered, foreshortened pond surface
-        # in screen space, keeping new music rings on the water plane.
-        band_y_positions = {
-            "bass": -0.86,
-            "mid": -0.70,
-            "treble": -0.54,
-        }
-        y_position = band_y_positions.get(
-            band_type,
-            float(np.random.uniform(-1.00, -0.44)),
+        # Rhythmic tempo-phase Lissajous sweep: glides back and forth in time with BPM
+        tempo_phase = getattr(self, 'tempo_phase', 0.0)
+        tempo_sweep = (
+            np.sin(tempo_phase * np.pi * 0.5) * 0.38
+            + np.sin(tempo_phase * np.pi * 0.25) * 0.18
         )
+
+        # Spectral frequency bias: bass anchors toward left/center, treble toward right
+        bass_energy = float(event.get("band_bass", 0.0))
+        treble_energy = float(event.get("band_treble", 0.0))
+        freq_bias = (treble_energy - bass_energy) * 0.30
+
+        # Stereo panning bias
+        x_offset = event.get("x_offset")
+        if x_offset is not None:
+            pan_val = float(np.clip(float(x_offset) / 6.0, -1.0, 1.0))
+        else:
+            pan_val = float(np.clip(getattr(self, 'current_stereo_panning', 0.0), -1.0, 1.0))
+
+        raw_x = golden_x * 0.40 + tempo_sweep * 0.30 + pan_val * 0.45 + freq_bias
+        x_position = float(np.clip(raw_x, -0.78, 0.78))
+
+        # Foreshortened pond depth mapping: bass spawns in foreground, treble in
+        # distant water, modulated by golden-angle vertical phase to avoid flat lines.
+        band_y_base = {
+            "bass": -0.84,
+            "mid": -0.68,
+            "treble": -0.52,
+        }.get(band_type, -0.68)
+        y_jitter = np.sin(seq * 2.399963) * 0.09
+        y_position = float(np.clip(band_y_base + y_jitter, -0.96, -0.44))
+
         strength = float(np.clip(0.65 + band_energy * 0.55, 0.0, 1.4))
 
         self.pond_shader_ripples.append(
@@ -370,6 +419,9 @@ class PondModeMixin:
         )
 
     def update_pond(self, dt):
+        if not hasattr(self, 'pond_flocks'):
+            self.init_pond_mode()
+
         # Visual Vacuum: glass calm surface
         if getattr(self, 'visual_vacuum_timer', 0.0) > 0.0:
             self.pond_rain.clear()

@@ -867,6 +867,9 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
         self.sky_pond_trout_loc = gl.glGetUniformLocation(
             self.sky_program, "uPondTrout"
         )
+        self.sky_pond_ripple_algo_loc = gl.glGetUniformLocation(
+            self.sky_program, "uPondRippleAlgorithm"
+        )
 
     def on_render(self, area, context):
         if self.sky_program is None:
@@ -1037,6 +1040,9 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
                         1.0,
                     )
                 gl.glUniform4fv(self.sky_pond_trout_loc, 1, trout_data)
+            if hasattr(self, 'sky_pond_ripple_algo_loc') and self.sky_pond_ripple_algo_loc != -1:
+                algo_val = float(getattr(self, 'pond_ripple_algorithm', 0)) if self.major_mode == "POND" else 0.0
+                gl.glUniform1f(self.sky_pond_ripple_algo_loc, algo_val)
             if hasattr(self, 'sky_stereo_panning_loc') and self.sky_stereo_panning_loc != -1:
                 gl.glUniform1f(self.sky_stereo_panning_loc, self.current_stereo_panning)
             if hasattr(self, 'sky_aspect_loc') and self.sky_aspect_loc != -1:

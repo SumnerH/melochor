@@ -183,12 +183,17 @@ class InputHandlerMixin:
             self.update_legend_labels()
             return True
         elif keyval in (Gdk.KEY_u, Gdk.KEY_U):
-            # Cycle flame algorithm when FIRE Plasma mode is active (method is supplied by FireModeMixin)
-            if hasattr(self, 'cycle_flame_algorithm'):
+            if self.major_mode == "FIRE Plasma" and hasattr(self, 'cycle_flame_algorithm'):
                 try:
                     self.cycle_flame_algorithm()
                 except Exception as e:
                     print(f"Error cycling flame algorithm: {e}")
+                self.update_legend_labels()
+            elif self.major_mode == "POND" and hasattr(self, 'cycle_pond_ripple_algorithm'):
+                try:
+                    self.cycle_pond_ripple_algorithm()
+                except Exception as e:
+                    print(f"Error cycling pond ripple algorithm: {e}")
                 self.update_legend_labels()
             return True
         elif keyval == Gdk.KEY_Left or keyval == getattr(Gdk, 'KEY_AudioPrev', -1):

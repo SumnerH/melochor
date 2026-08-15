@@ -68,43 +68,146 @@ vec3 renderPondDayMoon(vec2 uv, vec3 color) {
     return mix(color, moonColor, daylightMoon);
 }
 
-float pondMusicRippleHeight(vec2 position) {
+uniform float uPondRippleAlgorithm;
+
+float pondMusicRippleHeight(vec2 position, out vec3 chromaticOut, out float causticGlow) {
     float height = 0.0;
+    chromaticOut = vec3(0.0);
+    causticGlow = 0.0;
+    
+    int algo = int(floor(uPondRippleAlgorithm + 0.5));
+    float bass = clamp(uReactBass, 0.0, 1.5);
+    float mid = clamp(uReactMid, 0.0, 1.5);
+    float treble = clamp(uReactTreble, 0.0, 1.5);
 
     for (int index = 0; index < 8; ++index) {
         vec4 ripple = uPondRipples[index];
-        if (ripple.w <= 0.0 || ripple.z <= 0.0 || ripple.z > 2.15) {
+        if (ripple.w <= 0.0 || ripple.z <= 0.0 || ripple.z > 2.8) {
             continue;
         }
 
-        // The pond is viewed obliquely, so depth is visually compressed. Apply
-        // subtle noise to the distance field so each impact expands like a real,
-        // irregular disturbance rather than as a mathematically perfect ring.
         vec2 delta = position - ripple.xy;
         delta.x *= uAspect;
         delta.y *= 2.35;
         float distance = length(delta);
-        float surfaceNoise = pondNoise(
-            position * vec2(17.0 * uAspect, 31.0)
-            + ripple.xy * 23.0
-        ) - 0.5;
-        float radius = ripple.z * (0.52 + surfaceNoise * 0.035);
-        float wavefront = distance - radius + surfaceNoise * 0.018;
+        float angle = atan(delta.y, delta.x);
 
-        // Keep the disturbance tightly grouped around its expanding wavefront.
-        // The rapid age fade makes every impact read as a fresh stone or drop,
-        // rather than leaving broad, long-lived sinusoidal surface pressure.
-        float envelope = exp(-wavefront * wavefront * 68.0)
-            * exp(-ripple.z * 1.85)
-            * (1.0 - smoothstep(1.50, 2.15, ripple.z));
-        float irregularity = 0.90 + 0.10 * sin(
-            atan(delta.y, delta.x) * 7.0 + ripple.z * 5.0 + surfaceNoise * 8.0
-        );
-        height += sin(wavefront * 68.0 - ripple.z * 11.0 + surfaceNoise * 3.0)
-            * envelope
-            * irregularity
-            * ripple.w
-            * 0.040;
+        if (algo == 0) {
+            // =================================================================
+            // 0: INTERFERENCE HOLOGRAM (Coherent Dual-Frequency Standing Waves)
+            // =================================================================
+            float waveSpeed = 0.55 + bass * 0.25;
+            float radius = ripple.z * waveSpeed;
+            float distFront = distance - radius;
+
+            // Broad wave envelope that allows extensive overlapping & Moiré interference
+            float env = exp(-distFront * distFront * 32.0) * exp(-ripple.z * 0.95) * (1.0 - smoothstep(1.8, 2.7, ripple.z));
+            
+            // Primary carrier wave + secondary harmonic overtone
+            float wave1 = sin(distFront * 58.0 - ripple.z * 16.0 + angle * 3.0);
+            float wave2 = sin(distFront * 116.0 - ripple.z * 32.0) * 0.45;
+            float waveCombo = (wave1 + wave2) * env * ripple.w * 0.045;
+            
+            height += waveCombo;
+            chromaticOut += vec3(waveCombo * 1.2, waveCombo * 0.9, waveCombo * 1.5);
+
+        } else if (algo == 1) {
+            // =================================================================
+            // 1: CHROMATIC CAUSTICS (Dispersive Prism Refraction & Bright Rings)
+            // =================================================================
+            float radius = ripple.z * 0.62;
+            float distFront = distance - radius;
+
+            // Sharp wavefront with dispersive chromatic shift between R, G, B channels
+            float envR = exp(-pow(distance - radius * 1.03, 2.0) * 110.0);
+            float envG = exp(-pow(distance - radius * 1.00, 2.0) * 110.0);
+            float envB = exp(-pow(distance - radius * 0.97, 2.0) * 110.0);
+            float ageFade = exp(-ripple.z * 1.25) * (1.0 - smoothstep(1.6, 2.5, ripple.z)) * ripple.w;
+
+            float waveH = sin(distFront * 72.0 - ripple.z * 18.0) * envG * ageFade * 0.050;
+            height += waveH;
+
+            // Chromatic prism dispersion and razor caustic crest highlights
+            chromaticOut.r += sin(distFront * 72.0) * envR * ageFade * 0.08;
+            chromaticOut.g += sin(distFront * 72.0 + 0.8) * envG * ageFade * 0.08;
+            chromaticOut.b += sin(distFront * 72.0 + 1.6) * envB * ageFade * 0.12;
+
+            float causticLine = smoothstep(0.015, 0.002, abs(distFront)) * ageFade;
+            causticGlow += causticLine * 1.6;
+
+        } else if (algo == 2) {
+            // =================================================================
+            // 2: RESONANT CYMATICS (Beat-Synchronized Geometric Modal Patterns)
+            // =================================================================
+            float waveSpeed = 0.52 + bass * 0.20;
+            float radius = ripple.z * waveSpeed;
+
+            // Acoustic edge judder & micro-flutter: breaks mathematical uniformity
+            float jitterNoise = pondNoise(position * vec2(24.0 * uAspect, 38.0) + float(index) * 17.3 + uTime * 3.0) - 0.5;
+            float angularJudder = sin(angle * 12.0 + distance * 28.0 - uTime * 10.0) * (0.003 + mid * 0.003)
+                                + jitterNoise * (0.004 + treble * 0.003);
+            float distFront = distance - radius + angularJudder;
+
+            // Smooth Gaussian wavefront envelope with gentle birth fade
+            float birthFade = smoothstep(0.0, 0.12, ripple.z);
+            float env = exp(-distFront * distFront * mix(65.0, 32.0, clamp(ripple.z * 1.5, 0.0, 1.0)))
+                      * exp(-ripple.z * 0.85)
+                      * (1.0 - smoothstep(1.9, 2.8, ripple.z))
+                      * birthFade;
+
+            // High-frequency harmonic vibration flutter
+            float microFlutter = sin(distFront * 110.0 - uTime * 18.0 + angle * 6.0) * (0.12 + treble * 0.20);
+            float wave = sin(distFront * 46.0 - ripple.z * 12.0 + microFlutter);
+
+            // Blossom organically into 6-fold and 12-fold Chladni cymatic standing nodes as ring expands
+            float modalFade = smoothstep(0.12, 0.45, ripple.z) * smoothstep(0.03, 0.18, distance);
+            float modalMod = 1.0 + modalFade * (
+                cos(angle * 6.0 + uTime * (1.6 + mid * 2.0) + jitterNoise * 1.2) * 0.38
+                + cos(angle * 12.0 - uTime * 1.0) * 0.22
+            );
+
+            float waveVal = wave * modalMod * env * ripple.w * 0.036;
+            height += waveVal;
+
+            // Luminous caustics on wave crests and iridescent cyan/emerald highlights
+            float crestGlow = smoothstep(0.004, 0.024, waveVal) * env * ripple.w;
+            causticGlow += crestGlow * 1.8;
+            chromaticOut += vec3(0.06, 0.18, 0.24) * crestGlow;
+
+        } else if (algo == 3) {
+            // =================================================================
+            // 3: CAPILLARY DISPERSION (Multi-Scale Wave-Trains & High-Freq Ripple)
+            // =================================================================
+            // Bass drives large, slow expanding gravity swells; treble creates fast capillary ripple chatter
+            float radiusGravity = ripple.z * 0.45;
+            float radiusCapillary = ripple.z * (0.85 + treble * 0.45);
+            
+            float envGrav = exp(-pow(distance - radiusGravity, 2.0) * 22.0) * exp(-ripple.z * 0.85);
+            float envCap = exp(-pow(distance - radiusCapillary, 2.0) * 95.0) * exp(-ripple.z * 1.6);
+            
+            float waveGrav = sin((distance - radiusGravity) * 36.0 - ripple.z * 9.0) * envGrav * (0.038 + bass * 0.025);
+            float waveCap = sin((distance - radiusCapillary) * 140.0 - ripple.z * 38.0) * envCap * (0.024 + treble * 0.035);
+            
+            float totalWave = (waveGrav + waveCap) * ripple.w * (1.0 - smoothstep(1.8, 2.7, ripple.z));
+            height += totalWave;
+            chromaticOut += vec3(waveGrav * 0.6, totalWave * 1.1, waveCap * 1.8);
+
+        } else {
+            // =================================================================
+            // 4: NEON PHOSPHOR (Bioluminescent Glowing Shockwaves & Luminous Edge)
+            // =================================================================
+            float radius = ripple.z * (0.58 + bass * 0.35);
+            float distFront = distance - radius;
+            float env = exp(-distFront * distFront * 64.0) * exp(-ripple.z * 1.35) * (1.0 - smoothstep(1.6, 2.6, ripple.z));
+            
+            float waveVal = sin(distFront * 52.0 - ripple.z * 14.0) * env * ripple.w * 0.048;
+            height += waveVal;
+
+            // Vivid electric cyan / emerald glowing crests
+            float glowCrest = smoothstep(0.035, 0.004, abs(distFront)) * env * ripple.w;
+            chromaticOut += vec3(0.08, 0.95, 0.85) * (glowCrest * (1.2 + treble * 0.8));
+            causticGlow += glowCrest * 2.2;
+        }
     }
 
     return height;
@@ -331,16 +434,21 @@ vec3 renderPondSky(vec2 vPos, vec3 baseColor) {
         vPos.y * 10.0 - uTime * 0.11
     );
     float waterNoise = pondFbm(waterFlow);
-    float rippleHeight = pondMusicRippleHeight(vPos);
-    float rippleHeightX = pondMusicRippleHeight(vPos + vec2(0.006, 0.0));
-    float rippleHeightY = pondMusicRippleHeight(vPos + vec2(0.0, 0.006));
+    vec3 rippleChromatic = vec3(0.0);
+    float causticGlow = 0.0;
+    float rippleHeight = pondMusicRippleHeight(vPos, rippleChromatic, causticGlow);
+    
+    vec3 dummyC = vec3(0.0);
+    float dummyG = 0.0;
+    float rippleHeightX = pondMusicRippleHeight(vPos + vec2(0.006, 0.0), dummyC, dummyG);
+    float rippleHeightY = pondMusicRippleHeight(vPos + vec2(0.0, 0.006), dummyC, dummyG);
     vec2 rippleSlope = vec2(
         rippleHeightX - rippleHeight,
         rippleHeightY - rippleHeight
     ) / 0.006;
     vec3 rippleNormal = normalize(vec3(
-        -rippleSlope.x * 3.2,
-        -rippleSlope.y * 3.2,
+        -rippleSlope.x * 1.8,
+        -rippleSlope.y * 1.8,
         1.0
     ));
     vec3 waterLightDirection = normalize(vec3(-0.35, 0.58, 0.74));
@@ -348,14 +456,26 @@ vec3 renderPondSky(vec2 vPos, vec3 baseColor) {
         max(0.0, dot(rippleNormal, waterLightDirection)),
         18.0
     );
-    float rippleCrest = smoothstep(0.010, 0.032, abs(rippleHeight));
-    float waterLight = 0.52 + waveA * 0.10 + waveB * 0.055
-        + waterNoise * 0.15 + rippleHeight * 2.1;
+    float rippleCrest = smoothstep(0.005, 0.024, max(0.0, rippleHeight));
+    float waterLight = clamp(
+        0.52 + waveA * 0.08 + waveB * 0.05 + waterNoise * 0.12 + rippleHeight * 1.4,
+        0.42,
+        1.35
+    );
 
     vec3 shallowWater = vec3(0.045, 0.27, 0.40);
     vec3 deepWater = vec3(0.008, 0.070, 0.145);
     vec3 water = mix(shallowWater, deepWater, depth);
     water *= 0.72 + waterLight * 0.55;
+
+    // Ambient sky reflection on tilted water wave facets (prevents wave slopes from turning black)
+    float slopeIntensity = clamp(length(rippleSlope) * 0.25, 0.0, 0.45);
+    vec3 skyFacetReflection = mix(stormHorizon, vec3(0.18, 0.32, 0.44), 0.5);
+    water = mix(water, skyFacetReflection, slopeIntensity);
+
+    // Apply chromatic dispersion and glowing caustics across ripples
+    water += rippleChromatic * 0.35;
+    water += vec3(0.24, 0.52, 0.72) * causticGlow * 0.42;
 
     // The shallow zone lives inside the same shoreline field. Sediment becomes
     // visible gradually in the final quarter of the pond rather than fading the
@@ -371,7 +491,7 @@ vec3 renderPondSky(vec2 vPos, vec3 baseColor) {
         shoreInterior * 0.66
     );
     water += vec3(0.22, 0.46, 0.58) * rippleSpecular * 0.14;
-    water += vec3(0.06, 0.20, 0.29) * rippleCrest * 0.10;
+    water += vec3(0.08, 0.24, 0.34) * rippleCrest * 0.14;
 
     // Flowing cloud and treeline reflections drift continuously across the
     // surface, with wave displacement breaking them into natural moving streaks.
