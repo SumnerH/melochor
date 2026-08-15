@@ -920,6 +920,16 @@ class FireModeMixin:
 
         active_mask = self.fire_spark_active
         if np.any(active_mask):
+            # Anticipatory implosion: suck embers and sparks into compact hearth singularity
+            if getattr(self, 'drop_anticipation_timer', 0.0) > 0.0:
+                is_global = getattr(self, 'drop_anticipation_is_global', False)
+                intensity = getattr(self, 'drop_anticipation_intensity', 1.0 if is_global else 0.35)
+                progress = 1.0 - (self.drop_anticipation_timer / max(0.1, self.drop_anticipation_duration))
+                hearth_center = np.array([0.0, -0.78, 0.0], dtype=np.float32)
+                to_hearth = hearth_center - self.fire_spark_pos[active_mask]
+                self.fire_spark_pos[active_mask] += to_hearth * min(1.0, dt * (1.5 + progress * 5.0) * intensity)
+                self.fire_spark_vel[active_mask] *= max(0.0, 1.0 - dt * (2.5 * intensity))
+
             # Apply velocity translation
             self.fire_spark_pos[active_mask] += self.fire_spark_vel[active_mask] * dt
             

@@ -1046,7 +1046,12 @@ class FireworksApp(TunnelModeMixin, UnderwaterModeMixin, MandalaModeMixin, Synae
                 inv_vp = np.linalg.inv(vp)
                 gl.glUniformMatrix4fv(self.sky_inv_vp_loc, 1, gl.GL_TRUE, inv_vp)
             if hasattr(self, 'sky_wind_gust_loc') and self.sky_wind_gust_loc != -1:
-                gl.glUniform1f(self.sky_wind_gust_loc, self.fire_wind_gust if hasattr(self, 'fire_wind_gust') else 0.0)
+                gust_val = 0.0
+                if self.major_mode == "FIRE Plasma":
+                    gust_val = getattr(self, 'fire_wind_gust', 0.0)
+                elif self.major_mode == "POND":
+                    gust_val = getattr(self, 'pond_cloud_drift', 0.0)
+                gl.glUniform1f(self.sky_wind_gust_loc, gust_val)
             if hasattr(self, 'sky_moon_illumed_loc') and self.sky_moon_illumed_loc != -1:
                 gl.glUniform1f(self.sky_moon_illumed_loc, self.moon_illumed if hasattr(self, 'moon_illumed') else 0.5)
             if hasattr(self, 'sky_moon_is_waning_loc') and self.sky_moon_is_waning_loc != -1:

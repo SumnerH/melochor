@@ -534,7 +534,9 @@ class PlaylistMixin:
             self.drop_anticipation_duration = max(0.1, duration)
             self.drop_anticipation_timer = self.drop_anticipation_duration
             self.drop_anticipation_is_global = bool(event.get("is_global", False))
-            print(f"[Lookahead] Drop anticipation active: {self.drop_anticipation_duration:.2f}s buildup (Global #1: {self.drop_anticipation_is_global})")
+            raw_intensity = float(event.get("intensity", 1.0 if self.drop_anticipation_is_global else 0.35))
+            self.drop_anticipation_intensity = max(0.1, min(1.0, raw_intensity))
+            print(f"[Lookahead] Drop anticipation active: {self.drop_anticipation_duration:.2f}s buildup (Global #1: {self.drop_anticipation_is_global}, Intensity: {self.drop_anticipation_intensity:.2f})")
 
         elif event_type == "visual_vacuum":
             self.visual_vacuum_timer = float(event.get("duration", 1.5))

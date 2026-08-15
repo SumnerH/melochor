@@ -15,6 +15,7 @@ class PondModeMixin:
         self.pond_leaf_vortex_center_x = 0.0
         self.pond_lightning_timer = 0.0
         self.pond_rain_spawn_accumulator = 0.0
+        self.pond_cloud_drift = 0.0
 
         # Keep two separate distant flocks. They share the pond sky but never
         # use one another as boid neighbors, leaders, or music-turn targets.
@@ -373,6 +374,22 @@ class PondModeMixin:
         if getattr(self, 'visual_vacuum_timer', 0.0) > 0.0:
             self.pond_rain.clear()
             return
+
+        # Smooth continuous cloud drift with subtle speed modulation from music
+        bass_s = getattr(self, 'react_bass_smooth', 0.0)
+        mid_s = getattr(self, 'react_mid_smooth', 0.0)
+        drift_rate = 0.018 + bass_s * 0.012 + mid_s * 0.006
+        self.pond_cloud_drift = getattr(self, 'pond_cloud_drift', 0.0) + drift_rate * dt
+
+        # Anticipatory implosion: flocks spiral inward toward zone center
+        if getattr(self, 'drop_anticipation_timer', 0.0) > 0.0:
+            is_global = getattr(self, 'drop_anticipation_is_global', False)
+            intensity = getattr(self, 'drop_anticipation_intensity', 1.0 if is_global else 0.35)
+            progress = 1.0 - (self.drop_anticipation_timer / max(0.1, self.drop_anticipation_duration))
+            for flock in self.pond_flocks:
+                min_x, max_x, min_y, max_y = flock["bounds"]
+                f_center = np.array([(min_x + max_x) * 0.5, (min_y + max_y) * 0.5], dtype=np.float32)
+                flock["positions"] += (f_center - flock["positions"]) * min(1.0, dt * (1.2 + progress * 3.5) * intensity)
 
         active_shader_ripples = []
         for ripple in self.pond_shader_ripples:

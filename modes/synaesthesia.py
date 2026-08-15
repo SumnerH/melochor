@@ -26,14 +26,18 @@ class SynaesthesiaModeMixin:
         if not hasattr(self, 'syn_stars'):
             self.init_synaesthesia_mode()
 
-        # Anticipatory implosion: stars pull inward before major drops
+        # Anticipatory implosion: stars pull inward before major drops (very subtle and gentle)
         if getattr(self, 'drop_anticipation_timer', 0.0) > 0.0:
+            is_global = getattr(self, 'drop_anticipation_is_global', False)
+            intensity = getattr(self, 'drop_anticipation_intensity', 1.0 if is_global else 0.35)
             progress = 1.0 - (self.drop_anticipation_timer / max(0.1, self.drop_anticipation_duration))
             center = np.array([0.0, 4.0, 0.0], dtype=np.float32)
+            
+            pull_rate = (0.08 + progress * 0.35) * intensity if not is_global else (0.8 + progress * 1.8)
+            drag_rate = 0.25 * intensity if not is_global else 1.2
             for star in self.syn_stars:
-                star['pos'] += (center - star['pos']) * min(1.0, dt * (5.0 + progress * 15.0))
-                star['vel'] *= max(0.0, 1.0 - dt * 8.0)
-            return
+                star['pos'] += (center - star['pos']) * min(0.2, dt * pull_rate)
+                star['vel'] *= max(0.0, 1.0 - dt * drag_rate)
 
         # Move and filter active stars
         active_stars = []

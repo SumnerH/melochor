@@ -13,30 +13,30 @@ class UIMixin:
         css_data = """
         .hud-title {
             font-family: 'Outfit', 'Inter', 'Sans-Serif', sans-serif;
-            font-size: 16px;
+            font-size: 20px;
             font-weight: bold;
             color: #e6f0ff;
         }
         .hud-subtitle {
             font-family: 'Outfit', 'Inter', 'Sans-Serif', sans-serif;
-            font-size: 10px;
+            font-size: 12px;
             color: #96b4dc;
         }
         .hud-stats-fps {
             font-family: 'Inter', 'Monospace', monospace;
-            font-size: 11px;
+            font-size: 13px;
             font-weight: bold;
             color: #64e696;
             margin-bottom: 2px;
         }
         .hud-stats {
             font-family: 'Inter', 'Monospace', monospace;
-            font-size: 10px;
+            font-size: 12px;
             color: #c8dcff;
         }
         .hud-routine {
             font-family: 'Inter', 'Sans-Serif', sans-serif;
-            font-size: 11px;
+            font-size: 13px;
             font-weight: bold;
             color: #ffa834;
             margin-top: 3px;
@@ -45,23 +45,23 @@ class UIMixin:
             background-color: rgba(10, 10, 25, 0.65);
             border: 1px solid rgba(130, 150, 180, 0.2);
             border-radius: 6px;
-            padding: 12px;
+            padding: 14px;
         }
         .hud-legend-title {
             font-family: 'Outfit', 'Inter', sans-serif;
             font-weight: bold;
             color: #e2e6ff;
-            font-size: 10px;
+            font-size: 12px;
             margin-bottom: 6px;
         }
         .hud-legend label {
             font-family: 'Inter', 'Monospace', monospace;
-            font-size: 9px;
+            font-size: 11px;
             color: #b4c8f0;
         }
         .hud-music-time {
             font-family: 'Inter', 'Monospace', monospace;
-            font-size: 11px;
+            font-size: 13px;
             font-weight: bold;
             color: #34c7f3;
             margin-top: 2px;

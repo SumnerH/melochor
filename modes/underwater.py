@@ -59,6 +59,7 @@ class UnderwaterModeMixin:
         self.bubble_phase = np.zeros(N_bubbles, dtype=np.float32)
         self.bubble_active = np.zeros(N_bubbles, dtype=np.bool_)
         self.bubble_is_fragment = np.zeros(N_bubbles, dtype=np.bool_)
+        self.bubble_vent_idx = np.zeros(N_bubbles, dtype=np.int32)
         self.next_bubble_idx = 0
         self.vent_locs = [
             [-3.0, -2.5, 6.0],   # Left Foreground Vent (raised and brought closer)
@@ -215,6 +216,32 @@ class UnderwaterModeMixin:
             self.algae_col[:, 3] *= max(0.0, 1.0 - dt * 4.0)
             return
 
+        # Anticipatory implosion: suck roughly half the bubbles back down toward their respective spawning vents
+        if getattr(self, 'drop_anticipation_timer', 0.0) > 0.0:
+            is_global = getattr(self, 'drop_anticipation_is_global', False)
+            intensity = getattr(self, 'drop_anticipation_intensity', 1.0 if is_global else 0.35)
+            progress = 1.0 - (self.drop_anticipation_timer / max(0.1, self.drop_anticipation_duration))
+            
+            # Select ~50% of active bubbles stably based on index
+            act_mask = self.bubble_active
+            if np.any(act_mask):
+                all_active = np.where(act_mask)[0]
+                pulled_indices = all_active[all_active % 2 == 0]
+                if len(pulled_indices) > 0:
+                    vent_origins = np.array(self.vent_locs, dtype=np.float32)
+                    # Vent mouth target position for each vent
+                    vent_targets = vent_origins.copy()
+                    vent_targets[:, 1] += 1.75
+                    
+                    v_assigned = self.bubble_vent_idx[pulled_indices]
+                    targets = vent_targets[v_assigned]
+                    
+                    to_vent = targets - self.bubble_pos[pulled_indices]
+                    suction_rate = (1.2 + progress * progress * 4.0) * intensity
+                    
+                    self.bubble_pos[pulled_indices] += to_vent * min(0.5, dt * suction_rate)
+                    self.bubble_vel[pulled_indices] *= max(0.0, 1.0 - dt * (2.5 * intensity))
+
         # Spawn bubbles based on volume hits and frequencies
         num_to_spawn = 0
         is_treble_heavy = False
@@ -300,6 +327,7 @@ class UnderwaterModeMixin:
             self.bubble_phase[idx] = np.random.uniform(0.0, 2 * np.pi)
             self.bubble_active[idx] = True
             self.bubble_is_fragment[idx] = False # Spawned bubbles are not fragments
+            self.bubble_vent_idx[idx] = v_idx
             self.next_bubble_idx = (self.next_bubble_idx + 1) % len(self.bubble_pos)
             
         # Burst a small proportion of active normal bubbles on big volume hits
@@ -333,6 +361,7 @@ class UnderwaterModeMixin:
                         self.bubble_phase[f_idx] = np.random.uniform(0.0, 2 * np.pi)
                         self.bubble_active[f_idx] = True
                         self.bubble_is_fragment[f_idx] = True
+                        self.bubble_vent_idx[f_idx] = self.bubble_vent_idx[b_idx]
                         self.next_bubble_idx = (self.next_bubble_idx + 1) % len(self.bubble_pos)
             
         # Update Bubbles

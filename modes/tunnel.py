@@ -64,7 +64,16 @@ class TunnelModeMixin:
         
         # Pre-Analysis Feature 1 & 7: Drop anticipation speed-up and visual vacuum freeze
         if getattr(self, 'drop_anticipation_timer', 0.0) > 0.0:
-            speed_factor *= 2.4
+            is_global = getattr(self, 'drop_anticipation_is_global', False)
+            intensity = getattr(self, 'drop_anticipation_intensity', 1.0 if is_global else 0.35)
+            progress = 1.0 - (self.drop_anticipation_timer / max(0.1, self.drop_anticipation_duration))
+            speed_factor *= (1.4 + 1.0 * intensity)
+            
+            # Constrict gems and pull active sparks toward central tunnel axis (halved maximum contraction)
+            if hasattr(self, 'gem_base_radius'):
+                self.gem_base_radius += (8.5 * (1.0 - 0.12 * progress * intensity) - self.gem_base_radius) * min(1.0, dt * 3.0)
+            if np.any(self.spark_active):
+                self.spark_vel[self.spark_active, :2] *= max(0.0, 1.0 - dt * (2.0 * intensity))
         elif getattr(self, 'visual_vacuum_timer', 0.0) > 0.0:
             speed_factor *= 0.15
 

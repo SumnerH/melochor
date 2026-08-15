@@ -618,6 +618,14 @@ class SpaceInvadersModeMixin:
         # Visual Vacuum: retro freeze frame
         if getattr(self, 'visual_vacuum_timer', 0.0) > 0.0:
             return
+
+        # Anticipatory implosion: invaders consolidate toward center formation
+        if getattr(self, 'drop_anticipation_timer', 0.0) > 0.0:
+            is_global = getattr(self, 'drop_anticipation_is_global', False)
+            intensity = getattr(self, 'drop_anticipation_intensity', 1.0 if is_global else 0.35)
+            self.invader_offset_x += (0.0 - self.invader_offset_x) * min(1.0, dt * (2.0 * intensity))
+            self.invader_march_flash = max(self.invader_march_flash, 0.4 * intensity)
+
         self._update_pairwise_invader_swaps(dt)
         self.invader_march_flash = max(0.0, self.invader_march_flash - dt * 5.5)
         if self.invader_glow_timer > 0.0:

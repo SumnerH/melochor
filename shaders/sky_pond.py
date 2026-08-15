@@ -156,17 +156,30 @@ vec3 renderPondSky(vec2 vPos, vec3 baseColor) {
 
     // Overcast blue-grey sky with softly layered, wind-driven storm clouds.
     float skyGradient = smoothstep(-0.10, 1.0, vPos.y);
-    vec3 stormHorizon = vec3(0.16, 0.27, 0.39);
-    vec3 stormZenith = vec3(0.035, 0.075, 0.14);
+    vec3 stormHorizon = vec3(0.16, 0.27, 0.39) + vec3(0.05, 0.09, 0.14) * (bass * 0.45);
+    vec3 stormZenith = vec3(0.035, 0.075, 0.14) + vec3(0.02, 0.04, 0.08) * (bass * 0.3);
     vec3 color = mix(stormHorizon, stormZenith, skyGradient);
 
-    vec2 cloudUv = vec2(uv.x * 0.58 - uTime * 0.018, uv.y * 1.45);
+    // Smooth continuous cloud drift (music modulates drift speed smoothly without instantaneous coordinate jumping)
+    float cloudDrift = uWindGust > 0.0 ? uWindGust : uTime * 0.022;
+    vec2 cloudUv = vec2(uv.x * 0.58 - cloudDrift, uv.y * 1.45 + sin(cloudDrift * 0.4) * 0.025);
     float cloudMass = pondFbm(cloudUv * 1.55 + vec2(0.0, 5.0));
-    float cloudDetail = pondFbm(cloudUv * 4.2 - vec2(uTime * 0.012, 0.0));
-    float cloudMask = smoothstep(0.42, 0.74, cloudMass + cloudDetail * 0.28);
+    float cloudDetail = pondFbm(cloudUv * 4.2 - vec2(cloudDrift * 0.45, 0.0));
+    
+    // Cloud density swells with bass energy; treble highlights cloud edges with a luminous silver glow
+    float cloudLowerThreshold = mix(0.44, 0.32, bass * 0.5);
+    float cloudMask = smoothstep(cloudLowerThreshold, 0.74, cloudMass + cloudDetail * 0.28);
     float cloudFalloff = smoothstep(-0.18, 0.76, vPos.y);
-    vec3 cloudColor = mix(vec3(0.055, 0.085, 0.13), vec3(0.27, 0.34, 0.41), cloudDetail);
-    color = mix(color, cloudColor, cloudMask * cloudFalloff * 0.82);
+    
+    vec3 cloudBase = vec3(0.055, 0.085, 0.13);
+    vec3 cloudLit = vec3(0.27, 0.34, 0.41) + vec3(0.12, 0.16, 0.26) * (bass * 0.65 + mid * 0.35);
+    vec3 cloudColor = mix(cloudBase, cloudLit, cloudDetail);
+    
+    // Treble-reactive silver lining on cloud contours
+    float cloudRim = smoothstep(0.68, 0.78, cloudMass + cloudDetail * 0.35) * (treble * 0.75);
+    cloudColor += vec3(0.35, 0.48, 0.65) * cloudRim;
+    
+    color = mix(color, cloudColor, cloudMask * cloudFalloff * (0.82 + bass * 0.12));
 
     // A faint phase-aware daytime moon is visible through the overcast sky.
     color = renderPondDayMoon(uv, color);

@@ -92,15 +92,18 @@ class MandalaModeMixin:
 
         # Pre-Analysis Feature 1: Anticipatory Inward Implosion (Spiraling vortex buildup toward singularity)
         if getattr(self, 'drop_anticipation_timer', 0.0) > 0.0:
+            is_global = getattr(self, 'drop_anticipation_is_global', False)
+            intensity = getattr(self, 'drop_anticipation_intensity', 1.0 if is_global else 0.35)
             progress = 1.0 - (self.drop_anticipation_timer / max(0.1, self.drop_anticipation_duration))
-            inward_suction = (2.0 + progress * progress * 10.0)
-            spin_boost = (2.5 + progress * 12.0)
+            inward_suction = (0.8 + progress * progress * 8.0) * intensity
+            spin_boost = (1.2 + progress * 10.0) * intensity
             
             self.mandala_base_pos += (center - self.mandala_base_pos) * min(0.65, dt * inward_suction)
             self.mandala_base_pos[:, 0] += tangent_x * spin_boost * dt
             self.mandala_base_pos[:, 1] += tangent_y * spin_boost * dt
-            self.mandala_base_vel *= max(0.0, 1.0 - dt * 4.0)
-            return
+            self.mandala_base_vel *= max(0.0, 1.0 - dt * (4.0 * intensity))
+            if intensity > 0.7:
+                return
 
         # Pre-Analysis Feature 7: Zero-G Negative Space Drop (Visual Vacuum)
         if getattr(self, 'visual_vacuum_timer', 0.0) > 0.0:
@@ -173,9 +176,11 @@ class MandalaModeMixin:
         particle_pulse = 1.0 + reactivity * beat_level * 1.5
 
         if getattr(self, 'drop_anticipation_timer', 0.0) > 0.0:
+            is_global = getattr(self, 'drop_anticipation_is_global', False)
+            intensity = getattr(self, 'drop_anticipation_intensity', 1.0 if is_global else 0.35)
             anticipation_prog = 1.0 - (self.drop_anticipation_timer / max(0.1, self.drop_anticipation_duration))
-            particle_pulse += anticipation_prog * 1.8
-            col_arr[:, :3] += (1.0 - col_arr[:, :3]) * (anticipation_prog * 0.65)
+            particle_pulse += anticipation_prog * 1.8 * intensity
+            col_arr[:, :3] += (1.0 - col_arr[:, :3]) * (anticipation_prog * 0.65 * intensity)
 
         current_size_arr = np.repeat(self.mandala_base_size, S) * particle_pulse
         
