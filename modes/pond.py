@@ -165,6 +165,8 @@ class PondModeMixin:
 
     def add_pond_music_ripple(self, event):
         """Inject a broad, music-driven ripple into the shader's water simulation."""
+        if not hasattr(self, 'pond_shader_ripples'):
+            self.init_pond_mode()
         band_type = event.get("band_type")
         band_energy = max(
             float(event.get("band_bass", 0.0)),
@@ -235,6 +237,8 @@ class PondModeMixin:
 
     def _steer_pond_flock(self, event):
         """Let each flock independently react to an analyzed musical hit."""
+        if not hasattr(self, 'pond_flocks'):
+            self.init_pond_mode()
         band_type = event.get("band_type")
         band_energy = max(
             float(event.get("band_bass", 0.0)),

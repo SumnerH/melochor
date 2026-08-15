@@ -41,6 +41,24 @@ class PresetMixin:
                 self.syn_points_are_diamonds = True
             elif self.opt_star_shape in (4, 5, 6):
                 self.syn_points_are_diamonds = False
+        elif self.major_mode == "POND":
+            if not hasattr(self, 'pond_shader_ripples'):
+                self.init_pond_mode()
+        elif self.major_mode == "SPACE INVADERS":
+            if not hasattr(self, 'invader_alive'):
+                self.init_space_invaders_mode()
+        elif self.major_mode == "FIRE Plasma":
+            if not hasattr(self, 'fire_spark_pos'):
+                self.init_fire_mode()
+        elif self.major_mode == "MANDALA Sacred":
+            if not hasattr(self, 'mandala_base_pos'):
+                self.init_mandala_mode()
+        elif self.major_mode == "UNDERWATER Lava":
+            if not hasattr(self, 'bubble_pos'):
+                self.init_underwater_mode()
+        elif self.major_mode == "TUNNEL Wormhole":
+            if not hasattr(self, 'gem_z'):
+                self.init_tunnel_mode()
         
         if "syn_star_size" in preset:
             self.syn_star_size = preset["syn_star_size"]
